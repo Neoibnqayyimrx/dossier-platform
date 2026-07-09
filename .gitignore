@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Env / secrets
+.env
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Build artifacts / local databases
+*.sqlite
+*.db
+/outputs/
+/dist/
+
+# Never commit real dossiers (confidential)
+/private_dossiers/
+*.rar
