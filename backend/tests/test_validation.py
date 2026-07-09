@@ -1,4 +1,5 @@
 """Tests: the rule engine catches the real LAMOX bugs, and passes when fixed."""
+
 from __future__ import annotations
 
 from sqlalchemy import create_engine
@@ -51,7 +52,7 @@ def test_rendered_section_cannot_contain_bugs():
     product = _load(buggy=False).product
     out = render_p1(product)
     assert "500 mg" in out
-    assert "250 mg" not in out          # the wrong strength can't appear
+    assert "250 mg" not in out  # the wrong strength can't appear
     assert "tablet" not in out.lower()  # wrong dosage form can't appear
 
 

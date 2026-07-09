@@ -15,9 +15,9 @@
       ]
     }
   },
-  "postCreateCommand": "pip install --upgrade pip && pip install -r requirements.txt && pytest -q",
+  "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && cd backend && ~/.local/bin/uv sync && ~/.local/bin/uv run pytest -q",
   "postAttachCommand": {
-    "hint": "echo 'Codespace ready. Run: python run_demo.py'"
+    "hint": "echo 'Codespace ready. Run: cd backend && uv run python run_demo.py'"
   },
   "remoteUser": "vscode"
 }

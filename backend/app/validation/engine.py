@@ -6,6 +6,7 @@ registered rule against a project and aggregates the results. This is the
 LLM-based reviewer (P10, later) sits on top as advisory-only and never replaces
 these checks.
 """
+
 from __future__ import annotations
 
 import enum
@@ -14,7 +15,7 @@ from typing import Callable
 
 
 class Severity(str, enum.Enum):
-    ERROR = "ERROR"      # blocks export
+    ERROR = "ERROR"  # blocks export
     WARNING = "WARNING"  # allowed, but surfaced
     INFO = "INFO"
 
@@ -24,7 +25,7 @@ class Finding:
     rule_id: str
     severity: Severity
     category: str
-    message: str          # names the offending values — never just "inconsistent"
+    message: str  # names the offending values — never just "inconsistent"
     section: str | None = None
 
 
@@ -54,9 +55,11 @@ _REGISTRY: list[tuple[str, Rule]] = []
 def rule(rule_id: str):
     """Decorator to register a rule. WHY a registry: rules will grow to
     hundreds; registration keeps them decoupled and individually testable."""
+
     def deco(fn: Rule) -> Rule:
         _REGISTRY.append((rule_id, fn))
         return fn
+
     return deco
 
 

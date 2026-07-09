@@ -11,16 +11,27 @@ This repo is two things at once:
 1. **A plan you build against** — `AGENTS.md` (master context), `prompts/`
    (phase-by-phase build prompts P00–P12), `reference/` (regulatory background),
    and `LEARNING.md` (how to learn while building).
-2. **Actual working code** — `app/`, `tests/`, `run_demo.py`: a runnable
-   vertical slice (data model → template → validation) built from a real
-   dossier (LAMOX, Amoxicillin 500 mg capsules).
+2. **Actual working code** — `backend/app/`, `backend/tests/`, `backend/run_demo.py`:
+   a runnable vertical slice (data model → template → validation) built from a
+   real dossier (LAMOX, Amoxicillin 500 mg capsules), plus the P00 scaffold
+   (FastAPI skeleton, docker-compose, Alembic, CI).
 
 ## Run the working slice first (2 minutes)
 
 ```bash
-pip install -r requirements.txt
-python run_demo.py      # seeds LAMOX, validates it, renders section 3.2.P.1
-pytest -q               # 6 tests
+cd backend
+uv sync                 # installs deps into backend/.venv (curl -LsSf https://astral.sh/uv/install.sh | sh if you don't have uv)
+uv run python run_demo.py   # seeds LAMOX, validates it, renders section 3.2.P.1
+uv run pytest -q            # 7 tests
+```
+
+## Run the full stack (P00 scaffold)
+
+```bash
+cp .env.example .env
+docker compose up -d --build
+curl http://localhost:8000/health
+docker compose down
 ```
 
 `run_demo.py` catches three *real* copy-paste bugs in the LAMOX dossier
@@ -51,27 +62,38 @@ reference/
   ectd-backbone-architecture.md   the eCTD v3.2.2 XML backbone in detail
   worked-example-lamox.md     the real LAMOX dossier mapped to model/rules/templates
   build-log.md                running log of what's built (append as you go)
-app/                          THE CODE (the working slice)
-  models/                     SQLAlchemy 2.x data model (P01)
-  templating/                 section rendering from data (P04)
-  validation/                 deterministic rule engine + rules R01-R06 (P06)
-  seed/                       LAMOX seed data (buggy + corrected)
-tests/                        pytest suite
-run_demo.py                   end-to-end demonstration
-requirements.txt
+docker-compose.yml             db (Postgres+pgvector) + minio + api (P00)
+.env.example                   every env var Settings reads (P00)
+backend/                       THE CODE
+  pyproject.toml               uv-managed deps, ruff/black/pytest config (P00)
+  Dockerfile / .dockerignore   api service image (P00)
+  alembic/                     async-ready migrations, no migrations yet (P00)
+  scripts/init-pgvector.sql    enables the vector extension on first db boot (P00)
+  app/
+    core/                      config.py (Settings), db.py (async engine/session) (P00)
+    main.py                    FastAPI app + /health (P00)
+    models/                    SQLAlchemy 2.x data model (P01)
+    templating/                section rendering from data (P04)
+    validation/                deterministic rule engine + rules R01-R06 (P06)
+    seed/                      LAMOX seed data (buggy + corrected)
+  tests/                       pytest suite
+  run_demo.py                  end-to-end demonstration
 ```
 
 ## Where the slice fits in the phase plan
 
-The code in `app/` is a partial, runnable start on three phases:
+The code in `backend/app/` is a partial, runnable start on several phases:
 
-- **P01 (data model)** — real models in `app/models/`, running on SQLite for
-  portability. When you do P00/P02 (docker-compose + Postgres + FastAPI), the
-  same models point at Postgres — only the connection string changes.
-- **P04 (templating)** — `app/templating/section_map.py` renders 3.2.P.1 from
-  structured data. Next step: turn it into a real `docxtpl` .docx template.
-- **P06 (validation)** — `app/validation/` with six rules. Next step: grow the
-  rule set and wire it behind the FastAPI `/readiness` endpoint (P02).
+- **P00 (scaffold)** — `backend/app/core/`, `backend/app/main.py`,
+  `docker-compose.yml`, Alembic, CI. Done; no business logic yet.
+- **P01 (data model)** — real models in `backend/app/models/`, running on
+  SQLite for the demo/tests. Same models point at the Postgres from P00's
+  docker-compose — only the connection string changes.
+- **P04 (templating)** — `backend/app/templating/section_map.py` renders
+  3.2.P.1 from structured data. Next step: turn it into a real `docxtpl` .docx
+  template.
+- **P06 (validation)** — `backend/app/validation/` with six rules. Next step:
+  grow the rule set and wire it behind the FastAPI `/readiness` endpoint (P02).
 
 So the slice isn't throwaway — it's the seed the later phases grow around.
 

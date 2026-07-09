@@ -8,6 +8,7 @@ In the full platform this is a docxtpl .docx template producing Word output.
 Here it renders Markdown so the slice runs with no binary tooling — the
 separation of concerns is identical.
 """
+
 from __future__ import annotations
 
 from jinja2 import Template
@@ -20,8 +21,7 @@ SECTION_MAP = {
     },
 }
 
-_P1_TEMPLATE = Template(
-    """## 3.2.P.1 {{ title }}
+_P1_TEMPLATE = Template("""## 3.2.P.1 {{ title }}
 
 **Product:** {{ product.brand_name }} — {{ product.generic_name }}
 {{ '%0.0f'|format(product.strength_mg|float) }} mg {{ product.dosage_form.value }}
@@ -35,8 +35,7 @@ _P1_TEMPLATE = Template(
 {% for line in batch_formula -%}
 | {{ line.component }} | {{ line.spec }} | {{ '%0.2f'|format(line.qty_per_unit_mg|float) }} | {{ line.declared_batch_qty_kg and ('%0.2f kg'|format(line.declared_batch_qty_kg|float)) or '' }} |
 {% endfor %}
-"""
-)
+""")
 
 
 def render_p1(product, narrative: dict | None = None) -> str:

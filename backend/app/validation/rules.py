@@ -7,6 +7,7 @@ STRUCTURED template data (P04) so there's far less free text to scan — the
 determinism boundary means numbers should live in data slots, not prose. The
 scanning rules are the safety net for prose that slips through.
 """
+
 from __future__ import annotations
 
 import re
@@ -38,16 +39,21 @@ def strength_consistency(project) -> list[Finding]:
         # find "<generic> ... <n> mg" mentions, tolerating words in between
         for m in re.finditer(
             rf"{re.escape(generic)}[^.\n]{{0,40}}?(\d{{2,5}})\s*mg",
-            text, flags=re.IGNORECASE,
+            text,
+            flags=re.IGNORECASE,
         ):
             value = float(m.group(1))
             if value != declared:
-                out.append(Finding(
-                    "R01", Severity.ERROR, "consistency",
-                    f"Section {sec.number} states {product.generic_name} "
-                    f"{value:.0f} mg, but the product strength is {declared:.0f} mg.",
-                    section=sec.number,
-                ))
+                out.append(
+                    Finding(
+                        "R01",
+                        Severity.ERROR,
+                        "consistency",
+                        f"Section {sec.number} states {product.generic_name} "
+                        f"{value:.0f} mg, but the product strength is {declared:.0f} mg.",
+                        section=sec.number,
+                    )
+                )
     return out
 
 
@@ -61,13 +67,17 @@ def dosage_form_consistency(project) -> list[Finding]:
         for word, implied in _FORM_WORDS.items():
             if re.search(rf"\b{word}\b", sec.narrative_text, flags=re.IGNORECASE):
                 if implied is not product.dosage_form:
-                    out.append(Finding(
-                        "R02", Severity.ERROR, "consistency",
-                        f"Section {sec.number} mentions '{word}', implying a "
-                        f"{implied.value}, but the product is a "
-                        f"{product.dosage_form.value}.",
-                        section=sec.number,
-                    ))
+                    out.append(
+                        Finding(
+                            "R02",
+                            Severity.ERROR,
+                            "consistency",
+                            f"Section {sec.number} mentions '{word}', implying a "
+                            f"{implied.value}, but the product is a "
+                            f"{product.dosage_form.value}.",
+                            section=sec.number,
+                        )
+                    )
     return out
 
 
@@ -86,12 +96,16 @@ def cross_product_contamination(project) -> list[Finding]:
     for sec in project.sections:
         for brand in foreign:
             if re.search(rf"\b{re.escape(brand)}\b", sec.narrative_text, re.IGNORECASE):
-                out.append(Finding(
-                    "R03", Severity.ERROR, "contamination",
-                    f"Section {sec.number} references '{brand.upper()}', a "
-                    f"different product. Likely copy-paste from another dossier.",
-                    section=sec.number,
-                ))
+                out.append(
+                    Finding(
+                        "R03",
+                        Severity.ERROR,
+                        "contamination",
+                        f"Section {sec.number} references '{brand.upper()}', a "
+                        f"different product. Likely copy-paste from another dossier.",
+                        section=sec.number,
+                    )
+                )
     return out
 
 
@@ -109,18 +123,22 @@ def salt_base_batch_arithmetic(project) -> list[Finding]:
     for line in product.batch_formula:
         if not line.is_active or line.declared_batch_qty_kg is None:
             continue
-        base_mg = float(line.qty_per_unit_mg)          # per-unit base mg
+        base_mg = float(line.qty_per_unit_mg)  # per-unit base mg
         units = int(line.batch_size_units)
         computed_kg = base_mg * salt_factor * units / 1_000_000  # mg -> kg
         declared_kg = float(line.declared_batch_qty_kg)
         tolerance = 0.02  # 2%
         if declared_kg and abs(computed_kg - declared_kg) / declared_kg > tolerance:
-            out.append(Finding(
-                "R04", Severity.WARNING, "arithmetic",
-                f"Batch quantity for {line.component}: declared {declared_kg:.1f} kg "
-                f"but strength x salt factor x batch size gives {computed_kg:.1f} kg "
-                f"(>2% off).",
-            ))
+            out.append(
+                Finding(
+                    "R04",
+                    Severity.WARNING,
+                    "arithmetic",
+                    f"Batch quantity for {line.component}: declared {declared_kg:.1f} kg "
+                    f"but strength x salt factor x batch size gives {computed_kg:.1f} kg "
+                    f"(>2% off).",
+                )
+            )
     return out
 
 
@@ -130,11 +148,15 @@ def shelf_life_within_stability(project) -> list[Finding]:
     product = project.product
     supported = max((s.duration_months for s in product.stability), default=0)
     if product.shelf_life_months > supported:
-        return [Finding(
-            "R05", Severity.ERROR, "consistency",
-            f"Shelf life {product.shelf_life_months} months exceeds the "
-            f"{supported} months supported by long-term stability data.",
-        )]
+        return [
+            Finding(
+                "R05",
+                Severity.ERROR,
+                "consistency",
+                f"Shelf life {product.shelf_life_months} months exceeds the "
+                f"{supported} months supported by long-term stability data.",
+            )
+        ]
     return []
 
 
@@ -144,9 +166,13 @@ def generic_requires_bioequivalence(project) -> list[Finding]:
     product = project.product
     has_be = any(c.kind == "bioequivalence" for c in product.clinical)
     if not has_be:
-        return [Finding(
-            "R06", Severity.ERROR, "completeness",
-            "No bioequivalence study found, but one is required for this "
-            "generic product (Module 5.3.1).",
-        )]
+        return [
+            Finding(
+                "R06",
+                Severity.ERROR,
+                "completeness",
+                "No bioequivalence study found, but one is required for this "
+                "generic product (Module 5.3.1).",
+            )
+        ]
     return []

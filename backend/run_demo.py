@@ -7,6 +7,7 @@ the real SQLAlchemy models, runs the deterministic rule engine, and prints the
 report. Then it seeds the corrected version and shows a clean pass. Finally it
 renders 3.2.P.1 from structured data to show the bugs can't survive templating.
 """
+
 from __future__ import annotations
 
 from sqlalchemy import create_engine
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Base, Project
 import app.validation.rules  # noqa: F401 -- importing registers the rules
-from app.validation.engine import run_all, Severity
+from app.validation.engine import run_all
 from app.seed.lamox import build_lamox
 from app.templating.section_map import render_p1
 

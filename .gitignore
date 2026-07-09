@@ -25,3 +25,4 @@ venv/
 # Never commit real dossiers (confidential)
 /private_dossiers/
 *.rar
+.claude/
