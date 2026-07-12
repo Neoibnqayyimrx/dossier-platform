@@ -1,11 +1,11 @@
-"""Seed the LAMOX project from the real dossier.
+"""Seed the EXAMOX project — our own company's (EXAGON) product.
 
-Two variants of the 3.2.P.1 narrative are provided:
-- BUGGY: mirrors the real dossier (has the 250mg typo, 'Tablets', and a
-  leftover 'LATRIM' reference) so the rule engine has real bugs to catch.
-- CORRECTED: the fixed version, so we can show a clean pass.
-
-Everything else reflects LAMOX's actual, non-confidential label facts.
+Same structure as app/seed/lamox.py (see reference/worked-example-lamox.md for
+the provenance of that pattern): two variants of the 3.2.P.1 narrative so the
+rule engine (R01-R03) has something to catch, and a corrected variant to show
+a clean pass. Only the branding, manufacturer, and company details differ —
+EXAMOX is EXAGON's real label facts (brand/strength/dosage form/excipients/
+packaging/stability/storage), not a third party's.
 """
 
 from __future__ import annotations
@@ -32,11 +32,14 @@ from app.models import (
     ClinicalKind,
 )
 
-# Real dossier text (trimmed) — note the three planted-but-REAL defects.
+# Buggy variant: the same three copy-paste defect classes as LAMOX's real
+# dossier (wrong strength, wrong dosage-form word, leftover foreign-product
+# reference) — planted here as test fixtures, not real EXAGON errors.
+# NUFLOX is invented test data (deliberately not LATRIM, which is LAMOX's).
 BUGGY_P1 = """
 3.2.P.1 Description and Composition of drug product
 
-Description: Maroon cap / yellow body hard gelatin capsules printed "LAMOX"
+Description: White cap / white body hard gelatin capsules printed "EXAMOX"
 and "500", containing almost white powder.
 
 Composition: Each capsule contains Amoxicillin Trihydrate BP equivalent to
@@ -44,14 +47,14 @@ Amoxicillin 250mg. Excipients: q.s.
 
 Batch Size: 250,000 Tablets.
 
-(cross-reference: see LATRIM 960 table of contents for layout)
+(cross-reference: see NUFLOX 960 table of contents for layout)
 """
 
 # The corrected version: 500 mg, capsules, no foreign product reference.
 CORRECTED_P1 = """
 3.2.P.1 Description and Composition of drug product
 
-Description: Maroon cap / yellow body hard gelatin capsules printed "LAMOX"
+Description: White cap / white body hard gelatin capsules printed "EXAMOX"
 and "500", containing almost white powder.
 
 Composition: Each capsule contains Amoxicillin Trihydrate BP equivalent to
@@ -61,24 +64,25 @@ Batch Size: 250,000 capsules.
 """
 
 
-def build_lamox(buggy: bool = True) -> Project:
+def build_examox(buggy: bool = True) -> Project:
     product = Product(
-        brand_name="LAMOX",
+        brand_name="EXAMOX",
         generic_name="Amoxicillin",
         strength_value=500,
         strength_unit="mg",
         dosage_form=DosageForm.CAPSULE_HARD,
         shelf_life_months=24,
-        storage_condition="Store below 30 C. Protect from direct sunlight.",
+        storage_condition="Store below 30 C. Protect from light.",
         registration_type=RegistrationType.RENEWAL,
         country="Nigeria",
     )
-    project = Project(name="LAMOX renewal", region=Region.NAFDAC, product=product)
+    project = Project(name="EXAMOX renewal", region=Region.NAFDAC, product=product)
 
     product.manufacturers.append(
         Manufacturer(
-            name="Local Pharma Manufacturing Ltd",
+            name="Exagon",
             role=ManufacturerRole.FINISHED_PRODUCT,
+            site_address="Cadastral Zone, Gwagwalada, Abuja",
             country="Nigeria",
         )
     )
@@ -122,10 +126,6 @@ def build_lamox(buggy: bool = True) -> Project:
                 component=PackagingComponent.SECONDARY,
                 description="Printed carton with leaflet",
             ),
-            Packaging(
-                component=PackagingComponent.CARTON,
-                description="7-ply corrugated shipper",
-            ),
         ]
     )
     product.stability.append(
@@ -162,13 +162,13 @@ def build_lamox(buggy: bool = True) -> Project:
             narrative_text=p1_text,
         )
     )
-    # a second section representing the leftover TOC file reference (real)
+    # a second section representing the leftover TOC file reference
     if buggy:
         project.sections.append(
             Section(
                 number="1.1",
                 title="Table of Contents",
-                narrative_text="Table of content (Modules 1-5). LATRIM 960 layout reused.",
+                narrative_text="Table of content (Modules 1-5). NUFLOX 960 layout reused.",
             )
         )
     return project

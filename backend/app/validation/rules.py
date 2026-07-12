@@ -31,7 +31,7 @@ def strength_consistency(project) -> list[Finding]:
     """Every strength stated near the active in narrative must equal the
     product's declared strength. Catches LAMOX's '250mg' vs 500mg typo."""
     product = project.product
-    declared = float(product.strength_mg)
+    declared = float(product.strength_value)
     generic = product.generic_name.lower()
     out: list[Finding] = []
     for sec in project.sections:
@@ -90,7 +90,7 @@ def cross_product_contamination(project) -> list[Finding]:
     own = {product.brand_name.lower(), product.generic_name.lower()}
     # A small registry of known company brands. In production this is the
     # product master list; a foreign brand appearing in this dossier is a leak.
-    known_brands = {"latrim", "lamox", "fluxet", "zinc plus"}
+    known_brands = {"latrim", "lamox", "fluxet", "zinc plus", "nuflox"}
     foreign = known_brands - own
     out: list[Finding] = []
     for sec in project.sections:

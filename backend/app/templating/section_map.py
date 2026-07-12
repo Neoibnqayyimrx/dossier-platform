@@ -24,7 +24,7 @@ SECTION_MAP = {
 _P1_TEMPLATE = Template("""## 3.2.P.1 {{ title }}
 
 **Product:** {{ product.brand_name }} — {{ product.generic_name }}
-{{ '%0.0f'|format(product.strength_mg|float) }} mg {{ product.dosage_form.value }}
+{{ '%0.0f'|format(product.strength_value|float) }} {{ product.strength_unit }} {{ product.dosage_form.value }}
 
 **Description:** {{ narrative.description or '<<AI WRITES ONLY THIS — draft not approved>>' }}
 
