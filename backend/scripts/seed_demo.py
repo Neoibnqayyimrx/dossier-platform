@@ -28,13 +28,9 @@ from app.seed.examox import build_examox
 
 async def main() -> None:
     async with async_session_factory() as session:
-        existing = await session.scalar(
-            select(Project).where(Project.name == "EXAMOX renewal")
-        )
+        existing = await session.scalar(select(Project).where(Project.name == "EXAMOX renewal"))
         if existing is not None:
-            print(
-                f"EXAMOX renewal already seeded (project {existing.id}); skipping."
-            )
+            print(f"EXAMOX renewal already seeded (project {existing.id}); skipping.")
             return
 
         project = build_examox(buggy=True)
