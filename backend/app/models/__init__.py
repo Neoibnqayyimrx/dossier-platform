@@ -35,6 +35,7 @@ from app.models.clinical import ClinicalEntry
 from app.models.batch_formula import BatchFormulaLine
 from app.models.project import Project, Section
 from app.models.sequence import Sequence
+from app.models.user import User
 
 __all__ = [
     "Base",
@@ -62,4 +63,5 @@ __all__ = [
     "Project",
     "Section",
     "Sequence",
+    "User",
 ]

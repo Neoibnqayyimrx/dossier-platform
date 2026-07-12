@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     llm_model: str = "claude-sonnet-5"
     llm_api_key: str | None = None
 
+    # WHY a default here (unlike llm_api_key): dev/test need a working secret
+    # out of the box; production must override via the environment. Never
+    # generated at import time (that would invalidate every token on restart).
+    jwt_secret_key: str = "dev-only-insecure-secret-change-me"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60
+
 
 @lru_cache
 def get_settings() -> Settings:

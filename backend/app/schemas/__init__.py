@@ -25,6 +25,7 @@ from app.schemas.product import ProductCreate, ProductRead, ProductUpdate
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.sequence import SequenceCreate, SequenceRead, SequenceUpdate
 from app.schemas.stability import StabilityStudyCreate, StabilityStudyRead, StabilityStudyUpdate
+from app.schemas.user import Token, UserCreate, UserRead
 
 __all__ = [
     "ActiveIngredientCreate",
@@ -57,4 +58,7 @@ __all__ = [
     "StabilityStudyCreate",
     "StabilityStudyRead",
     "StabilityStudyUpdate",
+    "Token",
+    "UserCreate",
+    "UserRead",
 ]

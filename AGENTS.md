@@ -109,7 +109,7 @@ Full field definitions and relationships are specified in Phase 01.
 
 - [x] P00 — Repo scaffold, docker-compose, tooling, CI
 - [x] P01 — Data model (SQLAlchemy + Alembic + Pydantic)
-- [ ] P02 — Backend API skeleton (CRUD, auth, project/sequence)
+- [x] P02 — Backend API skeleton (CRUD, auth, project/sequence)
 - [ ] P03 — Regulatory Knowledge Base + RAG (copyright-safe ingestion)
 - [ ] P04 — Template engine (docxtpl section templates)
 - [ ] P05 — AI narrative generation service (LLM, guardrailed)

@@ -29,8 +29,8 @@ from app.core.config import get_settings
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
-# Every table the P01 migration creates — used to assert upgrade/downgrade
-# actually did something, not just that alembic exited zero.
+# Every table the P01 + P02 migrations create — used to assert upgrade/
+# downgrade actually did something, not just that alembic exited zero.
 EXPECTED_TABLES = {
     "product",
     "manufacturer",
@@ -43,6 +43,7 @@ EXPECTED_TABLES = {
     "project",
     "section",
     "sequence",
+    "user",
 }
 
 
