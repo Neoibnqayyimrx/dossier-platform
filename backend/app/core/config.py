@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     llm_model: str = "claude-sonnet-5"
     llm_api_key: str | None = None
 
+    # Embedding provider for the knowledge base (P03) — same provider-
+    # abstraction rule as the LLM client above: backend and model name are
+    # config-selected, never hard-coded in services/knowledge/*.
+    embedding_provider: str = "voyage"
+    embedding_model: str = "voyage-3-lite"
+    embedding_api_key: str | None = None
+
     # WHY a default here (unlike llm_api_key): dev/test need a working secret
     # out of the box; production must override via the environment. Never
     # generated at import time (that would invalidate every token on restart).
