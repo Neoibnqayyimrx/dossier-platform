@@ -16,7 +16,7 @@ from app.seed.examox import build_examox
 def _load(buggy: bool = True):
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
-    session = Session(engine)
+    session = Session(engine, expire_on_commit=False)
     project = build_examox(buggy=buggy)
     session.add(project)
     session.commit()

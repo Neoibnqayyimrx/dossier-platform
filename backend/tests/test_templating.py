@@ -23,7 +23,7 @@ from app.templating.render import render_section
 def project():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
-    session = Session(engine)
+    session = Session(engine, expire_on_commit=False)
     project = build_examox(buggy=False)
     session.add(project)
     session.commit()
@@ -66,7 +66,7 @@ def test_render_p1_fills_composition_table(project):
 
     text = _document_text(storage.get(result.storage_key))
     assert "EXAMOX" in text
-    assert "500.000 mg" in text
+    assert "Amoxicillin 500 mg" in text  # per-API strength_display
     assert "144.00" in text  # declared batch quantity, from BatchFormulaLine
     assert "[[AI DRAFT PENDING" in text
     assert "{{" not in text and "{%" not in text

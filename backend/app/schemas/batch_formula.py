@@ -10,6 +10,7 @@ from app.schemas.base import ReadMixin
 class BatchFormulaLineBase(BaseModel):
     component: str
     is_active: bool = False
+    active_ingredient_id: uuid.UUID | None = None
     spec: str
     qty_per_unit_mg: float
     batch_size_units: int
@@ -23,6 +24,7 @@ class BatchFormulaLineCreate(BatchFormulaLineBase):
 class BatchFormulaLineUpdate(BaseModel):
     component: str | None = None
     is_active: bool | None = None
+    active_ingredient_id: uuid.UUID | None = None
     spec: str | None = None
     qty_per_unit_mg: float | None = None
     batch_size_units: int | None = None

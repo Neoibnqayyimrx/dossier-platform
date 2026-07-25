@@ -15,7 +15,7 @@ from app.templating.section_map import render_p1
 def _load(buggy: bool):
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
-    s = Session(engine)
+    s = Session(engine, expire_on_commit=False)
     p = build_lamox(buggy=buggy)
     s.add(p)
     s.commit()

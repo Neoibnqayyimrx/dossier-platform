@@ -5,6 +5,67 @@ and one concept to revisit. Newest at the top.
 
 ---
 
+## Interlude before P06 — combination products (Ampicillin+Cloxacillin fix)
+
+A direct question ("does this support multi-API products like AMPICLOX or
+artemether-lumefantrine?") surfaced a real gap: every product built through
+P05 was implicitly single-API, and `Product.apis` being a list didn't
+actually make combinations work.
+
+- **Root cause: strength lived on `Product` (one value), not on
+  `ActiveIngredient`.** A fixed-dose combination has one strength per
+  active, not one for the product as a whole — there was nowhere to put
+  a second value. Fixed by moving `strength_value`/`strength_unit` to
+  `ActiveIngredient` (migration `bf6ef09c07bf`) and adding `Product.
+  strength_display`, a plain Python `@property` (not a column) that joins
+  every API's "name value unit" with " + " -- single- and multi-API
+  products render through the exact same code path, no special case for
+  N=1. Every template referencing the old `product.strength_value`/
+  `strength_unit` pair (cover letter, 3.2.P.1, QOS, and the pre-P00
+  Markdown prototype) was repointed at `strength_display`.
+- **Two latent `apis[0]` bugs, both real, both fixed:** R01 (strength
+  narrative-consistency) only ever checked the product's single declared
+  strength, so a combination product's second active was invisible to it
+  by construction. R04 (salt/base batch arithmetic) used `apis[0]`'s salt
+  factor for every batch line regardless of which active it actually was.
+  Fixed by adding `BatchFormulaLine.active_ingredient_id` (nullable FK) so
+  a batch line can name which API it reconciles against, and rewriting
+  both rules to loop over every API/line rather than assume there's
+  exactly one.
+- **New seed fixture, `app/seed/ampiclox.py`** (Ampicillin + Cloxacillin,
+  a real NAFDAC-registered combination): its only planted defect is on
+  Cloxacillin's narrative strength (125mg vs declared 250mg) specifically
+  because that's a defect the OLD single-API-assuming R01 could never
+  have caught — proof the rewrite actually works, not just that it
+  doesn't crash. Both SMILES (ampicillin, cloxacillin) verified against
+  RDKit's own molecular-formula calculation before trusting them, same
+  habit as amoxicillin's in the prior interlude.
+- **A real, previously-latent test flakiness risk, found and fixed along
+  the way:** several sync-SQLite test fixtures used a plain `Session
+  (engine)` (default `expire_on_commit=True`) and never re-touched
+  relationship collections after `session.refresh()` (which only refreshes
+  an object's own scalar columns, not relationships). Once
+  `strength_display` started reading `self.apis` from outside the
+  original fixture call, this occasionally surfaced as a
+  `DetachedInstanceError` -- the underlying Session becoming eligible for
+  garbage collection once the fixture function returned, with exactly
+  when that happened depending on Python's cyclic GC timing rather than
+  anything deterministic. Fixed by adding `expire_on_commit=False`
+  everywhere this pattern appears, matching the async `pg_session_factory`
+  fixture's own setting (see P05's build-log entry on why that flag
+  matters) -- relationships populated via plain `.append()` before commit
+  now just stay valid Python objects, no lazy-load ever required.
+- **Concept to revisit:** this is a second real occurrence of "a rule that
+  silently assumed N=1" (after the chemical-structure image's own
+  `apis[0]` shortcut in the prior interlude, which is still there,
+  unfixed, and now flagged consistently) -- worth deliberately scanning
+  for this shape of bug (`apis[0]`, `.first()`, singular fields backing a
+  1:N relationship) before treating any rule or renderer as "done."
+
+5 new tests (AMPICLOX fixture + rule proofs); 87 passing overall.
+
+---
+
 ## Interlude before P06 — Certificates, QOS, chemical structures
 
 Not a numbered phase — a human-requested expansion, done before returning to

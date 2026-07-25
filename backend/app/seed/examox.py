@@ -68,8 +68,6 @@ def build_examox(buggy: bool = True) -> Project:
     product = Product(
         brand_name="EXAMOX",
         generic_name="Amoxicillin",
-        strength_value=500,
-        strength_unit="mg",
         dosage_form=DosageForm.CAPSULE_HARD,
         shelf_life_months=24,
         storage_condition="Store below 30 C. Protect from light.",
@@ -86,17 +84,21 @@ def build_examox(buggy: bool = True) -> Project:
             country="Nigeria",
         )
     )
-    product.apis.append(
-        ActiveIngredient(
-            inn_name="Amoxicillin",
-            salt_form="Amoxicillin Trihydrate",
-            salt_factor=1.148,  # trihydrate/base mass ratio
-            compendial_std=CompendialStatus.BP,
-            # base (anhydrous) amoxicillin structure -- public chemistry,
-            # not the trihydrate salt actually weighed (see salt_factor).
-            smiles="CC1(C)S[C@@H]2[C@H](NC(=O)[C@H](N)c3ccc(O)cc3)C(=O)N2[C@H]1C(=O)O",
-        )
+    amoxicillin = ActiveIngredient(
+        inn_name="Amoxicillin",
+        # Strength lives on the API, not the product, so a combination
+        # product (see app/seed/ampiclox.py) has somewhere to put a second
+        # one. EXAMOX has just the one active.
+        strength_value=500,
+        strength_unit="mg",
+        salt_form="Amoxicillin Trihydrate",
+        salt_factor=1.148,  # trihydrate/base mass ratio
+        compendial_std=CompendialStatus.BP,
+        # base (anhydrous) amoxicillin structure -- public chemistry,
+        # not the trihydrate salt actually weighed (see salt_factor).
+        smiles="CC1(C)S[C@@H]2[C@H](NC(=O)[C@H](N)c3ccc(O)cc3)C(=O)N2[C@H]1C(=O)O",
     )
+    product.apis.append(amoxicillin)
     product.excipients.extend(
         [
             Excipient(
@@ -150,6 +152,7 @@ def build_examox(buggy: bool = True) -> Project:
         BatchFormulaLine(
             component="Amoxicillin Trihydrate BP (equiv. to Amoxicillin 500 mg)",
             is_active=True,
+            active_ingredient=amoxicillin,
             spec="BP",
             qty_per_unit_mg=500.0,
             batch_size_units=250_000,

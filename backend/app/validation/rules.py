@@ -28,32 +28,40 @@ _FORM_WORDS = {
 
 @rule("R01")
 def strength_consistency(project) -> list[Finding]:
-    """Every strength stated near the active in narrative must equal the
-    product's declared strength. Catches LAMOX's '250mg' vs 500mg typo."""
+    """Every strength stated near an active's name in narrative must equal
+    THAT active's declared strength. Catches LAMOX's '250mg' vs 500mg typo
+    -- and, for a combination product (e.g. AMPICLOX), a mismatch on ANY
+    of its active ingredients, not just the first one. Strength lives on
+    ActiveIngredient (not Product) precisely so this loop generalizes to
+    N actives without a special case for N=1."""
     product = project.product
-    declared = float(product.strength_value)
-    generic = product.generic_name.lower()
     out: list[Finding] = []
-    for sec in project.sections:
-        text = sec.narrative_text
-        # find "<generic> ... <n> mg" mentions, tolerating words in between
-        for m in re.finditer(
-            rf"{re.escape(generic)}[^.\n]{{0,40}}?(\d{{2,5}})\s*mg",
-            text,
-            flags=re.IGNORECASE,
-        ):
-            value = float(m.group(1))
-            if value != declared:
-                out.append(
-                    Finding(
-                        "R01",
-                        Severity.ERROR,
-                        "consistency",
-                        f"Section {sec.number} states {product.generic_name} "
-                        f"{value:.0f} mg, but the product strength is {declared:.0f} mg.",
-                        section=sec.number,
+    for api in product.apis:
+        if api.strength_value is None:
+            continue
+        declared = float(api.strength_value)
+        name = api.inn_name.lower()
+        for sec in project.sections:
+            text = sec.narrative_text
+            # find "<api name> ... <n> mg" mentions, tolerating words in between
+            for m in re.finditer(
+                rf"{re.escape(name)}[^.\n]{{0,40}}?(\d{{2,5}})\s*mg",
+                text,
+                flags=re.IGNORECASE,
+            ):
+                value = float(m.group(1))
+                if value != declared:
+                    out.append(
+                        Finding(
+                            "R01",
+                            Severity.ERROR,
+                            "consistency",
+                            f"Section {sec.number} states {api.inn_name} "
+                            f"{value:.0f} mg, but the declared strength is "
+                            f"{declared:.0f} mg.",
+                            section=sec.number,
+                        )
                     )
-                )
     return out
 
 
@@ -111,18 +119,24 @@ def cross_product_contamination(project) -> list[Finding]:
 
 @rule("R04")
 def salt_base_batch_arithmetic(project) -> list[Finding]:
-    """Reconcile the active's declared batch quantity against
-    strength x salt_factor x batch_size. Demonstrates a rule that PASSES on
-    LAMOX (144 kg trihydrate is correct for 500 mg base x 250,000)."""
+    """Reconcile each active batch-formula line's declared quantity against
+    ITS OWN active ingredient's strength x salt_factor x batch_size --
+    correct for a combination product where each active has a different
+    salt factor (e.g. AMPICLOX's ampicillin trihydrate vs cloxacillin
+    sodium), not just whichever API happens to be first on the product.
+    Demonstrates a rule that PASSES on LAMOX (144 kg trihydrate is correct
+    for 500 mg base x 250,000)."""
     product = project.product
-    if not product.apis:
-        return []
-    api = product.apis[0]
-    salt_factor = float(api.salt_factor)
     out: list[Finding] = []
     for line in product.batch_formula:
         if not line.is_active or line.declared_batch_qty_kg is None:
             continue
+        api = line.active_ingredient
+        if api is None and len(product.apis) == 1:
+            api = product.apis[0]  # single-API product, unambiguous
+        if api is None:
+            continue  # can't reconcile without knowing which API this line is
+        salt_factor = float(api.salt_factor)
         base_mg = float(line.qty_per_unit_mg)  # per-unit base mg
         units = int(line.batch_size_units)
         computed_kg = base_mg * salt_factor * units / 1_000_000  # mg -> kg

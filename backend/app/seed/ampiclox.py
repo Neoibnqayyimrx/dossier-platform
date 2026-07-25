@@ -1,0 +1,198 @@
+"""Seed AMPICLOX — a fixed-dose combination product (ampicillin +
+cloxacillin), demonstrating that the data model supports more than one
+active ingredient per product.
+
+This exists to answer a concrete question: everything built through P05
+(EXAMOX, LAMOX) was single-API, even though Product.apis was already a
+list. Strength lived on Product (one value), which had nowhere to put a
+second active's strength -- exactly the gap a real combination product
+(this one, or artemether-lumefantrine) would have hit. Strength moved to
+ActiveIngredient to fix that; this fixture is the proof.
+
+Two narrative variants, same idea as LAMOX/EXAMOX's buggy/corrected pair,
+but the defect here is specifically on the SECOND active ingredient
+(Cloxacillin) -- proving the rewritten R01 rule checks every API's
+strength independently, not just the first one (`apis[0]`), which is
+exactly the bug this fixture was built to catch.
+"""
+
+from __future__ import annotations
+
+from app.models import (
+    Project,
+    Product,
+    Manufacturer,
+    ActiveIngredient,
+    Excipient,
+    Packaging,
+    StabilityStudy,
+    ClinicalEntry,
+    BatchFormulaLine,
+    Section,
+    DosageForm,
+    RegistrationType,
+    Region,
+    ExcipientFunction,
+    ManufacturerRole,
+    CompendialStatus,
+    PackagingComponent,
+    StabilityStudyType,
+    ClinicalKind,
+)
+
+# The defect is only on Cloxacillin's strength (125mg instead of 250mg) --
+# a mismatch the old, single-API-assuming R01 could never have caught,
+# since it only ever looked at product.strength_value / apis[0].
+BUGGY_P1 = """
+3.2.P.1 Description and Composition of drug product
+
+Description: White cap / white body hard gelatin capsules printed
+"AMPICLOX", containing white to off-white powder.
+
+Composition: Each capsule contains Ampicillin Trihydrate BP equivalent to
+Ampicillin 250mg and Cloxacillin Sodium BP equivalent to Cloxacillin 125mg.
+Excipients: q.s.
+
+Batch Size: 100,000 capsules.
+"""
+
+CORRECTED_P1 = """
+3.2.P.1 Description and Composition of drug product
+
+Description: White cap / white body hard gelatin capsules printed
+"AMPICLOX", containing white to off-white powder.
+
+Composition: Each capsule contains Ampicillin Trihydrate BP equivalent to
+Ampicillin 250mg and Cloxacillin Sodium BP equivalent to Cloxacillin 250mg.
+Excipients: q.s.
+
+Batch Size: 100,000 capsules.
+"""
+
+
+def build_ampiclox(buggy: bool = True) -> Project:
+    product = Product(
+        brand_name="AMPICLOX",
+        generic_name="Ampicillin + Cloxacillin",
+        dosage_form=DosageForm.CAPSULE_HARD,
+        shelf_life_months=24,
+        storage_condition="Store below 30 C. Protect from light.",
+        registration_type=RegistrationType.NEW,
+        country="Nigeria",
+    )
+    project = Project(name="AMPICLOX new registration", region=Region.NAFDAC, product=product)
+
+    product.manufacturers.append(
+        Manufacturer(
+            name="Exagon",
+            role=ManufacturerRole.FINISHED_PRODUCT,
+            site_address="Cadastral Zone, Gwagwalada, Abuja",
+            country="Nigeria",
+        )
+    )
+
+    ampicillin = ActiveIngredient(
+        inn_name="Ampicillin",
+        strength_value=250,
+        strength_unit="mg",
+        salt_form="Ampicillin Trihydrate",
+        salt_factor=1.155,  # trihydrate/anhydrous mass ratio
+        compendial_std=CompendialStatus.BP,
+        smiles="CC1(C)S[C@@H]2[C@H](NC(=O)[C@H](N)c3ccccc3)C(=O)N2[C@H]1C(=O)O",
+    )
+    cloxacillin = ActiveIngredient(
+        inn_name="Cloxacillin",
+        strength_value=250,
+        strength_unit="mg",
+        salt_form="Cloxacillin Sodium",
+        salt_factor=1.092,  # sodium salt/free-acid mass ratio
+        compendial_std=CompendialStatus.BP,
+        smiles="CC1(C)S[C@@H]2[C@H](NC(=O)c3c(C)onc3-c3ccccc3Cl)C(=O)N2[C@H]1C(=O)O",
+    )
+    product.apis.extend([ampicillin, cloxacillin])
+
+    product.excipients.extend(
+        [
+            Excipient(
+                name="Starch",
+                function=ExcipientFunction.DILUENT,
+                grade="BP",
+                compendial_status=CompendialStatus.BP,
+            ),
+            Excipient(
+                name="Magnesium Stearate",
+                function=ExcipientFunction.LUBRICANT,
+                grade="BP",
+                compendial_status=CompendialStatus.BP,
+            ),
+            Excipient(
+                name="Gelatin capsule shell",
+                function=ExcipientFunction.CAPSULE_SHELL,
+                grade="BP",
+                compendial_status=CompendialStatus.BP,
+            ),
+        ]
+    )
+    product.packaging.extend(
+        [
+            Packaging(
+                component=PackagingComponent.PRIMARY,
+                description="Aluminium foil + PVC blister",
+            ),
+            Packaging(
+                component=PackagingComponent.SECONDARY,
+                description="Printed carton with leaflet",
+            ),
+        ]
+    )
+    product.stability.append(
+        StabilityStudy(
+            study_type=StabilityStudyType.LONG_TERM,
+            condition="30C/65%RH",
+            duration_months=24,
+            result_summary="Within specification through 24 months.",
+        )
+    )
+    product.clinical.append(
+        ClinicalEntry(
+            kind=ClinicalKind.BIOEQUIVALENCE,
+            reference_product="Reference ampicillin/cloxacillin 250mg/250mg capsule",
+            summary="Comparative BA/BE study; bioequivalence demonstrated.",
+        )
+    )
+    # Two active batch-formula lines, each linked to ITS OWN API via
+    # active_ingredient -- this is the fact R04 needs to reconcile each
+    # active's batch quantity against its own salt_factor, not just the
+    # first API found on the product.
+    product.batch_formula.extend(
+        [
+            BatchFormulaLine(
+                component="Ampicillin Trihydrate BP (equiv. to Ampicillin 250 mg)",
+                is_active=True,
+                active_ingredient=ampicillin,
+                spec="BP",
+                qty_per_unit_mg=250.0,
+                batch_size_units=100_000,
+                declared_batch_qty_kg=28.9,  # 250mg * 1.155 * 100,000 / 1e6
+            ),
+            BatchFormulaLine(
+                component="Cloxacillin Sodium BP (equiv. to Cloxacillin 250 mg)",
+                is_active=True,
+                active_ingredient=cloxacillin,
+                spec="BP",
+                qty_per_unit_mg=250.0,
+                batch_size_units=100_000,
+                declared_batch_qty_kg=27.3,  # 250mg * 1.092 * 100,000 / 1e6
+            ),
+        ]
+    )
+
+    p1_text = BUGGY_P1 if buggy else CORRECTED_P1
+    project.sections.append(
+        Section(
+            number="3.2.P.1",
+            title="Description & Composition",
+            narrative_text=p1_text,
+        )
+    )
+    return project

@@ -10,6 +10,8 @@ from app.schemas.base import ReadMixin
 
 class ActiveIngredientBase(BaseModel):
     inn_name: str
+    strength_value: float | None = None
+    strength_unit: str | None = None
     salt_form: str | None = None
     salt_factor: float = 1.0
     compendial_std: CompendialStatus | None = None
@@ -20,6 +22,7 @@ class ActiveIngredientBase(BaseModel):
     specifications: str | None = None
     particle_size: str | None = None
     residual_solvents: str | None = None
+    smiles: str | None = None
 
 
 class ActiveIngredientCreate(ActiveIngredientBase):
@@ -28,6 +31,8 @@ class ActiveIngredientCreate(ActiveIngredientBase):
 
 class ActiveIngredientUpdate(BaseModel):
     inn_name: str | None = None
+    strength_value: float | None = None
+    strength_unit: str | None = None
     salt_form: str | None = None
     salt_factor: float | None = None
     compendial_std: CompendialStatus | None = None
@@ -38,6 +43,7 @@ class ActiveIngredientUpdate(BaseModel):
     specifications: str | None = None
     particle_size: str | None = None
     residual_solvents: str | None = None
+    smiles: str | None = None
 
 
 class ActiveIngredientRead(ActiveIngredientBase, ReadMixin):

@@ -17,7 +17,7 @@ from app.templating.context import build_context
 def _project():
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
-    session = Session(engine)
+    session = Session(engine, expire_on_commit=False)
     project = build_examox(buggy=False)
     session.add(project)
     session.commit()

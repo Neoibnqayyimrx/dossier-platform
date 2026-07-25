@@ -25,6 +25,12 @@ class ActiveIngredient(Base):
     )
 
     inn_name: Mapped[str] = mapped_column(String(200))  # e.g. "Amoxicillin"
+    # Strength as value + unit rather than a single "500mg" string, so the
+    # rule engine (P06) can compare numbers, not parse text. Lives here,
+    # not on Product, because each active ingredient in a combination
+    # product has its own strength (see product.py's docstring).
+    strength_value: Mapped[float | None] = mapped_column(Numeric(10, 3), nullable=True)
+    strength_unit: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "mg"
     salt_form: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # WHY salt_factor: the API you WEIGH (e.g. trihydrate) is heavier than the
     # base the label CLAIMS. Storing the factor lets the validator reconcile

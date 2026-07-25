@@ -10,8 +10,6 @@ async def _create_product(auth_client) -> dict:
         json={
             "brand_name": "EXAMOX",
             "generic_name": "Amoxicillin",
-            "strength_value": 500,
-            "strength_unit": "mg",
             "dosage_form": "hard gelatin capsule",
             "registration_type": "renewal",
             "country": "Nigeria",
@@ -36,9 +34,9 @@ async def test_create_list_get_product(auth_client):
 
 async def test_update_product(auth_client):
     product = await _create_product(auth_client)
-    resp = await auth_client.patch(f"/products/{product['id']}", json={"strength_value": 250})
+    resp = await auth_client.patch(f"/products/{product['id']}", json={"country": "Ghana"})
     assert resp.status_code == 200
-    assert float(resp.json()["strength_value"]) == 250.0
+    assert resp.json()["country"] == "Ghana"
 
 
 async def test_get_missing_product_is_404(auth_client):
@@ -60,7 +58,11 @@ async def test_nested_children_round_trip(auth_client):
 
     api = await auth_client.post(
         f"/products/{product_id}/apis",
-        json={"inn_name": "Amoxicillin", "salt_form": "Amoxicillin Trihydrate", "salt_factor": 1.148},
+        json={
+            "inn_name": "Amoxicillin",
+            "salt_form": "Amoxicillin Trihydrate",
+            "salt_factor": 1.148,
+        },
     )
     assert api.status_code == 201
 

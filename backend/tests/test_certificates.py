@@ -19,7 +19,7 @@ from app.templating.certificates import render_certificate_placeholder
 def _persisted_certificate(**kwargs) -> Certificate:
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
-    session = Session(engine)
+    session = Session(engine, expire_on_commit=False)
     project = build_examox(buggy=False)
     session.add(project)
     session.commit()

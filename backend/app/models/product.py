@@ -6,13 +6,23 @@ renewal today, an FDA submission next year); Project.product_id points
 here, not the other way round. See build-log.md for why this differs
 from the original LAMOX vertical slice, which nested Product 1:1 inside
 Project.
+
+WHY strength is NOT a column here (it moved to ActiveIngredient): a
+fixed-dose combination product -- Ampiclox (ampicillin + cloxacillin),
+artemether-lumefantrine -- doesn't have ONE strength, it has one per
+active ingredient. A single `strength_value`/`strength_unit` pair on
+Product had no honest place to put a second value, which silently made
+every combination product unrepresentable. `strength_display` below
+derives a human-readable joined string from whatever APIs actually exist,
+so single- and multi-API products render the same way without a
+special case.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Integer, Numeric, Enum as SAEnum
+from sqlalchemy import String, Integer, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -35,11 +45,6 @@ class Product(Base):
 
     brand_name: Mapped[str] = mapped_column(String(120))
     generic_name: Mapped[str] = mapped_column(String(200))
-
-    # Strength as value + unit rather than a single "500mg" string, so the
-    # rule engine (P06) can compare numbers, not parse text.
-    strength_value: Mapped[float | None] = mapped_column(Numeric(10, 3), nullable=True)
-    strength_unit: Mapped[str | None] = mapped_column(String(20), nullable=True)  # "mg"
 
     dosage_form: Mapped[DosageForm | None] = mapped_column(SAEnum(DosageForm), nullable=True)
     atc_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -83,3 +88,19 @@ class Product(Base):
 
     # ---- reverse side of Project -> Product (many Projects per Product) --
     projects: Mapped[list["Project"]] = relationship(back_populates="product")
+
+    @property
+    def strength_display(self) -> str:
+        """Human-readable strength(s), one "name value unit" per active
+        ingredient that has a strength on file, joined with " + " for
+        combination products (e.g. "Ampicillin 250 mg + Cloxacillin 250
+        mg"). A single-API product just renders as one term -- there is no
+        special case for "one active" vs "several"."""
+        parts = []
+        for api in self.apis:
+            if api.strength_value is None:
+                continue
+            value = f"{float(api.strength_value):g}"
+            unit = api.strength_unit or ""
+            parts.append(f"{api.inn_name} {value} {unit}".strip())
+        return " + ".join(parts)
