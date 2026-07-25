@@ -11,6 +11,29 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      # P03: KB retrieval tests exercise real pgvector operators
+      # (cosine_distance) that SQLite has no equivalent for, so those tests
+      # need an actual Postgres+pgvector instance — this image ships the
+      # extension pre-built, unlike the vanilla `postgres` image.
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: dossier
+          POSTGRES_PASSWORD: dossier
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dossier"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://dossier:dossier@localhost:5432/dossier
+      # No Voyage key in CI — any test exercising the embedding client goes
+      # through the deterministic offline stub instead.
+      EMBEDDING_PROVIDER: fake
     steps:
       - uses: actions/checkout@v4
 

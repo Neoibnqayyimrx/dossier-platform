@@ -18,6 +18,8 @@ from app.models.enums import (
     DosageForm,
     ExcipientFunction,
     GMPStatus,
+    KBLicense,
+    KBSource,
     LegalStatus,
     ManufacturerRole,
     PackagingComponent,
@@ -36,6 +38,7 @@ from app.models.batch_formula import BatchFormulaLine
 from app.models.project import Project, Section
 from app.models.sequence import Sequence
 from app.models.user import User
+from app.models.kb import KBChunk, KBDocument
 
 __all__ = [
     "Base",
@@ -45,6 +48,8 @@ __all__ = [
     "DosageForm",
     "ExcipientFunction",
     "GMPStatus",
+    "KBLicense",
+    "KBSource",
     "LegalStatus",
     "ManufacturerRole",
     "PackagingComponent",
@@ -64,4 +69,6 @@ __all__ = [
     "Section",
     "Sequence",
     "User",
+    "KBDocument",
+    "KBChunk",
 ]

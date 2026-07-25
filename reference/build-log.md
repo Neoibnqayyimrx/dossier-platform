@@ -5,6 +5,95 @@ and one concept to revisit. Newest at the top.
 
 ---
 
+## P03 — Regulatory Knowledge Base + RAG (copyright-safe)
+
+Retrieval layer over pgvector: `KBDocument`/`KBChunk` models, a
+provider-abstracted embedding client, a heading-aware chunker, an
+allowlist-gated ingestion pipeline, a cosine-similarity retrieval service,
+and `POST /kb/ingest` / `GET /kb/search` endpoints, in `app/knowledge/`
+(this repo uses flat top-level dirs under `app/` for each concern —
+`validation/`, `templating/`, now `knowledge/` — rather than the nested
+`app/services/knowledge/` path in AGENTS.md §4's original plan; noting the
+deviation here per AGENTS.md's own instruction).
+
+- **Allowlist as types, not a runtime check:** `KBSource` and `KBLicense`
+  (`app/models/enums.py`) *are* the allowlist AGENTS.md §5 requires —
+  there's no enum member for USP/Ph. Eur./BP/JP, so `ingest_document`
+  rejects a disallowed source/license before touching the database, the
+  same "physically cannot store a bad value" philosophy as every other
+  controlled vocabulary in this project. Tests: `test_ingest_rejects_
+  disallowed_source`/`_license` in `test_knowledge.py`, plus an HTTP-level
+  422 check in `test_kb_api.py`.
+- **Two real seed documents, not placeholders:** fetched ICH Q1A(R2)
+  (Stability Testing of New Drug Substances and Products, Step 4,
+  2003-02-06) and M4Q(R1) (CTD for Registration of Pharmaceuticals: Quality,
+  Step 4, 2002-09-12) from the official `database.ich.org`, verified with
+  `pypdf` text extraction (not fabricated), checked into
+  `reference/kb_sources/ich/`, and ingested via `scripts/seed_kb.py` — 88 +
+  69 chunks in the live Postgres. ICH harmonised guidelines are adopted
+  verbatim into national regulation by design, which is why AGENTS.md
+  treats them (unlike pharmacopoeias) as freely redistributable.
+- **Chunker is heading-aware, line-reflowed, not paragraph-split:**
+  `app/knowledge/chunking.py` walks line-by-line rather than splitting on
+  blank lines, because pypdf's extraction puts a newline per *visual* PDF
+  line, not per paragraph — a blank-line split would miss headings that
+  run straight into their body text and would leave mid-sentence line
+  wraps in the output. **Known limitation:** the heading regex
+  occasionally misfires on numbered list items (e.g. "3. If the submission
+  does not include..." got tagged as a section label in the live Q1A(R2)
+  ingest) — acceptable for a first-pass heuristic, revisit if citation
+  precision matters more once P05/P10 consume this.
+- **Embedding dimension is a hard-coded constant** (`EMBEDDING_DIMENSION =
+  512` in `app/models/kb.py`), not read from `Settings`, because pgvector
+  fixes a column's vector width at the schema level — switching
+  `embedding_model` to one with a different output size needs a new
+  migration, not an env change. 512 matches `voyage-3-lite`.
+- **Offline-first embedding client:** `app/knowledge/embeddings.py` has a
+  real `VoyageEmbeddingClient` and a `FakeEmbeddingClient` — a deterministic
+  hashed-bag-of-words embedder (no network/key) used for local dev/tests via
+  `EMBEDDING_PROVIDER=fake`. A real Voyage key is already in `.env` for
+  whenever live embeddings are wanted; re-running `scripts/seed_kb.py` after
+  flipping the provider re-embeds idempotently (replace, not duplicate).
+- **CI gained a Postgres+pgvector service** (`pgvector/pgvector:pg16`) —
+  the search round-trip test needs `KBChunk.embedding.cosine_distance(...)`,
+  which compiles to pgvector's `<=>` operator and has no SQLite equivalent.
+  Allowlist-rejection and re-ingest-idempotency tests still run on the
+  existing SQLite fixture (pure relational logic, no vector ops). The
+  Postgres-dependent tests self-skip if no Postgres is reachable, so
+  `pytest -q` still passes without `docker compose up -d db` running
+  locally.
+- **HNSW over IVFFlat** for the `kb_chunk.embedding` index: IVFFlat needs a
+  representative sample loaded before its clustering trains well, awkward
+  for a KB seeded a few documents at a time; HNSW builds incrementally with
+  good recall from the first row.
+- **Incident, same shape as the P01 "downgrade drops real data" lesson:**
+  an early version of the throwaway-Postgres test fixture used
+  `str(sqlalchemy_url)` to build the connection string for the async
+  engine — `URL.__str__` masks the password as `***` for logging safety,
+  which broke the connection with an opaque "password authentication
+  failed" error even though the maintenance connection (built from
+  `render_as_string(hide_password=False)`) worked fine right next to it.
+  Fixed by passing the `URL` object directly to `create_async_engine`
+  instead of stringifying it. **Lesson:** never call `str()` on a
+  SQLAlchemy URL when the string will actually be used to connect —
+  `str()`/`repr()` on credentialed objects should be assumed lossy by
+  default.
+- **Tests:** 39 passing (35 existing + 4 new: two allowlist-rejection unit
+  tests, one idempotent-re-ingest unit test on SQLite, one full search
+  round-trip on real Postgres) plus 4 HTTP-level tests in `test_kb_api.py`
+  (auth-required, ingest success, allowlist-rejection-via-API,
+  full-stack search). All 39 pass together; ruff and black clean on every
+  file this phase touched.
+- **Verified against live Postgres + containerized API:** ran
+  `scripts/seed_kb.py` against the docker-compose `db`, confirmed 88+69
+  chunks landed; rebuilt and started the `api` container, hit
+  `GET /kb/search?q=...` over real HTTP and got correctly ranked, cited
+  ICH chunks back.
+
+**Next:** P04 (template engine — turn 3.2.P.1 into a real docxtpl .docx;
+P03's retrieval service becomes available to P05's narrative generator
+once that phase exists).
+
 ## P02 — Backend API skeleton (CRUD, auth, project/sequence)
 
 FastAPI routers over every P01 entity, JWT auth, and the sequence/readiness

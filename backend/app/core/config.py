@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     embedding_model: str = "voyage-3-lite"
     embedding_api_key: str | None = None
 
+    # Knowledge base (P03): chunk size and default search breadth are config
+    # knobs, not magic numbers buried in the chunker/retriever, per AGENTS.md
+    # §5 ("config over hard-coding").
+    kb_chunk_max_chars: int = 1200
+    kb_search_default_k: int = 5
+
     # WHY a default here (unlike llm_api_key): dev/test need a working secret
     # out of the box; production must override via the environment. Never
     # generated at import time (that would invalidate every token on restart).

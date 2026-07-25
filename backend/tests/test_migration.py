@@ -44,6 +44,8 @@ EXPECTED_TABLES = {
     "section",
     "sequence",
     "user",
+    "kb_document",
+    "kb_chunk",
 }
 
 

@@ -118,3 +118,30 @@ class ClinicalKind(str, enum.Enum):
     BIOEQUIVALENCE = "bioequivalence"
     LITERATURE = "literature"
     CLINICAL_STUDY = "clinical study"
+
+
+class KBSource(str, enum.Enum):
+    """Allowlisted origins for knowledge-base documents (P03). Deliberately
+    excludes pharmacopoeia bodies (USP, Ph. Eur., BP, JP) — AGENTS.md §5
+    forbids ingesting their monograph text, and a source the DB can't store
+    is a source the ingest pipeline physically cannot accept."""
+
+    ICH = "ICH"
+    FDA = "FDA"
+    EMA = "EMA"
+    WHO = "WHO"
+    NAFDAC = "NAFDAC"
+
+
+class KBLicense(str, enum.Enum):
+    """Redistribution basis a kb_document must be tagged with to be ingested.
+    ICH harmonised guidelines are adopted verbatim into national regulation
+    by design, so they're freely redistributable; agency guidance documents
+    are published by governments for exactly this kind of reuse. Anything
+    that doesn't fit one of these categories (e.g. a copyrighted
+    pharmacopoeia monograph) has no member here and is rejected at ingest —
+    see services/knowledge/ingest.py."""
+
+    ICH_HARMONISED = "ich-harmonised-guideline"
+    GOVERNMENT_PUBLIC = "government-public-guidance"
+    PUBLIC_DOMAIN = "public-domain"
