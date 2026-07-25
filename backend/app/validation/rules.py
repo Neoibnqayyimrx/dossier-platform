@@ -24,13 +24,33 @@ from app.models import (
 )
 
 # Words that denote a dosage form, mapped to the enum member they imply.
+# Deliberately excludes ambiguous words ("drops" alone could mean eye or
+# ear) -- a wrong mapping here would make R02 flag mismatches that aren't
+# real, which is worse than missing a real one.
 _FORM_WORDS = {
     "tablet": DosageForm.TABLET,
     "tablets": DosageForm.TABLET,
     "capsule": DosageForm.CAPSULE_HARD,
     "capsules": DosageForm.CAPSULE_HARD,
     "syrup": DosageForm.SYRUP,
+    "suspension": DosageForm.SUSPENSION,
+    "suspensions": DosageForm.SUSPENSION,
     "injection": DosageForm.INJECTION,
+    "infusion": DosageForm.INFUSION,
+    "cream": DosageForm.CREAM,
+    "ointment": DosageForm.OINTMENT,
+    "gel": DosageForm.GEL,
+    "lotion": DosageForm.LOTION,
+    "suppository": DosageForm.SUPPOSITORY,
+    "suppositories": DosageForm.SUPPOSITORY,
+    "pessary": DosageForm.PESSARY,
+    "pessaries": DosageForm.PESSARY,
+    "lozenge": DosageForm.LOZENGE,
+    "lozenges": DosageForm.LOZENGE,
+    "granules": DosageForm.GRANULES,
+    "elixir": DosageForm.ELIXIR,
+    "patch": DosageForm.TRANSDERMAL_PATCH,
+    "patches": DosageForm.TRANSDERMAL_PATCH,
 }
 
 

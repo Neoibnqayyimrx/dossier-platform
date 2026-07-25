@@ -34,16 +34,65 @@ class RegistrationType(str, enum.Enum):
 
 class DosageForm(str, enum.Enum):
     """A controlled, extensible list. Add members as new dosage forms are
-    onboarded — never store a dosage form as free text."""
+    onboarded — never store a dosage form as free text.
 
+    Grouped by route/category (oral solid, oral liquid, parenteral,
+    topical, ophthalmic/otic/nasal, rectal/vaginal, inhalation) because
+    that's how a CTD reviewer actually thinks about a dossier's Module 3.2.P
+    content -- modified-release/enteric-coated variants get their own
+    members, not a shared generic "tablet", because their dissolution
+    specs and stability considerations genuinely differ."""
+
+    # -- oral solid --
     TABLET = "tablet"
+    TABLET_CHEWABLE = "chewable tablet"
+    TABLET_DISPERSIBLE = "dispersible tablet"
+    TABLET_EFFERVESCENT = "effervescent tablet"
+    TABLET_ORODISPERSIBLE = "orodispersible tablet"
+    TABLET_ENTERIC_COATED = "enteric-coated tablet"
+    TABLET_EXTENDED_RELEASE = "extended-release tablet"
     CAPSULE_HARD = "hard gelatin capsule"
     CAPSULE_SOFT = "soft gelatin capsule"
+    GRANULES = "granules"
+    POWDER_FOR_ORAL_SUSPENSION = "powder for oral suspension"
+    LOZENGE = "lozenge"
+
+    # -- oral liquid --
     SYRUP = "syrup"
     SUSPENSION = "suspension"
-    INJECTION = "injection"
+    SOLUTION_ORAL = "oral solution"
+    ELIXIR = "elixir"
+    EMULSION_ORAL = "oral emulsion"
+
+    # -- parenteral --
+    INJECTION = "injection"  # generic bucket; prefer a specific member below when known
+    INJECTION_SOLUTION = "solution for injection"
+    POWDER_FOR_INJECTION = "powder for injection"
+    INFUSION = "solution for infusion"
+
+    # -- topical --
     CREAM = "cream"
     OINTMENT = "ointment"
+    GEL = "gel"
+    LOTION = "lotion"
+    PASTE = "paste"
+    TRANSDERMAL_PATCH = "transdermal patch"
+
+    # -- ophthalmic / otic / nasal --
+    EYE_DROPS = "eye drops"
+    EYE_OINTMENT = "eye ointment"
+    EAR_DROPS = "ear drops"
+    NASAL_SPRAY = "nasal spray"
+
+    # -- rectal / vaginal --
+    SUPPOSITORY = "suppository"
+    PESSARY = "pessary"
+    ENEMA = "enema"
+
+    # -- inhalation --
+    INHALER_MDI = "metered-dose inhaler"
+    INHALER_DPI = "dry powder inhaler"
+    NEBULISER_SOLUTION = "nebuliser solution"
 
 
 class LegalStatus(str, enum.Enum):
