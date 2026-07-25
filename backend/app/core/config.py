@@ -25,8 +25,12 @@ class Settings(BaseSettings):
     # MinIO/S3-compatible endpoint configured above.
     storage_provider: str = "memory"
 
-    llm_provider: str = "anthropic"
-    llm_model: str = "claude-sonnet-5"
+    # "gemini" (real, needs LLM_API_KEY -- Google's free tier is generous
+    # enough for this project's volume) or "fake" (deterministic offline
+    # stub for dev/test, no network/key needed, same rule as
+    # embedding_provider below).
+    llm_provider: str = "gemini"
+    llm_model: str = "gemini-2.5-flash"
     llm_api_key: str | None = None
 
     # Embedding provider for the knowledge base (P03) — same provider-

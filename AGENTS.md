@@ -43,7 +43,7 @@ See `/reference/nafdac-vs-fda-ema-scope.md` for the regulatory scoping detail.
 - **Document generation:** `docxtpl` (templated DOCX from Jinja2-style templates), `python-docx` (fine control), **LibreOffice headless** for DOCX→PDF, `PyMuPDF` (fitz) + `pypdf` for PDF merge/bookmarks/manipulation.
 - **XML backbone:** `lxml` (never string-concatenate XML).
 - **AI orchestration:** plain Python service layer first; only introduce LangGraph/n8n if a workflow genuinely needs multi-step branching. Do not add orchestration frameworks prematurely.
-- **LLM:** provider-abstracted. A single `LLMClient` interface with a config-selected backend (Anthropic Claude or other). Model name lives in config/env, never hard-coded in business logic.
+- **LLM:** provider-abstracted. A single `LLMClient` interface with a config-selected backend (Google Gemini, chosen for its free tier — or another provider entirely). Model name lives in config/env, never hard-coded in business logic.
 - **Testing:** `pytest`, `pytest-asyncio`, `httpx` for API tests. Frontend: Vitest + Playwright for the wizard flow.
 - **Containerization:** Docker + docker-compose for local dev (api, db, minio, libreoffice worker if separated).
 
@@ -112,7 +112,7 @@ Full field definitions and relationships are specified in Phase 01.
 - [x] P02 — Backend API skeleton (CRUD, auth, project/sequence)
 - [x] P03 — Regulatory Knowledge Base + RAG (copyright-safe ingestion)
 - [x] P04 — Template engine (docxtpl section templates)
-- [ ] P05 — AI narrative generation service (LLM, guardrailed)
+- [x] P05 — AI narrative generation service (LLM, guardrailed)
 - [ ] P06 — Deterministic validation / rule engine
 - [ ] P07 — Document assembly + PDF (DOCX→PDF, bookmarks, granular leaves)
 - [ ] P08 — CTD / NAPAMS folder + TOC builder (MVP output)

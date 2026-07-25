@@ -5,6 +5,65 @@ and one concept to revisit. Newest at the top.
 
 ---
 
+## P05 — AI Narrative Generation (LLM writes prose ONLY)
+
+Fills the narrative slots P04 left as placeholders, with grounded/cited
+prose and a full audit trail, per AGENTS.md §5's "everything the LLM
+writes is reviewable." New pieces: `app/llm/client.py` (provider-abstracted
+`LLMClient` — real + fake, same shape as P03's embedding client and P04's
+storage client, now a fourth time), `app/narrative/` (facts.py, guardrails.py,
+generate.py, review.py, context.py), a `NarrativeGeneration` audit-trail
+model + migration, and `/projects/{id}/sections/{sec}/narrative/{slot}`
+endpoints (`:generate`, `:approve`, `:edit`, plus a list GET).
+
+- **LLM provider deviation from AGENTS.md §3's example:** the human chose
+  Google Gemini over Anthropic Claude — a free tier generous enough for
+  this project's volume, rather than requiring a paid key. `LLMClient` is
+  provider-abstracted exactly as planned; only the concrete backend
+  differs from the doc's example. AGENTS.md §3 updated to say so.
+- **Guardrails have two different severities, matching the prompt's own
+  wording:** numeric leakage (`check_numeric_leakage`) is a WARNING —
+  flagged in the persisted row for human review, never blocking, because a
+  number can leak in harmlessly (a count, not a regulatory figure) and
+  that's a human judgment call. Fabricated citations
+  (`check_citations`) are a hard BLOCK — `NarrativeGuardrailError` raised
+  *before* anything is persisted — because the model was told exactly
+  which sources it may cite, so citing anything else is unambiguous, not
+  a judgment call.
+- **The leakage whitelist is the rendered prompt text, not the ORM graph:**
+  `app/narrative/facts.py` renders the same P04 `build_context()` dict
+  (minus `narrative`) that's already going into the prompt, and the
+  guardrail compares against *that* — not against "any number anywhere in
+  the product's tables," which would let a coincidental match slip a real
+  hallucination past the check. Bookkeeping columns (id/created_at/
+  updated_at/`*_id` foreign keys) are excluded from the render — pure noise
+  for both the prompt and the whitelist, and a UUID's stray digit runs
+  would otherwise weaken the leakage check.
+- **The audit trail's sources are a real many-to-many FK to `KBChunk`**
+  (`narrative_generation_source`), not a JSON id list — same "let the
+  database prove it" reasoning as the P03 checkpoint discussion: a FK row
+  proves the chunk really exists and was really retrieved.
+- **`final_text`, never `output`, is what P04's context builder reads**
+  (`app/narrative/context.py`'s `get_approved_narrative`, wired in as a
+  separate async step composed with `render_section`, not merged into
+  P04's synchronous, DB-free `build_context`): a PENDING draft can only
+  ever reach a rendered document through `approve_narrative`/
+  `edit_narrative`, both of which require an explicit human action. There
+  is no code path that promotes a draft to usable text on its own.
+- **Concept to revisit:** the leakage guardrail is a blunt instrument — a
+  legitimately-cited source excerpt can contain numbers (section numbers,
+  dates) that aren't in the product facts and will trip a warning anyway.
+  That's a real limitation of a regex-based check, deliberately not
+  "fixed" by making it smarter here — warnings are for a human to judge,
+  not for the code to adjudicate.
+
+73 tests passing against a live Postgres (64 passing + 9 self-skipping
+without one — P03's existing 2 plus 7 new P05 tests, same
+`pg_session_factory` convention; CI's pgvector service always runs all
+73).
+
+---
+
 ## P04 — Section Template Engine (deterministic fill)
 
 Converted the pre-P00 Markdown prototype (`app/templating/section_map.py`'s

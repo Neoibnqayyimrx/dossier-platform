@@ -31,9 +31,10 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgresql+psycopg://dossier:dossier@localhost:5432/dossier
-      # No Voyage key in CI — any test exercising the embedding client goes
-      # through the deterministic offline stub instead.
+      # No Voyage/Gemini keys in CI — any test exercising the embedding or
+      # LLM client goes through the deterministic offline stub instead.
       EMBEDDING_PROVIDER: fake
+      LLM_PROVIDER: fake
     steps:
       - uses: actions/checkout@v4
 

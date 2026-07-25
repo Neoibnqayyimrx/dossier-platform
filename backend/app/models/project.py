@@ -21,6 +21,7 @@ from app.models.enums import Region
 if TYPE_CHECKING:
     from app.models.product import Product
     from app.models.sequence import Sequence
+    from app.models.narrative import NarrativeGeneration
 
 
 class Project(Base):
@@ -36,6 +37,9 @@ class Project(Base):
         back_populates="project", cascade="all, delete-orphan"
     )
     sections: Mapped[list["Section"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    narrative_generations: Mapped[list["NarrativeGeneration"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
 

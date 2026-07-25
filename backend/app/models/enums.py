@@ -133,6 +133,18 @@ class KBSource(str, enum.Enum):
     NAFDAC = "NAFDAC"
 
 
+class NarrativeStatus(str, enum.Enum):
+    """Human review state of one LLM-generated narrative slot (P05).
+    AGENTS.md §5: unreviewed narrative must never reach a rendered
+    package, so the template context builder only reads PENDING vs
+    reviewed off this value — never off the mere existence of an
+    output string."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    EDITED = "edited"
+
+
 class KBLicense(str, enum.Enum):
     """Redistribution basis a kb_document must be tagged with to be ingested.
     ICH harmonised guidelines are adopted verbatim into national regulation

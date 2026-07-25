@@ -46,6 +46,8 @@ EXPECTED_TABLES = {
     "user",
     "kb_document",
     "kb_chunk",
+    "narrative_generation",
+    "narrative_generation_source",
 }
 
 

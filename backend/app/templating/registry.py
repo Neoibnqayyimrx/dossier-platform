@@ -28,6 +28,11 @@ class SectionSpec:
     title: str
     template_filename: str
     narrative_slots: list[str] = field(default_factory=list)
+    # P05: what to search the P03 knowledge base for when grounding this
+    # section's narrative. A deliberate, hand-written query per section —
+    # not just reusing `title` verbatim — so retrieval targets what the
+    # narrative actually needs to say, not just what the section is called.
+    grounding_query: str | None = None
 
     @property
     def template_path(self) -> Path:
@@ -40,18 +45,21 @@ SECTIONS: dict[str, SectionSpec] = {
         title="Cover Letter",
         template_filename="cover_letter.docx",
         narrative_slots=["purpose"],
+        grounding_query="administrative submission requirements cover letter",
     ),
     "3.2.P.1": SectionSpec(
         number="3.2.P.1",
         title="Description and Composition of Drug Product",
         template_filename="section_3_2_p_1.docx",
         narrative_slots=["description"],
+        grounding_query="description and composition of the drug product dosage form",
     ),
     "3.2.P.8.1": SectionSpec(
         number="3.2.P.8.1",
         title="Stability Summary and Conclusion",
         template_filename="stability_summary.docx",
         narrative_slots=["conclusion"],
+        grounding_query="stability testing storage conditions retest period shelf life",
     ),
 }
 
