@@ -48,6 +48,7 @@ EXPECTED_TABLES = {
     "kb_chunk",
     "narrative_generation",
     "narrative_generation_source",
+    "certificate",
 }
 
 

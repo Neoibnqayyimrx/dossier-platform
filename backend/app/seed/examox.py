@@ -92,6 +92,9 @@ def build_examox(buggy: bool = True) -> Project:
             salt_form="Amoxicillin Trihydrate",
             salt_factor=1.148,  # trihydrate/base mass ratio
             compendial_std=CompendialStatus.BP,
+            # base (anhydrous) amoxicillin structure -- public chemistry,
+            # not the trihydrate salt actually weighed (see salt_factor).
+            smiles="CC1(C)S[C@@H]2[C@H](NC(=O)[C@H](N)c3ccc(O)cc3)C(=O)N2[C@H]1C(=O)O",
         )
     )
     product.excipients.extend(

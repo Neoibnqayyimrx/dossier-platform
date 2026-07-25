@@ -93,3 +93,29 @@ def test_rendered_docx_is_a_valid_zip(project):
     # docxtpl produced a well-formed document, not just non-empty bytes.
     with zipfile.ZipFile(io.BytesIO(storage.get(result.storage_key))) as zf:
         assert "word/document.xml" in zf.namelist()
+
+
+def test_render_qos_embeds_the_structure_image_when_smiles_present(project):
+    storage = InMemoryStorageClient()
+    result = render_section(
+        "2.3", project, narrative={"overview": "A beta-lactam antibiotic."}, storage=storage
+    )
+
+    doc = Document(io.BytesIO(storage.get(result.storage_key)))
+    assert len(doc.inline_shapes) == 1  # the EXAMOX seed's API has a smiles set
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert "A beta-lactam antibiotic." in text
+    assert "Structure not available" not in text
+
+
+def test_render_qos_shows_placeholder_when_smiles_missing(project):
+    project.product.apis[0].smiles = None
+    storage = InMemoryStorageClient()
+
+    result = render_section("2.3", project, storage=storage)
+
+    doc = Document(io.BytesIO(storage.get(result.storage_key)))
+    assert len(doc.inline_shapes) == 0
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Structure not available" in text
+    assert "[[AI DRAFT PENDING" in text

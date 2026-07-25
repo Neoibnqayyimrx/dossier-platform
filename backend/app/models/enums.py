@@ -133,6 +133,20 @@ class KBSource(str, enum.Enum):
     NAFDAC = "NAFDAC"
 
 
+class CertificateType(str, enum.Enum):
+    """A regulatory certificate a real human must obtain from a third party
+    (a regulator, a lab, EDQM) and attach to the dossier -- never something
+    the platform can generate content for. See app.templating.placeholders
+    for how a not-yet-attached certificate becomes a clearly-marked
+    placeholder document at assembly time instead of a silent gap."""
+
+    CPP = "CPP"  # Certificate of Pharmaceutical Product (WHO format)
+    GMP = "GMP"  # Good Manufacturing Practice certificate, site-specific
+    CEP = "CEP"  # Certificate of Suitability to a Ph. Eur. monograph (EDQM)
+    COA = "CoA"  # Certificate of Analysis, batch-specific
+    FREE_SALE = "free-sale-certificate"
+
+
 class NarrativeStatus(str, enum.Enum):
     """Human review state of one LLM-generated narrative slot (P05).
     AGENTS.md §5: unreviewed narrative must never reach a rendered

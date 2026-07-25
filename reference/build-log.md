@@ -5,6 +5,69 @@ and one concept to revisit. Newest at the top.
 
 ---
 
+## Interlude before P06 — Certificates, QOS, chemical structures
+
+Not a numbered phase — a human-requested expansion, done before returning to
+the P06 rule-engine plan, because it un-blocks a rule (certificate expiry)
+that P06 would otherwise have had to scope out for lack of data.
+
+- **`Certificate` model** (migration `76d6a4fb05a9`): `certificate_type`
+  (CPP/GMP/CEP/CoA/free-sale), `issuing_authority`, `certificate_number`,
+  `issue_date`, `expiry_date`, linked to a `Product` (required) and
+  optionally a `Manufacturer` (for site-specific certs like GMP). All of
+  issuing_authority/number/dates are nullable *on purpose* — a row can (and
+  should) exist the moment a project is known to need a CPP, long before
+  anyone has actually obtained one.
+- **`app/templating/certificates.py`: placeholder generation, never
+  fabricated content.** A certificate is proof issued by a third party (a
+  regulator, EDQM, a lab) — the platform cannot write one without violating
+  AGENTS.md §5's determinism boundary the same way narrative generation
+  would if it invented a number. What it CAN do is emit a one-page,
+  clearly-labeled ".docx" ("REPLACE THIS FILE WITH...") at the exact path
+  the real certificate belongs at, so a missing certificate is a loud gap
+  in the assembled package, not a silent one. Plain `python-docx`, not
+  docxtpl — there's no template to fill, just a handful of values on a
+  page. Storage key is scoped by **product**, not project (`products/
+  {id}/certificates/{cert_id}.docx`) — a GMP certificate is a fact about a
+  manufacturing site, reusable across whichever Projects file that same
+  Product, same reasoning as Product itself being reusable master data.
+- **Chemical structure rendering** (`app/templating/chemistry.py`, new
+  dependency `rdkit`): `ActiveIngredient.smiles` (new nullable column) ->
+  a 2D structure PNG via RDKit, the standard cheminformatics toolkit for
+  this in pharma. Deliberately raises `InvalidSmilesError` on a SMILES that
+  doesn't parse rather than silently producing nothing — a malformed
+  SMILES is a data-entry error in a structured field, same category as a
+  bad strength value, not a "not yet available" state.
+- **`SectionSpec.structure_image_slot`** (`app/templating/registry.py`):
+  any section can opt in to an embedded structure image by naming a
+  context key here, matched by a `{{ key }}` placeholder in its template —
+  not hard-coded to QOS. `render.py`'s `_build_structure_image` binds a
+  docxtpl `InlineImage` when the product's (first) API has a `smiles`, or
+  falls back to a plain-text placeholder (`"[[Structure not available...]]"`)
+  when it doesn't — same bracket-placeholder convention as an unapproved
+  narrative slot. Both a real `InlineImage` and a plain string can be bound
+  to the same `{{ }}` tag; docxtpl just renders whichever type it's given.
+- **QOS (`2.3`) registered as a normal fourth `SectionSpec`** — template,
+  one narrative slot (`overview`), a `grounding_query`, and the new
+  `structure_image_slot`. Went through the *exact* existing P04/P05
+  pipeline with zero changes to `generate_narrative`, the guardrails, or
+  the audit trail (see `test_generate_works_unchanged_for_the_new_qos_
+  section` in test_narrative.py) — the registry-driven design's whole
+  payoff, the same "open/closed" point made in the P04 checkpoint quiz.
+- **Real SMILES on both seed fixtures** (EXAMOX and LAMOX): amoxicillin's
+  actual structure, verified against RDKit's own molecular-formula
+  calculation (C16H19N3O5S) before trusting it, same "verify before
+  trusting real data" habit as P04's docxtpl row-loop fix.
+- **Concept to revisit:** RDKit is a real dependency (~35MB wheel) — the
+  right tool for correctness in a pharma context, but worth remembering
+  as a deliberate tradeoff, not a free addition, next time dependency
+  weight comes up.
+
+12 new tests (chemistry, certificates, QOS rendering, QOS narrative
+generation); 82 passing overall.
+
+---
+
 ## P05 — AI Narrative Generation (LLM writes prose ONLY)
 
 Fills the narrative slots P04 left as placeholders, with grounded/cited

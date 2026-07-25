@@ -19,6 +19,7 @@ from app.models.enums import GMPStatus, ManufacturerRole
 
 if TYPE_CHECKING:
     from app.models.active_ingredient import ActiveIngredient
+    from app.models.certificate import Certificate
     from app.models.product import Product
 
 
@@ -39,3 +40,4 @@ class Manufacturer(Base):
 
     product: Mapped["Product"] = relationship(back_populates="manufacturers")
     apis: Mapped[list["ActiveIngredient"]] = relationship(back_populates="manufacturer")
+    certificates: Mapped[list["Certificate"]] = relationship(back_populates="manufacturer")

@@ -98,6 +98,22 @@ async def test_generate_returns_grounded_prose_with_sources_and_audit_row(pg_ses
         # is covered directly by test_guardrails.py and the two tests below.
 
 
+async def test_generate_works_unchanged_for_the_new_qos_section(pg_session_factory):
+    """QOS (2.3) was registered after this pipeline was built, purely as a
+    new SectionSpec/template/context branch -- proves generate_narrative,
+    the guardrails, and the audit trail needed zero changes to support it."""
+    async with pg_session_factory() as db:
+        project = await _seed_project_and_kb(db)
+
+        result = await generate_narrative(
+            db, project, "2.3", "overview", embedding_client=EMBEDDER, llm_client=FakeLLMClient()
+        )
+
+        assert result.narrative.status == NarrativeStatus.PENDING
+        assert "EXAMOX" in result.narrative.output
+        assert len(result.narrative.sources) >= 1
+
+
 async def test_generate_rejects_unknown_slot(pg_session_factory):
     async with pg_session_factory() as db:
         project = await _seed_project_and_kb(db)

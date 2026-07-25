@@ -21,6 +21,7 @@ from app.models.enums import DosageForm, LegalStatus, RegistrationType
 if TYPE_CHECKING:
     from app.models.active_ingredient import ActiveIngredient
     from app.models.batch_formula import BatchFormulaLine
+    from app.models.certificate import Certificate
     from app.models.clinical import ClinicalEntry
     from app.models.excipient import Excipient
     from app.models.manufacturer import Manufacturer
@@ -74,6 +75,9 @@ class Product(Base):
         back_populates="product", cascade="all, delete-orphan"
     )
     batch_formula: Mapped[list["BatchFormulaLine"]] = relationship(
+        back_populates="product", cascade="all, delete-orphan"
+    )
+    certificates: Mapped[list["Certificate"]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
     )
 

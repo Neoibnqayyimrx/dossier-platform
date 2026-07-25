@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from app.models.base import Base
 from app.models.enums import (
+    CertificateType,
     ClinicalKind,
     CompendialStatus,
     DosageForm,
@@ -36,6 +37,7 @@ from app.models.packaging import Packaging
 from app.models.stability import StabilityStudy
 from app.models.clinical import ClinicalEntry
 from app.models.batch_formula import BatchFormulaLine
+from app.models.certificate import Certificate
 from app.models.project import Project, Section
 from app.models.sequence import Sequence
 from app.models.user import User
@@ -45,6 +47,7 @@ from app.models.narrative import NarrativeGeneration
 __all__ = [
     "Base",
     # enums
+    "CertificateType",
     "ClinicalKind",
     "CompendialStatus",
     "DosageForm",
@@ -68,6 +71,7 @@ __all__ = [
     "StabilityStudy",
     "ClinicalEntry",
     "BatchFormulaLine",
+    "Certificate",
     "Project",
     "Section",
     "Sequence",

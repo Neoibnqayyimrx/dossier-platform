@@ -33,6 +33,12 @@ class SectionSpec:
     # not just reusing `title` verbatim — so retrieval targets what the
     # narrative actually needs to say, not just what the section is called.
     grounding_query: str | None = None
+    # P04 chemical-structure capability: the context key an embedded 2D
+    # structure image is bound to, if this section's template has one.
+    # None (the default) means "no image slot" -- any section can opt in
+    # by naming a key here and putting a matching `{{ key }}` in its
+    # template; this is not QOS-specific.
+    structure_image_slot: str | None = None
 
     @property
     def template_path(self) -> Path:
@@ -60,6 +66,14 @@ SECTIONS: dict[str, SectionSpec] = {
         template_filename="stability_summary.docx",
         narrative_slots=["conclusion"],
         grounding_query="stability testing storage conditions retest period shelf life",
+    ),
+    "2.3": SectionSpec(
+        number="2.3",
+        title="Quality Overall Summary",
+        template_filename="section_2_3_qos.docx",
+        narrative_slots=["overview"],
+        grounding_query="quality overall summary drug substance drug product",
+        structure_image_slot="structure",
     ),
 }
 

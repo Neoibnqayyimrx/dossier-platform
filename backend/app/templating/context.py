@@ -53,4 +53,15 @@ def build_context(
             "narrative": narrative,
         }
 
+    if section_number == "2.3":
+        # NOTE: `structure` (the chemical-structure image slot) is NOT set
+        # here -- it's injected by render.py, which is the one place that
+        # holds the live DocxTemplate instance an InlineImage must be bound
+        # to. This function stays synchronous, DB-free, and Word-library-
+        # free, same as every other branch.
+        return {
+            "product": product,
+            "narrative": narrative,
+        }
+
     raise ValueError(f"No context builder for section {section_number!r}")

@@ -40,6 +40,11 @@ class ActiveIngredient(Base):
     specifications: Mapped[str | None] = mapped_column(Text, nullable=True)
     particle_size: Mapped[str | None] = mapped_column(String(120), nullable=True)
     residual_solvents: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # SMILES string for the API's structural formula -- public chemistry,
+    # never copyrighted text. Lets the template engine (P04) render a real
+    # 2D structure image (via RDKit) into e.g. the QOS section, instead of
+    # a scanned image or a hand-drawn one.
+    smiles: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     product: Mapped["Product"] = relationship(back_populates="apis")
     manufacturer: Mapped["Manufacturer | None"] = relationship(back_populates="apis")
