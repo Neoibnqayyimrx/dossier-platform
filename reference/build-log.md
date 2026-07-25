@@ -5,6 +5,61 @@ and one concept to revisit. Newest at the top.
 
 ---
 
+## P04 — Section Template Engine (deterministic fill)
+
+Converted the pre-P00 Markdown prototype (`app/templating/section_map.py`'s
+`render_p1`) into a real docxtpl pipeline: a typed section registry
+(`app/templating/registry.py`), a context builder
+(`app/templating/context.py`), and a renderer
+(`app/templating/render.py`) that fills a `.docx` template and uploads it
+via a new object-storage abstraction (`app/core/storage.py`).
+
+- **Scoped to 3 of the prompt's 6 listed sections:** cover letter (1.0),
+  `3.2.P.1` (description & composition, with a `BatchFormulaLine`-driven
+  table), and `3.2.P.8.1` (stability summary, table from `StabilityStudy`
+  rows). `3.2.P.5.1` (finished-product specs) and `2.3` (QOS) need data
+  (release-test limits, quality-overview narrative structure) that doesn't
+  exist in the P01 model yet — adding it now would be scope creep into
+  P01/P06. Same call as P03's "seed 2 real guidelines, not the whole ICH
+  corpus." Registering a 4th section is "add one more `SectionSpec` entry
+  + one `.docx` + one context branch," not a new pattern.
+- **`section_map.py` untouched, not replaced:** its `render_p1` (Markdown
+  output) still backs `test_rendered_section_cannot_contain_bugs` and
+  `run_demo.py`, which test/demo the *rule engine* catching real LAMOX
+  copy-paste bugs — a different concern from the template engine itself.
+  The real registry lives in the new `registry.py` instead of overwriting
+  that file.
+- **Object storage gets the same provider-abstraction treatment as the LLM
+  client (AGENTS.md §3) and P03's embedding client:** `StorageClient` ABC,
+  `S3StorageClient` (boto3 against MinIO) and `InMemoryStorageClient`
+  (dict-backed, the new `storage_provider=memory` dev/test default — no
+  MinIO container needed to run the suite). Third time this exact shape
+  (interface + config-selected implementation + cached getter) has been
+  built in this repo.
+- **Templates are real `.docx` files, generated programmatically** (via
+  `python-docx`, since there's no Word GUI here) and checked into
+  `backend/templates/`. Non-obvious docxtpl mechanic worth remembering:
+  its `{%tr for x in y %}` / `{%tr endfor %}` row-loop tags each consume
+  the *entire* table row they appear in (replacing it with the bare
+  `{% for %}`/`{% endfor %}` Jinja tag) — so the tag needs its own
+  dedicated marker row, separate from the data row with the real
+  `{{ }}` placeholders, not combined into the same cell. Verified this
+  by rendering with a synthetic 3-item list before trusting it against
+  real data.
+- **Tests** unzip the rendered `.docx` and check `word/document.xml`
+  content directly (brand name, strength, composition/stability table
+  values, narrative placeholder text) rather than just asserting
+  `render()` didn't raise — proving substitution actually happened.
+- **Concept to revisit:** `narrative` slots are always present in the
+  context dict (defaulting to `None` per slot), even when no narrative is
+  supplied — never simply absent — because an absent key would raise a
+  Jinja `Undefined` error where the template expects `narrative.x or
+  '[[placeholder]]'` to fall back gracefully.
+
+42 tests passing (2 skipped, need real Postgres — same as P03).
+
+---
+
 ## P03 — Regulatory Knowledge Base + RAG (copyright-safe)
 
 Retrieval layer over pgvector: `KBDocument`/`KBChunk` models, a

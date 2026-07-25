@@ -111,7 +111,7 @@ Full field definitions and relationships are specified in Phase 01.
 - [x] P01 — Data model (SQLAlchemy + Alembic + Pydantic)
 - [x] P02 — Backend API skeleton (CRUD, auth, project/sequence)
 - [x] P03 — Regulatory Knowledge Base + RAG (copyright-safe ingestion)
-- [ ] P04 — Template engine (docxtpl section templates)
+- [x] P04 — Template engine (docxtpl section templates)
 - [ ] P05 — AI narrative generation service (LLM, guardrailed)
 - [ ] P06 — Deterministic validation / rule engine
 - [ ] P07 — Document assembly + PDF (DOCX→PDF, bookmarks, granular leaves)

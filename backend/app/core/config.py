@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     s3_secret_key: str = "minioadmin"
     s3_bucket: str = "dossier-artifacts"
 
+    # Object storage for rendered section documents (P04) — same provider-
+    # abstraction rule as embedding_provider above: "memory" runs fully
+    # offline for dev/test (no MinIO needed), "s3" points at the real
+    # MinIO/S3-compatible endpoint configured above.
+    storage_provider: str = "memory"
+
     llm_provider: str = "anthropic"
     llm_model: str = "claude-sonnet-5"
     llm_api_key: str | None = None
