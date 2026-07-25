@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from app.models.product import Product
     from app.models.sequence import Sequence
     from app.models.narrative import NarrativeGeneration
+    from app.models.validation_override import ValidationOverride
 
 
 class Project(Base):
@@ -40,6 +41,9 @@ class Project(Base):
         back_populates="project", cascade="all, delete-orphan"
     )
     narrative_generations: Mapped[list["NarrativeGeneration"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    validation_overrides: Mapped[list["ValidationOverride"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
 

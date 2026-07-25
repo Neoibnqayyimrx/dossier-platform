@@ -49,6 +49,7 @@ EXPECTED_TABLES = {
     "narrative_generation",
     "narrative_generation_source",
     "certificate",
+    "validation_override",
 }
 
 

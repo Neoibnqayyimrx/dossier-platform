@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Base
 import app.validation.rules  # noqa: F401  registers rules
-from app.validation.engine import run_all
+from app.validation.engine import Severity, run_all
 from app.seed.examox import build_examox
 
 
@@ -49,15 +49,18 @@ def test_seed_examox_shelf_life_is_fully_supported():
 
 def test_buggy_examox_is_not_exportable():
     report = run_all(_load(buggy=True))
-    assert not report.is_exportable
+    assert not report.is_exportable()
     ids = {f.rule_id for f in report.findings}
     assert {"R01", "R02", "R03"} <= ids  # same three defect classes as LAMOX
 
 
 def test_corrected_examox_passes():
     report = run_all(_load(buggy=False))
-    assert report.is_exportable
-    assert report.findings == []
+    assert report.is_exportable()
+    # a genuinely clean dossier still gets INFO reminders (R11: verify the
+    # current pharmacopoeia edition) -- only ERROR/WARNING findings would
+    # indicate something is actually wrong.
+    assert not [f for f in report.findings if f.severity != Severity.INFO]
 
 
 def test_model_round_trip():

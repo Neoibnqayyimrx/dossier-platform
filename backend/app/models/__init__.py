@@ -43,6 +43,7 @@ from app.models.sequence import Sequence
 from app.models.user import User
 from app.models.kb import KBChunk, KBDocument
 from app.models.narrative import NarrativeGeneration
+from app.models.validation_override import ValidationOverride
 
 __all__ = [
     "Base",
@@ -79,4 +80,5 @@ __all__ = [
     "KBDocument",
     "KBChunk",
     "NarrativeGeneration",
+    "ValidationOverride",
 ]

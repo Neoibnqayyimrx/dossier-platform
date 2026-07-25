@@ -5,6 +5,71 @@ and one concept to revisit. Newest at the top.
 
 ---
 
+## P06 — Deterministic Validation / Rule Engine (13 rules, 113 tests)
+
+Graduated the pre-P00 vertical-slice prototype (`app/validation/engine.py` +
+R01-R06) into the real thing: region-aware rule filtering, a logged
+human-override escape hatch, 7 new rules closing categories R01-R06 didn't
+touch, and `/projects/{id}/readiness` + `/validation-overrides` replacing
+the P02 stub.
+
+- **`Report.is_exportable`/`.errors` changed from properties to methods**
+  taking an optional `frozenset[str]` of overridden rule ids — a small,
+  deliberate breaking change (touched ~4 existing call sites) rather than
+  bolting on a second parallel method, since "exportable with no
+  overrides" is just the default-argument case of the real question.
+- **Region filtering lives in `run_all`, never in a rule body:**
+  `@rule(rule_id, regions=[...])` stores which regions a rule applies to;
+  the engine skips it outright for a non-matching project. R13 (NAFDAC-only
+  CPP certificate check) is the concrete proof — same rule registration
+  pattern every other rule uses, just with one extra argument.
+- **`ValidationOverride` is a durable, DB-backed row, not a flag on
+  `Finding`:** findings are recomputed fresh on every `run_all` call and
+  never persisted, so there's nothing to flag — an override is a
+  standing decision ("R05 doesn't block this project, because...") keyed
+  by project + rule_id, re-checked against every subsequent readiness
+  call. `created_by_id` is required, not optional: an unattributed
+  override isn't an audit trail, just an unexplained bypass.
+- **New rules R07-R13**, one per previously-uncovered category:
+  API specification present (completeness), manufacturer GMP status
+  certified (completeness), an API's manufacturer actually has the
+  API_MANUFACTURER role and not just any role (reference integrity — a
+  FK alone only proves the referenced row *exists*, not that it's the
+  *right kind* of row), residual solvents checked against a small
+  hard-coded ICH Q3C limit table (regulatory limit, numbers only, never
+  guideline prose — same copyright-safe principle as the P03 KB),
+  a pharmacopoeial-citation reminder that fires as INFO on every
+  compendial reference (never blocks — pharmacopoeia text itself is
+  never stored here at all), pack size mentioned in packaging artwork
+  (consistency), and R13 (above).
+- **A genuinely clean dossier still has findings:** R11 fires an INFO
+  reminder on every pharmacopoeia citation, which is normal and expected
+  (BP/USP-NF citations are ordinary, not defects) — `assert findings ==
+  []` from the old tests had to become `assert not [f for f in findings
+  if f.severity != INFO]`. Exportability, not an empty report, is the
+  real signal.
+- **A real bug found by an existing, previously-unexercised test:**
+  R05 crashed with `TypeError` on a product with no `shelf_life_months`
+  set yet (a perfectly normal state right after creating a product via
+  the API) -- surfaced by `test_readiness_placeholder` once it started
+  exercising the real engine instead of the P02 stub. Fixed by returning
+  early rather than comparing against `None`.
+- **EXAMOX/LAMOX seed fixtures made genuinely complete**, not just their
+  tests patched around new findings: added `specifications` to each API,
+  `gmp_status=CERTIFIED` to each manufacturer, and an unexpired CPP
+  certificate -- so "the corrected variant passes" stays a meaningful
+  claim under the new rules, not something achieved by weakening the
+  assertion.
+- **Concept to revisit:** R10's residual-solvent parsing is a regex over
+  free text ("Methanol: 3500 ppm") — deliberately WARNING, not ERROR,
+  because a parsing miss or false-positive is a real risk with heuristic
+  text extraction; a human reviews every warning regardless.
+
+113 tests passing against a live Postgres (103 + 10 that self-skip
+without one, same convention as every prior KB/narrative test).
+
+---
+
 ## Interlude before P06 — combination products (Ampicillin+Cloxacillin fix)
 
 A direct question ("does this support multi-API products like AMPICLOX or

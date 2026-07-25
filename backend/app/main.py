@@ -7,6 +7,7 @@ from app.api.routers.narrative import router as narrative_router
 from app.api.routers.nested import NESTED_ROUTERS
 from app.api.routers.products import router as products_router
 from app.api.routers.projects import router as projects_router
+from app.api.routers.validation import router as validation_router
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -20,6 +21,7 @@ app.include_router(products_router)
 app.include_router(projects_router)
 app.include_router(kb_router)
 app.include_router(narrative_router)
+app.include_router(validation_router)
 for nested_router in NESTED_ROUTERS:
     app.include_router(nested_router)
 

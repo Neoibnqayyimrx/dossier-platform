@@ -10,6 +10,8 @@ packaging/stability/storage), not a third party's.
 
 from __future__ import annotations
 
+from datetime import date
+
 from app.models import (
     Project,
     Product,
@@ -20,6 +22,7 @@ from app.models import (
     StabilityStudy,
     ClinicalEntry,
     BatchFormulaLine,
+    Certificate,
     Section,
     DosageForm,
     RegistrationType,
@@ -27,6 +30,8 @@ from app.models import (
     ExcipientFunction,
     ManufacturerRole,
     CompendialStatus,
+    CertificateType,
+    GMPStatus,
     PackagingComponent,
     StabilityStudyType,
     ClinicalKind,
@@ -82,6 +87,7 @@ def build_examox(buggy: bool = True) -> Project:
             role=ManufacturerRole.FINISHED_PRODUCT,
             site_address="Cadastral Zone, Gwagwalada, Abuja",
             country="Nigeria",
+            gmp_status=GMPStatus.CERTIFIED,
         )
     )
     amoxicillin = ActiveIngredient(
@@ -94,6 +100,7 @@ def build_examox(buggy: bool = True) -> Project:
         salt_form="Amoxicillin Trihydrate",
         salt_factor=1.148,  # trihydrate/base mass ratio
         compendial_std=CompendialStatus.BP,
+        specifications="Assay 90.0-120.0%, related substances per BP monograph.",
         # base (anhydrous) amoxicillin structure -- public chemistry,
         # not the trihydrate salt actually weighed (see salt_factor).
         smiles="CC1(C)S[C@@H]2[C@H](NC(=O)[C@H](N)c3ccc(O)cc3)C(=O)N2[C@H]1C(=O)O",
@@ -146,6 +153,19 @@ def build_examox(buggy: bool = True) -> Project:
             kind=ClinicalKind.BIOEQUIVALENCE,
             reference_product="Reference amoxicillin 500 mg capsule",
             summary="Comparative BA/BE study; bioequivalence demonstrated.",
+        )
+    )
+    # Required for a NAFDAC filing (rule R13) -- unexpired, on file
+    # regardless of the buggy/corrected narrative variant, since this is
+    # an unrelated completeness fact about the real product, not one of
+    # the planted R01-R03 copy-paste bugs.
+    product.certificates.append(
+        Certificate(
+            certificate_type=CertificateType.CPP,
+            issuing_authority="NAFDAC",
+            certificate_number="NAFDAC/CPP/2026/EXAMOX-001",
+            issue_date=date(2026, 1, 15),
+            expiry_date=date.today().replace(year=date.today().year + 2),
         )
     )
     product.batch_formula.append(

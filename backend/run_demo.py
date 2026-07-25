@@ -40,8 +40,8 @@ def _print_report(title: str, report) -> None:
         mark = {"ERROR": "X", "WARNING": "!", "INFO": "i"}[f.severity.value]
         loc = f" [{f.section}]" if f.section else ""
         print(f"  [{mark}] {f.rule_id} ({f.severity.value}){loc}: {f.message}")
-    print(f"\n  Exportable (no errors)? {report.is_exportable}")
-    print(f"  Errors: {len(report.errors)}  |  Total findings: {len(report.findings)}")
+    print(f"\n  Exportable (no errors)? {report.is_exportable()}")
+    print(f"  Errors: {len(report.errors())}  |  Total findings: {len(report.findings)}")
 
 
 def main() -> None:

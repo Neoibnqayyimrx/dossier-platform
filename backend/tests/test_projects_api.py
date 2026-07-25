@@ -61,7 +61,10 @@ async def test_sequence_auto_numbering_ignores_client_number(auth_client):
     assert len(fetched.json()["sequences"]) == 2
 
 
-async def test_readiness_placeholder(auth_client):
+async def test_readiness_reports_real_findings(auth_client):
+    """P06 replaced the placeholder with the real rule engine -- a bare
+    product with no manufacturer/APIs/certificates on file is genuinely
+    not exportable, and the response says why."""
     product_id = await _create_product(auth_client)
     project = (
         await auth_client.post(
@@ -71,7 +74,9 @@ async def test_readiness_placeholder(auth_client):
 
     resp = await auth_client.get(f"/projects/{project['id']}/readiness")
     assert resp.status_code == 200
-    assert resp.json() == {"ready": False, "checks": []}
+    body = resp.json()
+    assert body["is_exportable"] is False
+    assert body["findings"]  # e.g. R06 (no bioequivalence), R13 (no CPP)
 
 
 async def test_unauthenticated_sequence_create_is_rejected(client):

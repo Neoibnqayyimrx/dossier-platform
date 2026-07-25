@@ -11,9 +11,17 @@ scanning rules are the safety net for prose that slips through.
 from __future__ import annotations
 
 import re
+from datetime import date
 
 from app.validation.engine import Finding, Severity, rule
-from app.models import DosageForm
+from app.models import (
+    CertificateType,
+    DosageForm,
+    GMPStatus,
+    ManufacturerRole,
+    PackagingComponent,
+    Region,
+)
 
 # Words that denote a dosage form, mapped to the enum member they imply.
 _FORM_WORDS = {
@@ -158,8 +166,13 @@ def salt_base_batch_arithmetic(project) -> list[Finding]:
 
 @rule("R05")
 def shelf_life_within_stability(project) -> list[Finding]:
-    """Declared shelf life must be supported by long-term stability duration."""
+    """Declared shelf life must be supported by long-term stability duration.
+    A product with no declared shelf life yet has nothing for this rule to
+    check -- that's R06/R07-style completeness territory, not this rule's
+    job, so it stays silent rather than crashing on None."""
     product = project.product
+    if product.shelf_life_months is None:
+        return []
     supported = max((s.duration_months for s in product.stability), default=0)
     if product.shelf_life_months > supported:
         return [
@@ -187,6 +200,210 @@ def generic_requires_bioequivalence(project) -> list[Finding]:
                 "completeness",
                 "No bioequivalence study found, but one is required for this "
                 "generic product (Module 5.3.1).",
+            )
+        ]
+    return []
+
+
+@rule("R07")
+def api_specification_present(project) -> list[Finding]:
+    """Every active ingredient must have a specification on file
+    (Module 3.2.S.4.1) -- completeness, not just "the row exists"."""
+    out: list[Finding] = []
+    for api in project.product.apis:
+        if not api.specifications:
+            out.append(
+                Finding(
+                    "R07",
+                    Severity.ERROR,
+                    "completeness",
+                    f"{api.inn_name} has no specification on file "
+                    f"(required, Module 3.2.S.4.1).",
+                )
+            )
+    return out
+
+
+@rule("R08")
+def manufacturer_gmp_certified(project) -> list[Finding]:
+    """Every manufacturer's GMP status must be CERTIFIED -- pending,
+    expired, not-certified, or simply not on file all block export."""
+    out: list[Finding] = []
+    for manufacturer in project.product.manufacturers:
+        if manufacturer.gmp_status != GMPStatus.CERTIFIED:
+            status = manufacturer.gmp_status.value if manufacturer.gmp_status else "not on file"
+            out.append(
+                Finding(
+                    "R08",
+                    Severity.ERROR,
+                    "completeness",
+                    f"Manufacturer {manufacturer.name}'s GMP status is "
+                    f"'{status}', not certified.",
+                )
+            )
+    return out
+
+
+@rule("R09")
+def api_manufacturer_role_integrity(project) -> list[Finding]:
+    """An API's linked manufacturer, if any, must actually play the
+    API_MANUFACTURER role. A foreign key alone only proves the row
+    exists -- not that it's the RIGHT kind of row (e.g. not accidentally
+    pointed at the finished-product site)."""
+    out: list[Finding] = []
+    for api in project.product.apis:
+        manufacturer = api.manufacturer
+        if manufacturer is not None and manufacturer.role != ManufacturerRole.API_MANUFACTURER:
+            out.append(
+                Finding(
+                    "R09",
+                    Severity.ERROR,
+                    "reference-integrity",
+                    f"{api.inn_name} is linked to manufacturer "
+                    f"{manufacturer.name}, whose role is "
+                    f"'{manufacturer.role.value}', not API manufacturer.",
+                )
+            )
+    return out
+
+
+# ICH Q3C residual-solvent class limits (ppm) -- public, numeric-only
+# reference data, never the guideline's own text (same copyright-safe
+# principle as the P03 knowledge base's ICH allowlist). A short,
+# representative subset, not the full class 1-3 table.
+_Q3C_LIMITS_PPM = {
+    "methanol": 3000,
+    "dichloromethane": 600,
+    "chloroform": 60,
+    "acetonitrile": 410,
+    "pyridine": 200,
+    "toluene": 890,
+}
+
+_SOLVENT_MENTION_RE = re.compile(r"([A-Za-z][A-Za-z ]*?)\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*ppm")
+
+
+@rule("R10")
+def residual_solvent_limits(project) -> list[Finding]:
+    """Flag a residual solvent level above its ICH Q3C class limit.
+    WARNING, not ERROR: parsing free text for "<solvent> <n> ppm" mentions
+    is heuristic, and a parsing miss shouldn't silently pass while a
+    parsing false-positive shouldn't hard-block a real submission --
+    a human reviews every warning either way."""
+    out: list[Finding] = []
+    for api in project.product.apis:
+        if not api.residual_solvents:
+            continue
+        for match in _SOLVENT_MENTION_RE.finditer(api.residual_solvents):
+            solvent = match.group(1).strip().lower()
+            limit = _Q3C_LIMITS_PPM.get(solvent)
+            if limit is None:
+                continue
+            level = float(match.group(2))
+            if level > limit:
+                out.append(
+                    Finding(
+                        "R10",
+                        Severity.WARNING,
+                        "regulatory-limit",
+                        f"{api.inn_name}: {solvent} at {level:g} ppm exceeds "
+                        f"the ICH Q3C limit of {limit} ppm.",
+                    )
+                )
+    return out
+
+
+@rule("R11")
+def pharmacopoeial_version_reminder(project) -> list[Finding]:
+    """INFO reminder: any compendial-standard citation should be checked
+    against its CURRENT edition before submission. Pharmacopoeia text is
+    never stored here at all (AGENTS.md §5) -- only the citation -- so
+    this is a nudge for a human to go verify, not something code can
+    check on its own."""
+    product = project.product
+    out: list[Finding] = []
+    for api in product.apis:
+        if api.compendial_std is not None:
+            out.append(
+                Finding(
+                    "R11",
+                    Severity.INFO,
+                    "regulatory-limit",
+                    f"{api.inn_name} cites {api.compendial_std.value} -- "
+                    f"verify the current edition is in force before submission.",
+                )
+            )
+    for excipient in product.excipients:
+        if excipient.compendial_status is not None:
+            out.append(
+                Finding(
+                    "R11",
+                    Severity.INFO,
+                    "regulatory-limit",
+                    f"{excipient.name} cites {excipient.compendial_status.value} "
+                    f"-- verify the current edition is in force before submission.",
+                )
+            )
+    return out
+
+
+_PACKAGING_LABEL_COMPONENTS = (
+    PackagingComponent.ARTWORK,
+    PackagingComponent.LABEL,
+    PackagingComponent.CARTON,
+)
+
+
+@rule("R12")
+def pack_size_matches_packaging(project) -> list[Finding]:
+    """The product's declared pack size should appear in at least one
+    artwork/label/carton packaging description -- a mismatch usually
+    means the artwork wasn't updated when the pack size changed."""
+    product = project.product
+    if not product.pack_size:
+        return []
+    relevant = [p for p in product.packaging if p.component in _PACKAGING_LABEL_COMPONENTS]
+    if not relevant:
+        return []
+    if any(product.pack_size.lower() in (p.description or "").lower() for p in relevant):
+        return []
+    return [
+        Finding(
+            "R12",
+            Severity.WARNING,
+            "consistency",
+            f"Declared pack size '{product.pack_size}' is not mentioned in "
+            f"any artwork/label/carton packaging description.",
+        )
+    ]
+
+
+@rule("R13", regions=[Region.NAFDAC])
+def nafdac_cpp_certificate_required(project) -> list[Finding]:
+    """A NAFDAC filing requires a Certificate of Pharmaceutical Product
+    (CPP) that is actually on file and unexpired -- region-scoped, so
+    this never runs at all for an FDA/EU project (see run_all's
+    filtering in engine.py), unlike R01-R12 which apply everywhere."""
+    product = project.product
+    cpps = [c for c in product.certificates if c.certificate_type == CertificateType.CPP]
+    if not cpps:
+        return [
+            Finding(
+                "R13",
+                Severity.ERROR,
+                "completeness",
+                "No Certificate of Pharmaceutical Product (CPP) on file -- "
+                "required for a NAFDAC filing.",
+            )
+        ]
+    if not any(c.expiry_date is not None and c.expiry_date >= date.today() for c in cpps):
+        return [
+            Finding(
+                "R13",
+                Severity.ERROR,
+                "completeness",
+                "The Certificate of Pharmaceutical Product (CPP) on file is "
+                "expired or has no expiry date recorded.",
             )
         ]
     return []

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import selectinload
 
-from app.models import Product, Project
+from app.models import ActiveIngredient, BatchFormulaLine, Product, Project
 
 # Every child collection ProductRead nests (app/schemas/product.py).
 PRODUCT_CHILD_OPTIONS = (
@@ -36,4 +36,20 @@ PROJECT_CHILD_OPTIONS = (
     selectinload(Project.product).selectinload(Product.clinical),
     selectinload(Project.product).selectinload(Product.batch_formula),
     selectinload(Project.sequences),
+)
+
+# P06's run_all() walks the full project graph (rules read manufacturers,
+# apis + each API's manufacturer, batch_formula + each line's active
+# ingredient, certificates, and the project's sections) -- every one of
+# those relationships must be eager-loaded here, or a rule touching an
+# un-loaded one raises MissingGreenlet inside the (sync) rule function.
+READINESS_LOAD_OPTIONS = PROJECT_CHILD_OPTIONS + (
+    selectinload(Project.product)
+    .selectinload(Product.apis)
+    .selectinload(ActiveIngredient.manufacturer),
+    selectinload(Project.product)
+    .selectinload(Product.batch_formula)
+    .selectinload(BatchFormulaLine.active_ingredient),
+    selectinload(Project.product).selectinload(Product.certificates),
+    selectinload(Project.sections),
 )

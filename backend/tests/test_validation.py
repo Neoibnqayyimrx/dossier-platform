@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Base
 import app.validation.rules  # noqa: F401  registers rules
-from app.validation.engine import run_all
+from app.validation.engine import Severity, run_all
 from app.seed.lamox import build_lamox
 from app.templating.section_map import render_p1
 
@@ -25,7 +25,7 @@ def _load(buggy: bool):
 
 def test_buggy_dossier_is_not_exportable():
     report = run_all(_load(buggy=True))
-    assert not report.is_exportable
+    assert not report.is_exportable()
     ids = {f.rule_id for f in report.findings}
     assert {"R01", "R02", "R03"} <= ids  # all three real bugs caught
 
@@ -38,8 +38,11 @@ def test_r01_names_the_wrong_strength():
 
 def test_corrected_dossier_passes():
     report = run_all(_load(buggy=False))
-    assert report.is_exportable
-    assert report.findings == []
+    assert report.is_exportable()
+    # a genuinely clean dossier still gets INFO reminders (R11: verify the
+    # current pharmacopoeia edition) -- only ERROR/WARNING findings would
+    # indicate something is actually wrong.
+    assert not [f for f in report.findings if f.severity != Severity.INFO]
 
 
 def test_salt_base_arithmetic_passes_for_lamox():

@@ -1,5 +1,5 @@
-"""Project CRUD + the two P02-specific endpoints: sequence auto-numbering
-and the readiness placeholder (P06 fills in the real checks)."""
+"""Project CRUD + sequence auto-numbering (P02). Readiness/validation-
+override endpoints live in app.api.routers.validation (P06)."""
 
 from __future__ import annotations
 
@@ -141,9 +141,7 @@ async def update_sequence(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> Sequence:
-    stmt = select(Sequence).where(
-        Sequence.id == sequence_id, Sequence.project_id == project_id
-    )
+    stmt = select(Sequence).where(Sequence.id == sequence_id, Sequence.project_id == project_id)
     sequence = await db.scalar(stmt)
     if sequence is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Sequence not found")
@@ -154,11 +152,3 @@ async def update_sequence(
     await db.commit()
     await db.refresh(sequence)
     return sequence
-
-
-@router.get("/{project_id}/readiness")
-async def get_readiness(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict:
-    """Placeholder: P06's deterministic rule engine fills this in with real
-    findings. For now it just confirms the project exists."""
-    await _get_project_or_404(project_id, db)
-    return {"ready": False, "checks": []}
