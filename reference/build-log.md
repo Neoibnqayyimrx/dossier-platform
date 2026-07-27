@@ -5,6 +5,72 @@ and one concept to revisit. Newest at the top.
 
 ---
 
+## P07 — Document Assembly + PDF (DOCX->PDF, bookmarks, granular leaves)
+
+Converts P04's rendered `.docx` sections into eCTD-grade PDFs: text-
+searchable, bookmarked, byte-deterministic, one leaf per section.
+
+- **New system dependency: LibreOffice headless**, installed via apt in
+  both this environment and `backend/Dockerfile` + CI (no Python library
+  converts a real DOCX to PDF faithfully — LibreOffice's own layout
+  engine is what actually does it). Flagged explicitly before installing,
+  same as RDKit earlier — a real, non-trivial dependency, not a free
+  addition.
+- **How byte-stable PDFs were actually achieved** (the phase's own
+  required detail): verified empirically, not assumed, that converting
+  the same `.docx` twice gives two *different* PDFs by default (confirmed
+  differing MD5s) — `soffice` embeds a wall-clock `/CreationDate` and a
+  freshly-randomized `/ID` on every run. `app/assembly/pdf.py` normalizes
+  both with `pypdf` after conversion: pins `/CreationDate`/`/ModDate` to a
+  fixed constant, then lets `pypdf` recompute `/ID` from a checksum of
+  the (now-normalized) PDF structure itself -- content-derived, not
+  time-based, so identical content always yields an identical ID.
+  Re-verified after the fix: two conversions now produce byte-identical
+  output, in the same process and across separate process invocations.
+- **Bookmarks are set from known data, not detected**: rather than
+  scanning the rendered PDF for heading-sized text, `convert_docx_to_pdf`
+  takes an explicit `bookmark_title` (the caller already knows it from
+  `SectionSpec.title`). Turned out LibreOffice *also* auto-generates a
+  bookmark from the docx's own "Heading" paragraph style, which produced
+  a confusing near-duplicate outline entry — fixed by appending with
+  `import_outline=False` so only the authoritative, guaranteed one
+  survives.
+- **`app/assembly/assemble.py`**: the orchestrator. Iterates every
+  registered `SectionSpec`, pulls whatever narrative is already approved
+  (P05), renders (P04), converts to a leaf PDF, and returns a leaf
+  inventory (`{section, title, storage_path, md5, filename}`) — the
+  shared input P08/P09 will consume later. Granularity (no mega-PDF) is
+  structural, not a rule to remember: the loop writes one leaf per
+  section by construction, so there's no code path that could concatenate
+  two sections together.
+- **Gated on P06's validation report**: refuses to produce anything at
+  all — not even a partial manifest — if `report.is_exportable
+  (overridden_rule_ids)` is `False`.
+- **A real bug, caught by testing the negative case, not just the happy
+  path:** the orchestrator initially never imported `app.validation.
+  rules` (only `app.validation.engine.run_all`) — since `@rule` decorators
+  only register themselves as a side effect of that module being
+  imported somewhere, the rule registry was silently empty and a buggy
+  project sailed through assembly with zero findings. Caught immediately
+  by testing that a known-buggy project actually gets blocked, not by
+  assuming the happy-path test passing meant the gate worked. Same
+  "explicit registration import" footgun the narrative router already
+  had to guard against — worth remembering as a recurring shape of bug
+  in this codebase's rule-registration pattern.
+- **Concept to revisit:** LibreOffice conversion is synchronous/blocking
+  and takes ~1-2s per section; running it directly inside an async
+  request handler (as the orchestrator currently does) blocks the event
+  loop. Fine for this phase's scope (correctness over performance), but
+  the P07 prompt itself flags "run in its own container/process if
+  needed" as a follow-up, not something solved here.
+
+13 new tests (6 pdf.py, 7 assemble.py); 129 passing overall. Full suite
+runtime grew from ~14s to ~55s, almost entirely LibreOffice conversion —
+a real, deliberate tradeoff for testing the actual conversion rather than
+mocking it.
+
+---
+
 ## Interlude before P07 — expand DosageForm (8 -> 37 members)
 
 A direct question ("does this project capture every drug dosage form?")
