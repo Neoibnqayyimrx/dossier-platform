@@ -53,6 +53,17 @@ SECTIONS: dict[str, SectionSpec] = {
         narrative_slots=["purpose"],
         grounding_query="administrative submission requirements cover letter",
     ),
+    "1.2": SectionSpec(
+        number="1.2",
+        title="Application / Registration Form",
+        template_filename="registration_form.docx",
+        # No narrative slots: unlike the cover letter, every fact on a
+        # registration form is already structured data (applicant, product,
+        # region) -- there is nothing here for P05's LLM to draft. A good
+        # example that not every Module 1 document needs narrative prose.
+        narrative_slots=[],
+        grounding_query=None,
+    ),
     "3.2.P.1": SectionSpec(
         number="3.2.P.1",
         title="Description and Composition of Drug Product",

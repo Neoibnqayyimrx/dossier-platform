@@ -23,6 +23,8 @@ from app.models import (
     ClinicalEntry,
     BatchFormulaLine,
     Certificate,
+    Applicant,
+    Declaration,
     Section,
     DosageForm,
     RegistrationType,
@@ -31,6 +33,7 @@ from app.models import (
     ManufacturerRole,
     CompendialStatus,
     CertificateType,
+    DeclarationType,
     GMPStatus,
     PackagingComponent,
     StabilityStudyType,
@@ -77,6 +80,35 @@ def build_lamox(buggy: bool = True) -> Project:
         country="Nigeria",
     )
     project = Project(name="LAMOX renewal", region=Region.NAFDAC, product=product)
+
+    # Module 1 (P08): same treatment as EXAMOX -- present regardless of the
+    # buggy/corrected narrative variant, since these are unrelated
+    # completeness facts about the real filing.
+    project.applicant = Applicant(
+        company_name="Local Pharma Manufacturing Ltd",
+        country="Nigeria",
+        contact_name="Chidi Okafor",
+        contact_email="regulatory@localpharma.example",
+        contact_phone="+234-800-111-1111",
+        authorized_representative_name="Chidi Okafor",
+        authorized_representative_title="Regulatory Affairs Manager",
+    )
+    project.declarations.extend(
+        [
+            Declaration(
+                declaration_type=DeclarationType.POWER_OF_ATTORNEY,
+                signed=True,
+                signed_date=date(2026, 1, 20),
+                notarized=True,
+                notarization_date=date(2026, 1, 22),
+            ),
+            Declaration(
+                declaration_type=DeclarationType.DECLARATION_OF_AUTHENTICITY,
+                signed=True,
+                signed_date=date(2026, 1, 20),
+            ),
+        ]
+    )
 
     product.manufacturers.append(
         Manufacturer(

@@ -39,6 +39,35 @@ def build_context(
             "narrative": narrative,
         }
 
+    if section_number == "1.2":
+        applicant = project.applicant
+        _MISSING = "[[NOT YET ON FILE]]"
+        authorized_representative = _MISSING
+        if applicant and applicant.authorized_representative_name:
+            title = applicant.authorized_representative_title
+            authorized_representative = (
+                f"{applicant.authorized_representative_name}, {title}"
+                if title
+                else applicant.authorized_representative_name
+            )
+        return {
+            "authority": project.region.value,
+            "registration_type": (
+                product.registration_type.value if product.registration_type else None
+            ),
+            "product": product,
+            "applicant_name": applicant.company_name if applicant else _MISSING,
+            "applicant_address": applicant.address if applicant and applicant.address else _MISSING,
+            "applicant_country": applicant.country if applicant and applicant.country else _MISSING,
+            "contact_name": (
+                applicant.contact_name if applicant and applicant.contact_name else _MISSING
+            ),
+            "contact_email": (
+                applicant.contact_email if applicant and applicant.contact_email else _MISSING
+            ),
+            "authorized_representative": authorized_representative,
+        }
+
     if section_number == "3.2.P.1":
         return {
             "product": product,

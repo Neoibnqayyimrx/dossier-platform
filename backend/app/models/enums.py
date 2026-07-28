@@ -194,6 +194,32 @@ class CertificateType(str, enum.Enum):
     CEP = "CEP"  # Certificate of Suitability to a Ph. Eur. monograph (EDQM)
     COA = "CoA"  # Certificate of Analysis, batch-specific
     FREE_SALE = "free-sale-certificate"
+    TRADEMARK = "trademark-registration"  # product-level, not site-specific
+    MANUFACTURING_LICENCE = "manufacturing-licence"  # site-specific, like GMP
+
+
+class DeclarationType(str, enum.Enum):
+    """A Module 1 administrative document whose CONTENT we can generate
+    from data on file (unlike a Certificate, which only a third party can
+    issue) but which still needs a human signature -- and, for some types,
+    notarization/legalization -- before it's real. See
+    app.templating.declarations for the "SIGNATURE REQUIRED" placeholder
+    this becomes at assembly time."""
+
+    POWER_OF_ATTORNEY = "power-of-attorney"  # appoints the local representative
+    DECLARATION_OF_AUTHENTICITY = "declaration-of-authenticity"
+    GMP_COMPLIANCE_UNDERTAKING = "gmp-compliance-undertaking"
+
+
+# Which declaration types need a notary/legalization on top of a plain
+# signature -- a Power of Attorney and a GMP undertaking are typically
+# notarized/legalized in a NAFDAC filing, while a Declaration of
+# Authenticity is usually just signed. Single source of truth so
+# app.templating.declarations's placeholder text and P06's R15 rule can't
+# drift out of sync with each other.
+DECLARATIONS_REQUIRING_NOTARIZATION = frozenset(
+    {DeclarationType.POWER_OF_ATTORNEY, DeclarationType.GMP_COMPLIANCE_UNDERTAKING}
+)
 
 
 class NarrativeStatus(str, enum.Enum):

@@ -32,7 +32,9 @@ def build_child_router(
         if await db.scalar(select(Product.id).where(Product.id == product_id)) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
 
-    async def _get_child_or_404(product_id: uuid.UUID, child_id: uuid.UUID, db: AsyncSession) -> Any:
+    async def _get_child_or_404(
+        product_id: uuid.UUID, child_id: uuid.UUID, db: AsyncSession
+    ) -> Any:
         stmt = select(model).where(model.id == child_id, model.product_id == product_id)
         obj = await db.scalar(stmt)
         if obj is None:

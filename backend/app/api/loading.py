@@ -52,4 +52,7 @@ READINESS_LOAD_OPTIONS = PROJECT_CHILD_OPTIONS + (
     .selectinload(BatchFormulaLine.active_ingredient),
     selectinload(Project.product).selectinload(Product.certificates),
     selectinload(Project.sections),
+    # P08: R14/R16 read project.applicant, R15/R16 read project.declarations.
+    selectinload(Project.applicant),
+    selectinload(Project.declarations),
 )

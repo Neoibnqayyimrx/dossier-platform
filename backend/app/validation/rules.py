@@ -16,6 +16,8 @@ from datetime import date
 from app.validation.engine import Finding, Severity, rule
 from app.models import (
     CertificateType,
+    DeclarationType,
+    DECLARATIONS_REQUIRING_NOTARIZATION,
     DosageForm,
     GMPStatus,
     ManufacturerRole,
@@ -424,6 +426,89 @@ def nafdac_cpp_certificate_required(project) -> list[Finding]:
                 "completeness",
                 "The Certificate of Pharmaceutical Product (CPP) on file is "
                 "expired or has no expiry date recorded.",
+            )
+        ]
+    return []
+
+
+@rule("R14", regions=[Region.NAFDAC])
+def nafdac_applicant_required(project) -> list[Finding]:
+    """A NAFDAC filing must name who is legally applying (Module 1's
+    opening question -- dossier-anatomy.md) -- region-scoped like R13,
+    since a different region's Module 1 has its own applicant-equivalent
+    requirement, not necessarily this exact check."""
+    if project.applicant is None:
+        return [
+            Finding(
+                "R14",
+                Severity.ERROR,
+                "completeness",
+                "No applicant on file -- a NAFDAC filing must name the "
+                "legal entity submitting the application.",
+            )
+        ]
+    return []
+
+
+@rule("R15")
+def declarations_signed(project) -> list[Finding]:
+    """Any Declaration attached to the project (Power of Attorney,
+    Declaration of Authenticity, GMP undertaking) must actually be signed
+    before export -- an unsigned one is worse than a missing one, since it
+    looks complete at a glance. Notarization is a softer nudge (WARNING):
+    only some declaration types require it (DECLARATIONS_REQUIRING_
+    NOTARIZATION), and a human should double-check rather than have this
+    hard-block a filing whose real requirement this engine can't verify."""
+    out: list[Finding] = []
+    for declaration in project.declarations:
+        label = declaration.declaration_type.value
+        if not declaration.signed:
+            out.append(
+                Finding(
+                    "R15",
+                    Severity.ERROR,
+                    "completeness",
+                    f"{label} is on file but not yet signed.",
+                )
+            )
+        elif (
+            declaration.declaration_type in DECLARATIONS_REQUIRING_NOTARIZATION
+            and not declaration.notarized
+        ):
+            out.append(
+                Finding(
+                    "R15",
+                    Severity.WARNING,
+                    "completeness",
+                    f"{label} is signed but not yet notarized/legalized.",
+                )
+            )
+    return out
+
+
+_NAFDAC_REQUIRED_DECLARATIONS = (
+    DeclarationType.POWER_OF_ATTORNEY,
+    DeclarationType.DECLARATION_OF_AUTHENTICITY,
+)
+
+
+@rule("R16", regions=[Region.NAFDAC])
+def nafdac_required_declarations_present(project) -> list[Finding]:
+    """A NAFDAC filing specifically requires a Power of Attorney and a
+    Declaration of Authenticity to be on file at all -- distinct from R15,
+    which only checks that whatever declarations ARE attached are signed.
+    A project with zero declarations passes R15 vacuously but must fail
+    here."""
+    present = {d.declaration_type for d in project.declarations}
+    missing = [t for t in _NAFDAC_REQUIRED_DECLARATIONS if t not in present]
+    if missing:
+        names = ", ".join(t.value for t in missing)
+        return [
+            Finding(
+                "R16",
+                Severity.ERROR,
+                "completeness",
+                f"Missing required declaration(s) for a NAFDAC filing: {names}.",
             )
         ]
     return []

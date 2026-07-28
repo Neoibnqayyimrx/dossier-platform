@@ -23,6 +23,8 @@ from app.models import (
     ClinicalEntry,
     BatchFormulaLine,
     Certificate,
+    Applicant,
+    Declaration,
     Section,
     DosageForm,
     RegistrationType,
@@ -31,6 +33,7 @@ from app.models import (
     ManufacturerRole,
     CompendialStatus,
     CertificateType,
+    DeclarationType,
     GMPStatus,
     PackagingComponent,
     StabilityStudyType,
@@ -80,6 +83,37 @@ def build_examox(buggy: bool = True) -> Project:
         country="Nigeria",
     )
     project = Project(name="EXAMOX renewal", region=Region.NAFDAC, product=product)
+
+    # Module 1 (P08): who is filing, and this filing's signed/notarized
+    # administrative declarations -- unrelated completeness facts about the
+    # real product/filing, present regardless of the buggy/corrected
+    # narrative variant, same treatment as the CPP certificate below.
+    project.applicant = Applicant(
+        company_name="Exagon Pharmaceuticals Ltd",
+        address="Cadastral Zone, Gwagwalada, Abuja",
+        country="Nigeria",
+        contact_name="Aisha Bello",
+        contact_email="regulatory@exagon.example",
+        contact_phone="+234-800-000-0000",
+        authorized_representative_name="Aisha Bello",
+        authorized_representative_title="Head of Regulatory Affairs",
+    )
+    project.declarations.extend(
+        [
+            Declaration(
+                declaration_type=DeclarationType.POWER_OF_ATTORNEY,
+                signed=True,
+                signed_date=date(2026, 1, 20),
+                notarized=True,
+                notarization_date=date(2026, 1, 22),
+            ),
+            Declaration(
+                declaration_type=DeclarationType.DECLARATION_OF_AUTHENTICITY,
+                signed=True,
+                signed_date=date(2026, 1, 20),
+            ),
+        ]
+    )
 
     product.manufacturers.append(
         Manufacturer(

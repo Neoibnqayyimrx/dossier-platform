@@ -19,6 +19,8 @@ from app.models.base import Base
 from app.models.enums import Region
 
 if TYPE_CHECKING:
+    from app.models.applicant import Applicant
+    from app.models.declaration import Declaration
     from app.models.product import Product
     from app.models.sequence import Sequence
     from app.models.narrative import NarrativeGeneration
@@ -34,6 +36,13 @@ class Project(Base):
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("product.id"))
     product: Mapped["Product"] = relationship(back_populates="projects")
 
+    # Nullable: a project can exist before its applicant is captured --
+    # completeness for a NAFDAC filing is R14's job, not a schema constraint.
+    applicant_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("applicant.id"), nullable=True
+    )
+    applicant: Mapped["Applicant | None"] = relationship(back_populates="projects")
+
     sequences: Mapped[list["Sequence"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
@@ -44,6 +53,9 @@ class Project(Base):
         back_populates="project", cascade="all, delete-orphan"
     )
     validation_overrides: Mapped[list["ValidationOverride"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    declarations: Mapped[list["Declaration"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
 

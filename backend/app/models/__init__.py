@@ -16,6 +16,8 @@ from app.models.enums import (
     CertificateType,
     ClinicalKind,
     CompendialStatus,
+    DeclarationType,
+    DECLARATIONS_REQUIRING_NOTARIZATION,
     DosageForm,
     ExcipientFunction,
     GMPStatus,
@@ -38,6 +40,8 @@ from app.models.stability import StabilityStudy
 from app.models.clinical import ClinicalEntry
 from app.models.batch_formula import BatchFormulaLine
 from app.models.certificate import Certificate
+from app.models.applicant import Applicant
+from app.models.declaration import Declaration
 from app.models.project import Project, Section
 from app.models.sequence import Sequence
 from app.models.user import User
@@ -51,6 +55,8 @@ __all__ = [
     "CertificateType",
     "ClinicalKind",
     "CompendialStatus",
+    "DeclarationType",
+    "DECLARATIONS_REQUIRING_NOTARIZATION",
     "DosageForm",
     "ExcipientFunction",
     "GMPStatus",
@@ -73,6 +79,8 @@ __all__ = [
     "ClinicalEntry",
     "BatchFormulaLine",
     "Certificate",
+    "Applicant",
+    "Declaration",
     "Project",
     "Section",
     "Sequence",
