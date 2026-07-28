@@ -5,6 +5,126 @@ and one concept to revisit. Newest at the top.
 
 ---
 
+## P08 — CTD / NAPAMS Folder + TOC Builder (first shippable deliverable)
+
+Assembles the P07 leaf inventory plus the new Module 1 documents (cover
+letter, registration form, certificates, declarations) into an actual
+NAFDAC CTD folder tree, with a generated TOC and a manifest, zipped for
+upload to NAPAMS. Per nafdac-vs-fda-ema-scope.md, this needs no XML
+backbone at all -- a structured folder of PDFs plus a TOC genuinely is a
+complete, submittable CTD.
+
+- **New `app/ctd/` package**, split exactly along the region-varies /
+  region-doesn't line from nafdac-vs-fda-ema-scope.md: `structure.py` is a
+  plain hardcoded Module 2-5 folder map (identical across NAFDAC/FDA/EMA),
+  while `region_profiles.py` holds NAFDAC's Module 1 slot list as data,
+  not code branches. Adding FDA/EU later is "write a new `RegionProfile`,"
+  not "add an if-branch to the builder" -- the same design principle P06's
+  `regions=[...]` rule filtering already established.
+- **Folder naming reuses the eCTD-style convention** from
+  reference/ectd-backbone-architecture.md (`m3/32-body-data/...`) even
+  though NAFDAC needs no XML backbone -- costs nothing now, and means
+  P09's eCTD builder can point at the same physical files later instead of
+  re-deriving a second folder scheme.
+- **`build_ctd_package` (`app/ctd/build.py`) reuses P07's gate wholesale**:
+  it calls `assemble_project` and lets `AssemblyBlockedError` propagate
+  unchanged, rather than re-checking validation itself -- AGENTS.md §5's
+  "validation is a gate" stays true in exactly one place.
+- **Certificates and declarations get converted to PDF too**, through the
+  same `convert_docx_to_pdf` P07 built -- a submission package that mixed
+  PDF leaves with stray .docx placeholders would look broken, even though
+  the *content* of those placeholders is intentionally a stand-in.
+- **Idempotent by construction, not by accident**: `zipfile` stamps each
+  entry with the current wall-clock time by default, which would make
+  every build of the same project unique -- the exact same class of bug
+  P07 found in the PDF `/CreationDate`. Fixed by design this time (pinned
+  `ZipInfo.date_time` to 1980-01-01, zip's own floor, plus sorted entry
+  order) instead of being caught by a failing byte-identity test, since
+  the lesson was already on file.
+- **`manifest.json`** lists every OTHER file's path + MD5 -- computed
+  before it's added to the file set itself, since a manifest entry for its
+  own file would need a hash of something that doesn't exist yet.
+  Deliberately holds no "generated at" timestamp, for the same determinism
+  reason as the fixed ZIP date.
+- **`toc.pdf`** is generated from the exact same path/title dict the
+  builder just assembled, not a separate query -- it cannot list a
+  document that isn't really in the package, or omit one that is.
+- **API**: `POST /projects/{id}/build/ctd`, 201 with the manifest on
+  success, 409 (not 500) when validation is unresolved.
+- **Concept to revisit:** Module 1 here only covers what has a real data
+  model behind it (cover letter, registration form, certificates,
+  declarations) -- product labeling/artwork mock-ups (dossier-anatomy.md's
+  fuller Module 1 list) aren't modeled yet and aren't part of this
+  package. Same "scope to what the data model actually supports" call
+  P04 made for 3.2.P.5.1/QOS back when those didn't exist either.
+
+12 new tests (9 `test_ctd_build.py`, 3 `test_ctd_api.py`); 145 passing
+overall. Full suite runtime grew to ~2m20s -- each CTD build now runs
+~9 LibreOffice conversions (5 sections + 1 certificate + 2 declarations +
+1 TOC), on top of P07's own conversions.
+
+---
+
+## Interlude before P08 — Module 1 data model (Applicant, Declaration)
+
+A direct request ("let's build the data-model entities and everything Module 1
+will require before we proceed") surfaced a real gap: nothing in the model
+captured *who* is filing (dossier-anatomy.md's opening Module 1 question) --
+only *what* (Product) and *to whom* (Project.region).
+
+- **`Applicant`** (new model, master data like `Manufacturer`): company,
+  address, contact, authorized representative. `Project.applicant_id` FK,
+  nullable -- same "row can be incomplete, P06 catches it" treatment as
+  `shelf_life_months`, not a schema-level NOT NULL.
+- **`Declaration`** (new model, project-scoped): Power of Attorney,
+  Declaration of Authenticity, GMP Compliance Undertaking. Deliberately NOT
+  folded into `CertificateType` -- a Certificate's content is unknown to us
+  (a regulator/lab issues it); a Declaration's content is fully generatable
+  from data on file, only missing a wet signature and (for some types) a
+  notary's seal. That's a different placeholder ("SIGN AND NOTARIZE", not
+  "REPLACE THIS FILE") and a different completeness check (signed/notarized
+  flags, not "does a row exist"). `DECLARATIONS_REQUIRING_NOTARIZATION` in
+  `enums.py` is the single source of truth both the placeholder text
+  (`app/templating/declarations.py`) and rule R15 read, so they can't drift.
+- **`CertificateType`** gained `TRADEMARK` and `MANUFACTURING_LICENCE` --
+  both are exactly the "third-party document, not yet obtained" shape
+  `Certificate` already models, so no new entity was needed there.
+- **New section `1.2`** (Application/Registration Form): `narrative_slots=[]`
+  -- unlike the cover letter, every fact here is already structured data
+  (applicant, product, region), so there's nothing for P05's LLM to draft. A
+  concrete example that not every Module 1 document needs narrative prose.
+- **Rules R14-R16**: R14 (NAFDAC-only) requires an `Applicant` on file. R15
+  (universal) requires any attached `Declaration` to be signed (ERROR) and
+  notarized where required (WARNING -- a nudge, not a hard block, since this
+  engine can't independently verify the real notarization requirement). R16
+  (NAFDAC-only) requires the Power of Attorney and Declaration of
+  Authenticity specifically to be present at all -- distinct from R15, which
+  only checks whatever's already attached.
+- **Migration `fed49611d433`**: new `applicant`/`declaration` tables, hand-
+  written `ALTER TYPE certificatetype ADD VALUE` (Postgres-only, same
+  pattern as the dosage-form expansion -- autogenerate never detects added
+  enum labels), and `project.applicant_id` added via `batch_alter_table`
+  (SQLite has no `ALTER TABLE ADD CONSTRAINT`, same fix as the earlier
+  combination-product migration). Verified upgrade *and* downgrade against a
+  throwaway SQLite file before trusting it.
+- **Seed data**: EXAMOX and LAMOX both got a real `Applicant` plus signed
+  (and, for the POA, notarized) declarations -- added unconditionally
+  regardless of the buggy/corrected narrative variant, same treatment as
+  their existing CPP certificate, so the existing "clean project passes
+  validation" tests kept passing under the new rules. AMPICLOX was
+  deliberately left untouched -- its tests only ever check R01/R04
+  specifically, never full exportability, so there was no gap to close and
+  touching it risked an unrelated diff.
+- **Concept to revisit:** the "signature/notarization required" placeholder
+  content (`declarations.py`) makes a judgment call about which declaration
+  types need notarization for a *NAFDAC* filing specifically -- a real
+  submission should confirm this against current NAFDAC guidance, same
+  "verify before trusting" caveat as R11's pharmacopoeia-edition reminder.
+
+14 new tests (`test_module1.py`); 133 passing overall.
+
+---
+
 ## P07 — Document Assembly + PDF (DOCX->PDF, bookmarks, granular leaves)
 
 Converts P04's rendered `.docx` sections into eCTD-grade PDFs: text-

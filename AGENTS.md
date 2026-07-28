@@ -115,7 +115,7 @@ Full field definitions and relationships are specified in Phase 01.
 - [x] P05 — AI narrative generation service (LLM, guardrailed)
 - [x] P06 — Deterministic validation / rule engine
 - [x] P07 — Document assembly + PDF (DOCX→PDF, bookmarks, granular leaves)
-- [ ] P08 — CTD / NAPAMS folder + TOC builder (MVP output)
+- [x] P08 — CTD / NAPAMS folder + TOC builder (MVP output)
 - [ ] P09 — eCTD v3.2.2 XML backbone builder
 - [ ] P10 — eCTD validation (business rules + validator integration)
 - [ ] P11 — Frontend wizard + dashboard + validation viewer
