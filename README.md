@@ -1,110 +1,80 @@
 # Dossier Platform
 
-A pharmaceutical **CTD/eCTD dossier platform** — plan, teaching materials, and a
-working first slice of code, all in one repo. Built to be developed with Claude
-Code, while you learn the software *and* the regulatory domain as you go.
+**Regulatory dossier automation for pharmaceutical products** — a FastAPI/PostgreSQL platform that models CTD/eCTD dossiers as structured data, renders submission sections from that data, and validates the whole dossier with a deterministic rule engine before anything is exported.
 
-## What's here
+Built by a licensed pharmacist and software engineer: the data model and validation rules are grounded in real regulatory documentation work (NAFDAC-CTD first, with FDA/EMA scope mapped in `reference/`).
 
-This repo is two things at once:
+## The problem
 
-1. **A plan you build against** — `AGENTS.md` (master context), `prompts/`
-   (phase-by-phase build prompts P00–P12), `reference/` (regulatory background),
-   and `LEARNING.md` (how to learn while building).
-2. **Actual working code** — `backend/app/`, `backend/tests/`, `backend/run_demo.py`:
-   a runnable vertical slice (data model → template → validation) built from a
-   real dossier (LAMOX, Amoxicillin 500 mg capsules), plus the P00 scaffold
-   (FastAPI skeleton, docker-compose, Alembic, CI).
+Regulatory dossiers are assembled by copy-pasting between Word documents. The same fact — strength, dosage form, manufacturer — is restated dozens of times across Modules 1–5, and every restatement is a chance for the versions to drift apart. Regulators find these inconsistencies; companies eat the review-cycle delay.
 
-## Run the working slice first (2 minutes)
+## The approach
+
+**Single source of truth, deterministic checks.** Every fact a regulator cross-checks lives once in a structured data model. Sections are *rendered* from the data, never hand-edited. A rule engine validates the aggregate before export — and it is deterministic code, not an LLM. (An LLM-assisted reviewer is on the roadmap strictly as an advisory layer for narrative prose; it never replaces the deterministic checks.)
+
+## See it work (2 minutes)
 
 ```bash
 cd backend
-uv sync                 # installs deps into backend/.venv (curl -LsSf https://astral.sh/uv/install.sh | sh if you don't have uv)
+uv sync                     # curl -LsSf https://astral.sh/uv/install.sh | sh if you don't have uv
 uv run python run_demo.py   # seeds LAMOX, validates it, renders section 3.2.P.1
-uv run pytest -q            # 7 tests
+uv run pytest -q            # test suite
 ```
 
-## Run the full stack (P00 scaffold)
+The demo seeds a real product dossier (LAMOX, Amoxicillin 500 mg capsules) containing three genuine copy-paste bugs of the kind that reach regulators — a wrong strength, a wrong dosage form, and a leftover reference to a different product. The rule engine catches all three, blocks export, then shows a clean pass on the corrected data. That is the platform's value proposition, demonstrated on real content.
+
+## Run the full stack
 
 ```bash
 cp .env.example .env
-docker compose up -d --build
+docker compose up -d --build   # Postgres + pgvector, MinIO, API
 curl http://localhost:8000/health
 docker compose down
 ```
 
-`run_demo.py` catches three *real* copy-paste bugs in the LAMOX dossier
-(wrong strength, wrong dosage form, a leftover reference to a different
-product), then shows a clean pass once corrected. That's the whole platform's
-value proposition, demonstrated on real content.
-
-## Then build the rest with Claude Code
-
-Open this repo in Claude Code and work the phases in order. Start each with:
-
-> "Read `AGENTS.md`, `LEARNING.md`, and `prompts/00-repo-scaffold.md`. Teach me
-> the plan before writing code, then build it."
-
-`AGENTS.md` is read automatically as project context. It contains a **Learning
-Mode** that makes Claude Code teach as it builds. Tick the Build Status boxes in
-`AGENTS.md` and append to `reference/build-log.md` as you complete phases.
-
-## Map of the repo
+## Architecture
 
 ```
-AGENTS.md                     master context (read first) + Learning Mode
-LEARNING.md                   how to learn while building; software+regulatory curriculum
-prompts/                      P00-P12 build prompts, one per phase
-reference/
-  dossier-anatomy.md          guided tour of CTD Modules 1-5
-  nafdac-vs-fda-ema-scope.md  what each regulator requires; why NAFDAC-CTD first
-  ectd-backbone-architecture.md   the eCTD v3.2.2 XML backbone in detail
-  worked-example-lamox.md     the real LAMOX dossier mapped to model/rules/templates
-  build-log.md                running log of what's built (append as you go)
-docker-compose.yml             db (Postgres+pgvector) + minio + api (P00)
-.env.example                   every env var Settings reads (P00)
-backend/                       THE CODE
-  pyproject.toml               uv-managed deps, ruff/black/pytest config (P00)
-  Dockerfile / .dockerignore   api service image (P00)
-  alembic/                     async-ready migrations, no migrations yet (P00)
-  scripts/init-pgvector.sql    enables the vector extension on first db boot (P00)
-  app/
-    core/                      config.py (Settings), db.py (async engine/session) (P00)
-    main.py                    FastAPI app + /health (P00)
-    models/                    SQLAlchemy 2.x data model (P01)
-    templating/                section rendering from data (P04)
-    validation/                deterministic rule engine + rules R01-R06 (P06)
-    seed/                      LAMOX seed data (buggy + corrected)
-  tests/                       pytest suite
-  run_demo.py                  end-to-end demonstration
+backend/app/
+  core/          Settings (pydantic-settings), async SQLAlchemy engine/session
+  models/        SQLAlchemy 2.x data model: product, active ingredient, excipients,
+                 batch formula, packaging, stability, clinical, sequence, users
+  schemas/       Pydantic v2 request/response schemas
+  api/routers/   FastAPI routers: auth (JWT + argon2), projects, products,
+                 nested child resources
+  templating/    renders CTD sections (e.g. 3.2.P.1) from structured data;
+                 docxtpl-based .docx output in progress
+  validation/    deterministic rule engine — decorator-registered rules,
+                 ERROR/WARNING/INFO severities, export gate on unresolved errors
+  seed/          real worked-example seed data (buggy + corrected variants)
+tests/           pytest suite
+alembic/         async-ready migrations
+.github/workflows/ci.yml   ruff + black + pytest on every push and PR
 ```
 
-## Where the slice fits in the phase plan
+**Design decisions worth noting**
 
-The code in `backend/app/` is a partial, runnable start on several phases:
+- **Rules as a registry.** Each validation rule is a small, independently testable function registered via a decorator. Rules will grow into the hundreds; the registry keeps them decoupled, and every finding names the offending values — never just "inconsistent."
+- **Severity model with an export gate.** `ERROR` blocks export, `WARNING` is surfaced but allowed, `INFO` is informational — mirroring how regulatory reviewers actually triage findings.
+- **Region rules live in config,** not scattered through code, because regulatory formats change and must be re-confirmed against the agency's current requirements (NAFDAC NAPAMS; FDA eCTD; EMA eSubmission) before any real submission.
+- **Same models, two databases.** The demo and tests run on SQLite for speed; the docker-compose stack runs the identical models on Postgres — only the connection string changes.
 
-- **P00 (scaffold)** — `backend/app/core/`, `backend/app/main.py`,
-  `docker-compose.yml`, Alembic, CI. Done; no business logic yet.
-- **P01 (data model)** — real models in `backend/app/models/`, running on
-  SQLite for the demo/tests. Same models point at the Postgres from P00's
-  docker-compose — only the connection string changes.
-- **P04 (templating)** — `backend/app/templating/section_map.py` renders
-  3.2.P.1 from structured data. Next step: turn it into a real `docxtpl` .docx
-  template.
-- **P06 (validation)** — `backend/app/validation/` with six rules. Next step:
-  grow the rule set and wire it behind the FastAPI `/readiness` endpoint (P02).
+## Stack
 
-So the slice isn't throwaway — it's the seed the later phases grow around.
+Python 3.11 · FastAPI · Pydantic v2 · SQLAlchemy 2.x (async) · Alembic · PostgreSQL + pgvector · MinIO · Docker Compose · docxtpl/python-docx · pytest · ruff · black · GitHub Actions CI · uv
 
-## The one rule to remember
+## Roadmap
 
-**The AI writes narrative prose only. Everything a regulator cross-checks is
-deterministic code.** If any phase drifts from that, it's wrong.
+- Grow the rule set and wire validation behind a `/readiness` API endpoint
+- Full `docxtpl` .docx rendering of CTD sections
+- eCTD v3.2.2 XML backbone generation (spec documented in `reference/`)
+- Advisory-only LLM reviewer for narrative sections
+- Frontend (React + TanStack)
 
-## A caution worth keeping
+## Repo guide
 
-Regulatory formats change. Before relying on any regulator-specific output for a
-real submission, confirm the current requirement on the agency's own site
-(NAFDAC NAPAMS portal; FDA eCTD pages; EMA eSubmission). Region rules live in
-config, not scattered through the code, precisely to make that easy.
+Domain background lives in `reference/` — a guided tour of CTD Modules 1–5, a NAFDAC vs FDA/EMA scope comparison, the eCTD backbone architecture, rules, and templates. `AGENTS.md` holds the build plan and phase breakdown.
+
+---
+
+**A caution worth keeping:** regulatory formats change. Before relying on any regulator-specific output for a real submission, confirm the current requirement on the agency's own site.
