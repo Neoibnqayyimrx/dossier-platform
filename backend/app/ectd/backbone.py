@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from app.ectd.index_xml import build_index_xml
 from app.ectd.leaf import Leaf
 from app.ectd.checksum import index_md5_line
-from app.ectd.regional import build_regional_xml
+from app.ectd.regional import REGIONAL_XML_RELATIVE_PATH, build_regional_xml
 from app.models.enums import Region
 from app.models.project import Project
 
@@ -76,5 +76,5 @@ class V322BackboneBuilder(BackboneBuilder):
             index_xml=index_xml_bytes,
             index_md5=index_md5_bytes,
             regional_xml=regional_xml_bytes,
-            regional_xml_relative_path="m1/eu/eu-regional.xml",
+            regional_xml_relative_path=REGIONAL_XML_RELATIVE_PATH,
         )

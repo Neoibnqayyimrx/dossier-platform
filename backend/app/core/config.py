@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     embedding_model: str = "voyage-3-lite"
     embedding_api_key: str | None = None
 
+    # External eCTD validator (P10) -- "null" (default) means no real
+    # agency-recognized validator (e.g. an eValidator-class tool) is wired
+    # up in this environment; the report says so explicitly rather than
+    # silently omitting that layer. Swap in a real adapter the same way
+    # llm_provider/embedding_provider get swapped: change this one value.
+    ectd_external_validator_provider: str = "null"
+
     # Knowledge base (P03): chunk size and default search breadth are config
     # knobs, not magic numbers buried in the chunker/retriever, per AGENTS.md
     # §5 ("config over hard-coding").

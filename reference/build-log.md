@@ -5,6 +5,74 @@ and one concept to revisit. Newest at the top.
 
 ---
 
+## P10 — eCTD Validation (mechanical checks + validator adapter + AI reviewer)
+
+Validates a BUILT sequence's zip artifact, merging four independent
+layers into one consolidated report with per-finding provenance.
+
+- **The core distinction this phase exists to keep straight:** P06
+  validates the *data* before anything is rendered; P10's mechanical
+  checks validate the *built artifact* afterwards. P06 can pass while the
+  package is still broken (a storage bug, corruption at rest, a bug in
+  P09 itself) -- which is exactly why this layer re-reads the actual zip
+  bytes instead of trusting that a clean P06 implies a clean package.
+  Proved with a test that corrupts the stored zip *after* a successful
+  build and confirms M03 catches it.
+- **"Merge 4 report types" became "concatenate 4 lists"** by adding one
+  `source: str` field to the existing `Finding` (defaulted to
+  `"data-rule"`, so all 16 existing P06 rules needed zero changes)
+  instead of inventing a parallel report type. The consolidated report
+  is literally P06's `Report` with more findings in it.
+- **`Severity.ADVISORY` makes "the AI reviewer never gates" structural,
+  not a convention.** `Report.errors()`/`is_exportable()` only ever look
+  at ERROR, so an advisory finding is *mechanically incapable* of
+  blocking an export -- no caller has to remember to filter it out. Same
+  "let the type system prove it" instinct as P06's FK-over-comment
+  choice. AGENTS.md's "never let the AI reviewer override deterministic
+  checks" is now enforced by construction.
+- **Twelve mechanical checks (M01-M12)** across six concerns: DTD
+  re-validation, checksum integrity (per-leaf + `index-md5.txt`), href
+  resolution + orphan detection, lifecycle integrity, PDF specs, and
+  required-section presence. Every one has a deliberately-corrupted
+  fixture proving it catches its fault, plus a clean case proving it
+  doesn't false-positive.
+- **Lifecycle integrity needs MORE than the sequence being validated:**
+  a `modified-file` reference is only verifiable by fetching the PRIOR
+  sequence's own built zip from storage and confirming the target leaf
+  really exists there with a matching ID and path. A `replace` pointing
+  at a leaf that was never really there is the reference doc's stated #1
+  real-world eCTD rejection cause.
+- **Honest about what it cannot check.** PDF font-embedding is NOT
+  verified -- flagged as an explicit documented gap rather than quietly
+  omitted. Text-searchability is checked via a stated PROXY (non-empty
+  extracted text) and reported as WARNING, not ERROR, because that's
+  what a proxy earns.
+- **`NullExternalValidator` emits a real ADVISORY finding, not silence.**
+  AGENTS.md's "never claim gateway-readiness from internal checks alone"
+  has to be something the REPORT SAYS -- a caller who never reads the
+  module docstring would otherwise have no way to know the external layer
+  didn't run. The `ExternalValidator` interface is the 5th repetition of
+  this project's provider-abstraction shape (LLM / embedding / storage /
+  BackboneBuilder / now this), so a real eValidator-class tool drops in
+  by writing an adapter and flipping one config value.
+- **The AI reviewer degrades instead of exploding** (added after the
+  main build, on noticing the gap): a dead LLM, missing key, or rate
+  limit becomes a visible `AI99` advisory rather than an exception that
+  takes down the deterministic report a human actually needs.
+  "Advisory-only" has to mean the layer can't hurt you when it FAILS,
+  not merely when it disagrees. It also reads P05's already-audited
+  `final_text` rather than re-extracting text from the built PDF --
+  strictly better data, reached the easier way.
+- **New `POST /projects/{id}/validate/ectd?sequence_id=...`**, sibling
+  to P09's build endpoint; 404 on an unbuilt sequence (distinct from
+  "validation found problems", which is a 200 with findings).
+- 24 new tests (174 -> 198 total): 15 pure-function mechanical/adapter
+  tests, 6 integration tests over real built packages (one self-skipping
+  without Postgres, since the AI reviewer's KB retrieval needs pgvector),
+  and 3 API tests on the new endpoint.
+
+---
+
 ## P09 — eCTD v3.2.2 XML Backbone Builder (EU region)
 
 Wraps P07's leaf inventory in a real, DTD-valid eCTD v3.2.2 transport

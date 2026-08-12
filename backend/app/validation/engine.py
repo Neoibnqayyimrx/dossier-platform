@@ -20,6 +20,11 @@ class Severity(str, enum.Enum):
     ERROR = "ERROR"  # blocks export
     WARNING = "WARNING"  # allowed, but surfaced
     INFO = "INFO"
+    # P10: the AI reviewer's ONLY allowed severity. Structural guarantee,
+    # not a convention -- `errors()`/`is_exportable()` below only ever
+    # look at ERROR, so an advisory finding is mechanically incapable of
+    # gating an export, whether or not a caller remembers to filter it out.
+    ADVISORY = "ADVISORY"
 
 
 @dataclass
@@ -29,6 +34,11 @@ class Finding:
     category: str
     message: str  # names the offending values — never just "inconsistent"
     section: str | None = None
+    # P10: which layer produced this -- "data-rule" (P06, the default, so
+    # every existing rule needs zero changes), "mechanical-ectd",
+    # "external-validator", or "ai-reviewer". Lets one consolidated
+    # Report merge all four without inventing a parallel report type.
+    source: str = "data-rule"
 
 
 @dataclass

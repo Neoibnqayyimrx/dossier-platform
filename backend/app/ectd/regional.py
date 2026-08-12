@@ -38,6 +38,10 @@ from app.models.enums import RegistrationType
 from app.models.project import Project
 
 EU_NS = "http://europa.eu.int"
+# Shared with app.ectd.backbone (where the file gets written) and
+# app.ectd.validate (P10, where it gets re-read and re-checked) -- one
+# constant instead of the same string literal in three places.
+REGIONAL_XML_RELATIVE_PATH = "m1/eu/eu-regional.xml"
 DTD_PATH = (
     Path(__file__).resolve().parent.parent.parent.parent
     / "reference"

@@ -1,10 +1,12 @@
-"""eCTD sequence build endpoint (P09): POST /projects/{id}/build/ectd.
+"""eCTD build (P09) and validation (P10) endpoints:
+POST /projects/{id}/build/ectd, POST /projects/{id}/validate/ectd.
 
-WHY `sequence_id` is a required query param rather than something this
-endpoint invents: P02's `POST /projects/{id}/sequences` already owns
-sequence auto-numbering (0000, 0001, ...) -- see app.ectd.build's module
-docstring. A caller creates the sequence first, then builds it; the two
-concerns (numbering a transaction, building its content) stay separate.
+WHY `sequence_id` is a required query param on both, rather than something
+either endpoint invents: P02's `POST /projects/{id}/sequences` already
+owns sequence auto-numbering (0000, 0001, ...) -- see app.ectd.build's
+module docstring. A caller creates the sequence, builds it, then
+(separately, possibly much later, possibly by someone else) validates
+what was built; three concerns, three calls.
 """
 
 from __future__ import annotations
@@ -19,8 +21,9 @@ from app.api.deps import get_db
 from app.api.loading import READINESS_LOAD_OPTIONS
 from app.assembly.assemble import AssemblyBlockedError
 from app.ectd.build import build_ectd_sequence
+from app.ectd.report import SequenceNotBuiltError, validate_ectd_sequence
 from app.models import Project, Sequence, ValidationOverride
-from app.schemas.ectd import EctdBuildResponse
+from app.schemas.ectd import EctdBuildResponse, EctdValidationResponse, FindingRead
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["ectd"])
 
@@ -30,10 +33,9 @@ async def _overridden_rule_ids(db: AsyncSession, project_id: uuid.UUID) -> froze
     return frozenset((await db.scalars(stmt)).all())
 
 
-@router.post("/build/ectd", response_model=EctdBuildResponse, status_code=status.HTTP_201_CREATED)
-async def build_ectd(
-    project_id: uuid.UUID, sequence_id: uuid.UUID, db: AsyncSession = Depends(get_db)
-) -> EctdBuildResponse:
+async def _get_project_and_sequence(
+    db: AsyncSession, project_id: uuid.UUID, sequence_id: uuid.UUID
+) -> tuple[Project, Sequence]:
     stmt = select(Project).where(Project.id == project_id).options(*READINESS_LOAD_OPTIONS)
     project = await db.scalar(stmt)
     if project is None:
@@ -45,6 +47,14 @@ async def build_ectd(
     if sequence is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Sequence not found on this project")
 
+    return project, sequence
+
+
+@router.post("/build/ectd", response_model=EctdBuildResponse, status_code=status.HTTP_201_CREATED)
+async def build_ectd(
+    project_id: uuid.UUID, sequence_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> EctdBuildResponse:
+    project, sequence = await _get_project_and_sequence(db, project_id, sequence_id)
     overridden = await _overridden_rule_ids(db, project_id)
 
     try:
@@ -62,4 +72,32 @@ async def build_ectd(
         storage_key=result.storage_key,
         sequence_number=result.sequence_number,
         operations=result.operations,
+    )
+
+
+@router.post("/validate/ectd", response_model=EctdValidationResponse)
+async def validate_ectd(
+    project_id: uuid.UUID, sequence_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> EctdValidationResponse:
+    project, sequence = await _get_project_and_sequence(db, project_id, sequence_id)
+
+    try:
+        report = await validate_ectd_sequence(db, project, sequence)
+    except SequenceNotBuiltError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+
+    return EctdValidationResponse(
+        sequence_number=sequence.number,
+        is_exportable=report.is_exportable(),
+        findings=[
+            FindingRead(
+                rule_id=f.rule_id,
+                severity=f.severity.value,
+                category=f.category,
+                message=f.message,
+                section=f.section,
+                source=f.source,
+            )
+            for f in report.findings
+        ],
     )

@@ -117,7 +117,7 @@ Full field definitions and relationships are specified in Phase 01.
 - [x] P07 — Document assembly + PDF (DOCX→PDF, bookmarks, granular leaves)
 - [x] P08 — CTD / NAPAMS folder + TOC builder (MVP output)
 - [x] P09 — eCTD v3.2.2 XML backbone builder (EU region; FDA deferred)
-- [ ] P10 — eCTD validation (business rules + validator integration)
+- [x] P10 — eCTD validation (mechanical checks + validator adapter + AI reviewer)
 - [ ] P11 — Frontend wizard + dashboard + validation viewer
 - [ ] P12 — eCTD v4.0 (RPS) — future
 
@@ -134,7 +134,7 @@ Each file in `/prompts` is a self-contained task. Do them in order. At the start
 - **Leave `WHY:` comments** on any code whose reasoning isn't obvious from reading it — especially in the rule engine, checksum/XML backbone, and lifecycle logic.
 - **Connect code to regulation.** Whenever a piece of code exists *because a regulator requires it* (checksums, lifecycle operations, granularity, Module 1 contents), say so and point to `/reference/dossier-anatomy.md` or the backbone reference. The human wants to learn the dossier as much as the software.
 - **Checkpoint and quiz.** At the end of each phase, write a short "What you learned" recap (3–5 bullets, split into *software* and *regulatory*), then pose 2–3 comprehension questions or one small hands-on exercise for the human to do themselves. Wait for them before moving on if they engage.
-- **Explain with tree/hierarchical diagrams, not prose paragraphs.** When breaking down a concept, walking through a sequence of events, or answering a comprehension question, default to an indented tree (branches via `├─`/`└─`/`│`), not flowing paragraphs — prose is harder to scan for structure and cause/effect than a tree is. Each node's label must be a full, readable sentence or clause a reader can understand on its own — not a compressed keyword fragment; terse fragments defeat the point (confirmed by direct user feedback during P09 — see the learning-mode-protocol memory).
+- **Explain with tree/hierarchical diagrams, not prose paragraphs.** When breaking down a concept, walking through a sequence of events, or answering a comprehension question, default to an indented tree (branches via `├─`/`└─`/`│`), not flowing paragraphs. Two failure modes to avoid, both from direct user feedback during P09 (see the learning-mode-protocol memory): (1) nodes compressed to keyword fragments instead of full readable sentences/clauses — terse fragments defeat the point; (2) the tree itself too long/exhaustive — covering every design decision and file is prose's problem wearing a tree costume. Keep it BRIEF: few top-level branches, only the essential points, short sentence per node. A phase plan does not need to enumerate every file or every decision to get a "go" — deeper detail can come up during the build itself, narrated as it happens, not front-loaded.
 - **Let the human write some of it.** Periodically, instead of writing a function yourself, describe it and invite the human to implement it, then review their version. Good candidates: a single validation rule (P06), one docxtpl template (P04), one API endpoint (P02).
 - **Pace over speed.** It is better to build one well-understood module than three opaque ones. Never dump an entire phase as one giant unexplained code block.
 
