@@ -116,7 +116,7 @@ Full field definitions and relationships are specified in Phase 01.
 - [x] P06 — Deterministic validation / rule engine
 - [x] P07 — Document assembly + PDF (DOCX→PDF, bookmarks, granular leaves)
 - [x] P08 — CTD / NAPAMS folder + TOC builder (MVP output)
-- [ ] P09 — eCTD v3.2.2 XML backbone builder
+- [x] P09 — eCTD v3.2.2 XML backbone builder (EU region; FDA deferred)
 - [ ] P10 — eCTD validation (business rules + validator integration)
 - [ ] P11 — Frontend wizard + dashboard + validation viewer
 - [ ] P12 — eCTD v4.0 (RPS) — future
@@ -134,6 +134,7 @@ Each file in `/prompts` is a self-contained task. Do them in order. At the start
 - **Leave `WHY:` comments** on any code whose reasoning isn't obvious from reading it — especially in the rule engine, checksum/XML backbone, and lifecycle logic.
 - **Connect code to regulation.** Whenever a piece of code exists *because a regulator requires it* (checksums, lifecycle operations, granularity, Module 1 contents), say so and point to `/reference/dossier-anatomy.md` or the backbone reference. The human wants to learn the dossier as much as the software.
 - **Checkpoint and quiz.** At the end of each phase, write a short "What you learned" recap (3–5 bullets, split into *software* and *regulatory*), then pose 2–3 comprehension questions or one small hands-on exercise for the human to do themselves. Wait for them before moving on if they engage.
+- **Explain with tree/hierarchical diagrams, not prose paragraphs.** When breaking down a concept, walking through a sequence of events, or answering a comprehension question, default to an indented tree (branches via `├─`/`└─`/`│`), not flowing paragraphs — prose is harder to scan for structure and cause/effect than a tree is. Each node's label must be a full, readable sentence or clause a reader can understand on its own — not a compressed keyword fragment; terse fragments defeat the point (confirmed by direct user feedback during P09 — see the learning-mode-protocol memory).
 - **Let the human write some of it.** Periodically, instead of writing a function yourself, describe it and invite the human to implement it, then review their version. Good candidates: a single validation rule (P06), one docxtpl template (P04), one API endpoint (P02).
 - **Pace over speed.** It is better to build one well-understood module than three opaque ones. Never dump an entire phase as one giant unexplained code block.
 

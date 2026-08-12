@@ -44,6 +44,7 @@ from app.models.applicant import Applicant
 from app.models.declaration import Declaration
 from app.models.project import Project, Section
 from app.models.sequence import Sequence
+from app.models.sequence_leaf import SequenceLeaf
 from app.models.user import User
 from app.models.kb import KBChunk, KBDocument
 from app.models.narrative import NarrativeGeneration
@@ -84,6 +85,7 @@ __all__ = [
     "Project",
     "Section",
     "Sequence",
+    "SequenceLeaf",
     "User",
     "KBDocument",
     "KBChunk",

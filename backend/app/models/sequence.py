@@ -17,6 +17,7 @@ from app.models.base import Base
 
 if TYPE_CHECKING:
     from app.models.project import Project
+    from app.models.sequence_leaf import SequenceLeaf
 
 
 class Sequence(Base):
@@ -29,3 +30,8 @@ class Sequence(Base):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="sequences")
+    # P09: the leaf inventory this sequence was built with -- see
+    # app/models/sequence_leaf.py for why this is persisted at all.
+    leaves: Mapped[list["SequenceLeaf"]] = relationship(
+        back_populates="sequence", cascade="all, delete-orphan"
+    )

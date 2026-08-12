@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from app.api.errors import register_error_handlers
 from app.api.routers.auth import router as auth_router
 from app.api.routers.ctd import router as ctd_router
+from app.api.routers.ectd import router as ectd_router
 from app.api.routers.kb import router as kb_router
 from app.api.routers.narrative import router as narrative_router
 from app.api.routers.nested import NESTED_ROUTERS
@@ -24,6 +25,7 @@ app.include_router(kb_router)
 app.include_router(narrative_router)
 app.include_router(validation_router)
 app.include_router(ctd_router)
+app.include_router(ectd_router)
 for nested_router in NESTED_ROUTERS:
     app.include_router(nested_router)
 

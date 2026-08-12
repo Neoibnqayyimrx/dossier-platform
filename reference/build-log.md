@@ -5,6 +5,108 @@ and one concept to revisit. Newest at the top.
 
 ---
 
+## P09 — eCTD v3.2.2 XML Backbone Builder (EU region)
+
+Wraps P07's leaf inventory in a real, DTD-valid eCTD v3.2.2 transport
+layer: sequenced folders, ICH `index.xml`, the EU regional backbone
+(`eu-regional.xml`), `index-md5.txt`, per-leaf MD5 checksums, and
+lifecycle operation attributes (`new`/`replace`/`delete`). FDA is not
+built -- see the scope note below.
+
+- **Real DTDs, not invented ones.** Fetched the official EMA eSubmission
+  "EU Module 1" utility package (`reference/ectd_dtd/README.md` has the
+  exact source/date) -- it bundles the genuine `ich-ectd-3-2.dtd`
+  *inside* the EU package (EU's DTD imports it), plus `eu-regional.dtd`,
+  `eu-envelope.mod`, `eu-leaf.mod`, and both stylesheets. Both backbones
+  are validated in-process via `lxml.etree.DTD` against these real files,
+  not a hand-approximated schema -- same "real source, not a paraphrase"
+  principle as P03's ICH guideline ingestion.
+- **Confirmed from the real DTD, not assumed:** the ICH backbone's own
+  M1 element (`m1-administrative-information-and-prescribing-
+  information`) is a flat, structure-less `(leaf*)` bag -- Module 1's
+  real hierarchy (`m1-0-cover`, `m1-2-form`, ...) lives entirely in the
+  *regional* backbone. `app/ectd/index_xml.py` never touches Module 1 at
+  all; `app/ectd/regional.py` owns it completely.
+- **lxml namespace gotcha, caught by testing before building further on
+  it:** tried literal colon-in-string attribute names first
+  (`el.set("xlink:href", ...)`) to match the DTD's namespace-unaware
+  declarations -- lxml rejects this outright. Verified empirically that
+  lxml's *real* namespace API (`nsmap=`, Clark notation) round-trips
+  through `tostring()`/`fromstring()` into textually identical output and
+  validates cleanly; libxml2's DTD validator matches the serialized
+  qualified name, not the construction method. Wrong assumption caught
+  before it became load-bearing, not after.
+- **A real, documented quirk of the ICH DTD itself, reproduced verbatim:**
+  its `#FIXED` xlink namespace URI is misspelled `http://www.w3c.org/1999/
+  xlink` (should be w3.org). "Fixing" the typo would make our own output
+  DTD-invalid against the DTD we're validating against.
+- **`SequenceLeaf` (new model + migration `8434fdfbdb4f`):** persists each
+  sequence's full *cumulative* dossier state (not just that sequence's own
+  backbone delta), so the lifecycle resolver has something complete to
+  diff against even when a document hasn't changed in several sequences
+  running. Getting this right took a real design correction mid-build:
+  persisting only what a sequence's own XML restated would silently lose
+  history the first time a sequence went by without touching a given
+  document.
+- **`app/ectd/lifecycle.py` -- the highest-risk logic, per the reference
+  doc.** An unchanged leaf is entirely OMITTED from a sequence's own
+  backbone (real eCTD semantics: a reviewer's tool replays every sequence,
+  so a leaf nobody mentions is still whatever the last sequence that DID
+  mention it said) -- naive designs commonly restate everything every
+  time instead. Verified three sequences deep (new -> unchanged-carried-
+  forward -> replace -> delete), not just a two-sequence happy path.
+- **Real regulatory nuance caught by DTD validation, not by inspection:**
+  the EU regional DTD marks `m1-0-cover` as the one `m1-eu` child that's
+  mandatory (no `?`), because a real cover letter is per-submission
+  correspondence that's always fresh. Our cover-letter rendering doesn't
+  vary by sequence number yet, so an unchanged-checksum cover letter got
+  correctly omitted by the lifecycle resolver -- and then failed DTD
+  validation the moment a second sequence was actually tested, not before.
+  Fixed by always emitting `m1-0-cover` (with an empty `<specific>` when
+  there's nothing new), which the DTD's own content model explicitly
+  permits. Threading `Sequence` into P04's renderer to make cover letters
+  genuinely resequence-aware is the "correct" fix but out of this phase's
+  scope -- flagged, not silently worked around.
+- **Deterministic leaf `ID` scheme** (`ID-<section-slug>-<sequence-
+  number>`) instead of random/UUID: golden-fixture byte-stability rules
+  out randomness, and the lifecycle resolver needs to compute what a
+  leaf's ID *was* in a prior sequence purely from `section_key` + that
+  sequence's number, with no lookup table.
+- **`BackboneBuilder` interface** (`app/ectd/backbone.py`), one
+  implementation (`V322BackboneBuilder`) today -- so P12's
+  `V4RpsBackboneBuilder` slots in later without touching assembly,
+  templating, validation, or `app/ectd/build.py`'s orchestration, per the
+  reference doc's explicit ask.
+- **Each sequence packages as its own self-contained zip**
+  (`projects/{id}/ectd/<number>.zip`), not one combined archive --
+  matches the reference doc's own physical-structure diagram (sequences
+  are sibling directories); `modified-file`'s relative `../0000/...`
+  paths are only meaningful once sequences sit next to each other on
+  disk, same as a real gateway delivery.
+- **New `POST /projects/{id}/build/ectd?sequence_id=...`** -- takes an
+  already-created `Sequence` (via P02's existing auto-numbering endpoint)
+  rather than inventing a second numbering path; 201 + build report,
+  409 on unresolved validation, 404 on missing project/sequence.
+- **Scope call, made explicit rather than silently decided:** built EU
+  only, not FDA -- building both regional DTDs/envelopes well in one pass
+  would blow past "minimum viable backbone" (per the reference doc's own
+  scoping). FDA's `us-regional.dtd` and envelope controlled vocabulary
+  are unbuilt; `V322BackboneBuilder` raises `NotImplementedError` rather
+  than silently producing something DTD-invalid if ever asked for FDA.
+  User's explicit choice over FDA when asked directly.
+- **Also a documented MVP simplification, not a gap discovered later:**
+  the EU envelope's agency/procedure/country (`app/ectd/regional.py`'s
+  `_AGENCY_CODE`/`_PROCEDURE_TYPE`/`_ENVELOPE_COUNTRY` constants) are
+  baked into the builder rather than per-`Project` fields -- real EU
+  submissions choose a member state or EMA-centralised per project, which
+  `Project` doesn't model yet. Same category of edge as P04's QOS
+  deferral and P08's labeling-artwork deferral.
+- 19 new tests (`test_ectd_build.py`, `test_ectd_api.py`) — pure DTD/
+  lifecycle unit tests plus two-sequence-deep integration tests against a
+  real (throwaway SQLite) EXAMOX project with `region` overridden to EU.
+
+---
+
 ## P08 — CTD / NAPAMS Folder + TOC Builder (first shippable deliverable)
 
 Assembles the P07 leaf inventory plus the new Module 1 documents (cover
