@@ -87,6 +87,62 @@ export interface AuthToken {
   token_type: string;
 }
 
+/**
+ * Matches backend/app/models/enums.py::NarrativeStatus.
+ *
+ * These are LOWERCASE because that is what the enum's `.value` is, and
+ * Pydantic serializes the value. Getting this wrong is not a cosmetic
+ * bug: an earlier version of this type declared them uppercase, so
+ * `status === "APPROVED"` was never true and an approved narrative
+ * displayed as "awaiting review" forever -- hiding a human sign-off and
+ * inviting the reviewer to approve the same draft repeatedly. Compare
+ * against these values; uppercase only for display.
+ */
+export type NarrativeStatus = "pending" | "approved" | "edited";
+
+export interface Narrative {
+  id: string;
+  project_id: string;
+  section_number: string;
+  slot: string;
+  model_name: string;
+  /** The raw model output, kept for audit even after an edit. */
+  output: string;
+  warnings: string[];
+  status: NarrativeStatus;
+  /**
+   * What actually reaches a rendered document. Set only by approve/edit,
+   * which is why a PENDING draft can never reach a dossier.
+   */
+  final_text: string | null;
+  /** The KB chunks retrieved for this generation — its citations. */
+  sources: string[];
+}
+
+export interface SectionSpec {
+  number: string;
+  title: string;
+  /** Empty for data-only sections (e.g. 1.2, the registration form). */
+  narrative_slots: string[];
+}
+
+export interface CtdBuildResponse {
+  storage_key: string;
+  files: { path: string; md5: string }[];
+}
+
+export interface EctdBuildResponse {
+  storage_key: string;
+  sequence_number: string;
+  operations: Record<string, string>;
+}
+
+export interface EctdValidationResponse {
+  sequence_number: string;
+  is_exportable: boolean;
+  findings: Finding[];
+}
+
 /** One option in a controlled vocabulary served by GET /enums. */
 export interface EnumOption {
   value: string;

@@ -1,17 +1,21 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
-import type { Finding, Project, ReadinessResponse } from "@/lib/types";
+import type {
+  Project,
+  ReadinessResponse,
+  SectionSpec,
+} from "@/lib/types";
 import { AuthGuard } from "@/components/AuthGuard";
-import {
-  Badge,
-  Card,
-  ErrorNotice,
-  PageHeading,
-  SeverityBadge,
-} from "@/components/ui";
+import { BuildPanel } from "@/components/BuildPanel";
+import { NarrativeSlot } from "@/components/NarrativeSlot";
+import { ValidationReport } from "@/components/ValidationReport";
+import { Badge, Card, ErrorNotice, PageHeading } from "@/components/ui";
+
+const TABS = ["Overview", "Narratives", "Validation", "Build"] as const;
+type Tab = (typeof TABS)[number];
 
 function Facts({ project }: { project: Project }) {
   const p = project.product;
@@ -22,6 +26,10 @@ function Facts({ project }: { project: Project }) {
     ["Dosage form", p.dosage_form ?? "—"],
     ["Shelf life", p.shelf_life_months ? `${p.shelf_life_months} months` : "—"],
     ["Storage", p.storage_condition ?? "—"],
+    ["Manufacturers", String(p.manufacturers.length)],
+    ["Active ingredients", String(p.apis.length)],
+    ["Excipients", String(p.excipients.length)],
+    ["Stability studies", String(p.stability.length)],
   ];
   return (
     <Card>
@@ -40,85 +48,74 @@ function Facts({ project }: { project: Project }) {
   );
 }
 
-/**
- * Findings are grouped by category rather than listed flat, matching how
- * `Report.by_category()` already thinks about them on the backend -- a
- * reviewer fixes a dossier one concern at a time, not one row at a time.
- */
-function Readiness({ readiness }: { readiness: ReadinessResponse }) {
-  const grouped = readiness.findings.reduce<Record<string, Finding[]>>(
-    (acc, finding) => {
-      (acc[finding.category] ??= []).push(finding);
-      return acc;
-    },
-    {},
-  );
-
+function Narratives({
+  projectId,
+  sections,
+  onChanged,
+}: {
+  projectId: string;
+  sections: SectionSpec[];
+  onChanged: () => void;
+}) {
+  // Sections with no slots (e.g. 1.2, the registration form) are shown but
+  // not offered a drafting UI -- every fact on them is structured data
+  // already, so there is nothing for a model to write.
   return (
-    <Card>
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Readiness
-        </h2>
-        <Badge tone={readiness.is_exportable ? "good" : "bad"}>
-          {readiness.is_exportable ? "Exportable" : "Blocked"}
-        </Badge>
-      </div>
-
-      {readiness.findings.length === 0 ? (
-        <p className="text-sm text-slate-600 dark:text-slate-400">
-          No findings.
-        </p>
-      ) : (
-        <div className="space-y-4">
-          {Object.entries(grouped).map(([category, findings]) => (
-            <div key={category}>
-              <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
-                {category}
-              </h3>
-              <ul className="space-y-2">
-                {findings.map((finding, index) => (
-                  <li
-                    key={`${finding.rule_id}-${index}`}
-                    className="flex items-start gap-3 text-sm"
-                  >
-                    <SeverityBadge severity={finding.severity} />
-                    <span className="flex-1">
-                      {finding.message}
-                      <span className="ml-2 font-mono text-xs text-slate-400">
-                        {finding.rule_id}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
+    <div className="space-y-6">
+      {sections.map((section) => (
+        <div key={section.number}>
+          <div className="mb-2 flex items-center gap-2">
+            <h3 className="font-medium">
+              {section.number} — {section.title}
+            </h3>
+            {section.narrative_slots.length === 0 && (
+              <Badge>data only</Badge>
+            )}
+          </div>
+          {section.narrative_slots.length === 0 ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Generated entirely from structured data — no narrative to review.
+            </p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {section.narrative_slots.map((slot) => (
+                <NarrativeSlot
+                  key={slot}
+                  projectId={projectId}
+                  section={section.number}
+                  slot={slot}
+                  onChanged={onChanged}
+                />
+              ))}
             </div>
-          ))}
+          )}
         </div>
-      )}
-
-      {readiness.overridden_rule_ids.length > 0 && (
-        <p className="mt-4 border-t border-slate-200 pt-3 text-xs text-slate-500 dark:border-slate-800">
-          Overridden by a human with a logged reason:{" "}
-          <span className="font-mono">
-            {readiness.overridden_rule_ids.join(", ")}
-          </span>
-        </p>
-      )}
-    </Card>
+      ))}
+    </div>
   );
 }
 
 function ProjectDetail({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
+  const [sections, setSections] = useState<SectionSpec[]>([]);
+  const [tab, setTab] = useState<Tab>("Overview");
   const [error, setError] = useState<string | null>(null);
 
+  const refreshReadiness = useCallback(() => {
+    api.getReadiness(projectId).then(setReadiness).catch(() => {});
+  }, [projectId]);
+
   useEffect(() => {
-    Promise.all([api.getProject(projectId), api.getReadiness(projectId)])
-      .then(([projectResult, readinessResult]) => {
+    Promise.all([
+      api.getProject(projectId),
+      api.getReadiness(projectId),
+      api.getSections(),
+    ])
+      .then(([projectResult, readinessResult, sectionsResult]) => {
         setProject(projectResult);
         setReadiness(readinessResult);
+        setSections(sectionsResult);
       })
       .catch((err) =>
         setError(
@@ -136,12 +133,63 @@ function ProjectDetail({ projectId }: { projectId: string }) {
       <PageHeading
         title={project.name}
         subtitle={`${project.region} · ${project.product.brand_name}`}
-        actions={<Badge>{project.region}</Badge>}
+        actions={
+          <Badge tone={readiness.is_exportable ? "good" : "bad"}>
+            {readiness.is_exportable ? "Exportable" : "Blocked"}
+          </Badge>
+        }
       />
-      <div className="space-y-4">
-        <Facts project={project} />
-        <Readiness readiness={readiness} />
+
+      <div className="mb-5 flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-800">
+        {TABS.map((name) => (
+          <button
+            key={name}
+            type="button"
+            onClick={() => setTab(name)}
+            className={`-mb-px border-b-2 px-3 py-2 text-sm ${
+              tab === name
+                ? "border-slate-900 font-medium dark:border-slate-100"
+                : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+            }`}
+          >
+            {name}
+          </button>
+        ))}
       </div>
+
+      {tab === "Overview" && (
+        <div className="space-y-4">
+          <Facts project={project} />
+          <ValidationReport
+            findings={readiness.findings}
+            isExportable={readiness.is_exportable}
+            overriddenRuleIds={readiness.overridden_rule_ids}
+            title="Readiness"
+          />
+        </div>
+      )}
+
+      {tab === "Narratives" && (
+        <Narratives
+          projectId={projectId}
+          sections={sections}
+          onChanged={refreshReadiness}
+        />
+      )}
+
+      {tab === "Validation" && (
+        <ValidationReport
+          findings={readiness.findings}
+          isExportable={readiness.is_exportable}
+          overriddenRuleIds={readiness.overridden_rule_ids}
+          title="Deterministic data rules"
+          emptyMessage="No findings — every data rule passed."
+        />
+      )}
+
+      {tab === "Build" && (
+        <BuildPanel projectId={projectId} region={project.region} />
+      )}
     </>
   );
 }

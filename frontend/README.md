@@ -59,10 +59,17 @@ config.
 ## Tests
 
 ```bash
-npm test        # Vitest — API client, auth, severity styling
+npm test        # Vitest — API client, auth, severity styling, wizard specs
 npm run lint
 npm run build   # also type-checks
+npm run e2e     # Playwright happy path — needs the full stack up
 ```
+
+`npm run e2e` drives the **real** backend: it walks the wizard, approves a
+narrative, checks that validation blocks the build, overrides with a
+logged reason, then builds and downloads a package. It creates and deletes
+its own project, so it leaves the database as it found it. If the API
+isn't reachable it skips with a message rather than failing.
 
 ## Layout
 

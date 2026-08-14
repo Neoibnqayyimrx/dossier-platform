@@ -1,7 +1,130 @@
 # Build Log
 
-Append a short entry as each phase is completed: what was built, key decisions,
-and one concept to revisit. Newest at the top.
+The running record of what this platform is and why it is that way. It
+covers every phase from P00 onward, plus the unplanned interludes that
+turned out to matter as much as the phases.
+
+## When to write here
+
+Not only at the end of a phase. Append (or extend the entry in progress)
+whenever any of these happens:
+
+- a phase or slice is finished;
+- a capability, endpoint, model, or migration is added;
+- **a real problem is solved** — a bug, a wrong assumption, a misleading
+  symptom, a gotcha in a library, a spec that didn't behave as expected;
+- a scope call or deliberate deferral is made.
+
+## What makes an entry worth reading
+
+Record the **why**, not just the what: the reasoning, the alternative that
+was rejected and what was wrong with it, and — for a bug — *how it
+actually announced itself*, since that's what makes it recognisable the
+second time. Say plainly when something is a known gap, a proxy, or an
+MVP simplification; a log that only records successes is a marketing
+document.
+
+Most of this project's value lives in this file. A fix that isn't written
+down gets re-debugged from scratch six weeks later.
+
+Newest entry at the top.
+
+---
+
+## P11c — Narrative review, validation viewer, build + download (P11 complete)
+
+The last slice, and the one that closes the loop the platform promises:
+empty project → captured data → reviewed narrative → validation → a
+downloaded package, entirely through the UI.
+
+- **Two gaps the frontend exposed, neither of which had come up while the
+  API only ever served tests:**
+  - Nothing told a client *which sections exist* or which narrative slots
+    each offers. Added `GET /sections`, derived from
+    `app.templating.registry.SECTIONS` — same "derive, never duplicate"
+    reasoning as `GET /enums` in P11b. Without it, registering a new
+    section (P04's open/closed payoff, which the QOS interlude exercised
+    with zero code changes) would silently fail to appear in the review
+    UI.
+  - P08/P09 stored their zips and returned a `storage_key`, but **nothing
+    could hand those bytes to a human** — "build & download" had no
+    download. Added `GET /projects/{id}/artifacts?key=…`.
+- **Authorization, not validation, on the artifact download.** `key` is
+  client-supplied and `StorageClient.get` will fetch whatever it is
+  given — so without a check, a caller could pass another project's key,
+  or any object in the bucket, and read it. The endpoint requires the key
+  to start with `projects/{project_id}/`, which every builder already
+  guarantees. Tested explicitly: another project's key and a bare
+  `kb/…` path both 403, an unbuilt key 404s rather than 500s, and the
+  endpoint refuses anonymous callers.
+- **The narrative review UI enforces the gate by displaying it, not by
+  re-implementing it.** A draft is marked "awaiting review" until a human
+  approves or edits it, because on the backend only those two actions set
+  `final_text`, and only `final_text` reaches a rendered document. The
+  panel also shows the retrieved sources and any guardrail warnings, so
+  "everything the LLM writes is reviewable" (AGENTS.md §5) is something
+  the screen actually demonstrates.
+- **Real bug, caught only by the browser: a status enum compared in the
+  wrong case.** The hand-written TypeScript union declared
+  `"PENDING" | "APPROVED" | "EDITED"`, but Pydantic serializes the enum's
+  *value*, which is lowercase — so `status === "APPROVED"` was never true
+  and **an approved narrative displayed as "awaiting review" forever**.
+  In a review workflow that is not cosmetic: it hides a human sign-off
+  and invites the reviewer to approve the same draft repeatedly. TypeScript
+  couldn't help — the literals were internally consistent, just wrong
+  about the wire format. This is exactly the drift `/enums` and
+  `/sections` exist to prevent, in the one place a type was hand-written
+  instead of derived. Fixed, with a unit test pinning the lowercase wire
+  values.
+- **Region awareness is driven by the project's region, not a second
+  opinion in the UI:** NAFDAC is offered the CTD builder only (its filing
+  genuinely has no XML backbone), FDA/EU the eCTD sequence builder.
+  Builds are deliberately *not* pre-gated in the component — P07 already
+  refuses to assemble when validation has unresolved errors and the API
+  answers 409, so the UI surfaces that message instead of duplicating the
+  rule (which also keeps it honest when a human has logged an override).
+- **Downloads fetch-then-save rather than pointing a link at the
+  endpoint.** A plain `<a href>` can't carry an Authorization header, so
+  the obvious version would need the token in the query string — where it
+  leaks into server logs, browser history and referrers. Fetching with
+  the normal header and handing the browser a blob keeps the credential
+  where it belongs.
+- **Playwright happy-path** (`frontend/e2e/`) drives the real backend, on
+  purpose: nearly every bug this whole phase surfaced — missing CORS, an
+  API bound to the wrong IP stack, "Add stability studie", the status-case
+  bug — was invisible to unit tests by construction. A mocked version
+  would have sailed through all of them.
+- **Test hygiene problem found and fixed in the test itself:** the first
+  version borrowed the EXAMOX seed and overrode its validation rules to
+  get a build through. That permanently mutated shared demo data
+  (overrides have no DELETE endpoint, so they accumulated on every run)
+  and destroyed the seed's teaching value — it is *deliberately* buggy,
+  and making it exportable removes the thing it demonstrates. Rewritten
+  to create, override, and delete its own project. A test that needs
+  mutable state should own that state.
+- 7 new backend tests (205 → 212), 3 new frontend unit tests (16 → 19),
+  and 1 end-to-end spec.
+
+---
+
+## Working conventions — build log made a standing rule (2026-08-13)
+
+Previously the log was an end-of-phase chore (AGENTS.md §8). It is now a
+cross-cutting rule in §5, triggered by *solving a problem* as much as by
+finishing a phase, and this file now states its own contract at the top.
+Two problems solved earlier in this session had gone unrecorded under the
+old convention and are captured here for completeness:
+
+- **`pkill -f "<pattern>"` kills the command that contains the pattern —
+  including the very shell running it.** Restarting a dev server with
+  `pkill -f "next start"; npm run start` repeatedly killed the server it
+  had just started, which looked like the server crashing on boot. Kill by
+  PID (`ss -ltnp` → `kill <pid>`) instead, in a separate step from the
+  restart.
+- **`NEXT_PUBLIC_*` env vars are inlined at build time, not read at
+  runtime.** Changing `.env.local` and restarting `next start` changes
+  nothing; the old value is baked into the bundle. Re-run `npm run build`.
+  Cost real time when the API base URL appeared not to update.
 
 ---
 

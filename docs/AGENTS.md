@@ -88,6 +88,7 @@ dossier-platform/
 - **Test-first for the deterministic core.** Rule engine, checksum, XML backbone, and TOC builder must have unit tests with known-good fixtures before they're wired into the API.
 - **Config over hard-coding.** Region profiles (NAFDAC, FDA, EMA), model names, storage endpoints, and paths all live in config.
 - **Small commits, one concern each.** Reference the phase number in commit messages, e.g. `[P06] add shelf-life vs stability consistency rule`.
+- **Keep `/reference/build-log.md` current — this is a standing rule, not an end-of-phase chore.** Append (or extend the open entry) whenever you: finish a phase or slice; add a capability, endpoint, model, or migration; **solve a real problem — a bug, a wrong assumption, a misleading symptom, a gotcha in a library or spec**; or make a scope call / deliberate deferral. Record *why*, not just *what*: the reasoning, the rejected alternative, and how the problem actually announced itself. Most of this project's value is in that log — it is the difference between a codebase and a course. A fix that isn't written down will be re-debugged from scratch later. Newest entry at the top.
 
 ## 6. Data model (canonical entities)
 
@@ -118,10 +119,10 @@ Full field definitions and relationships are specified in Phase 01.
 - [x] P08 — CTD / NAPAMS folder + TOC builder (MVP output)
 - [x] P09 — eCTD v3.2.2 XML backbone builder (EU region; FDA deferred)
 - [x] P10 — eCTD validation (mechanical checks + validator adapter + AI reviewer)
-- [ ] P11 — Frontend wizard + dashboard + validation viewer
+- [x] P11 — Frontend wizard + dashboard + validation viewer
   - [x] P11a — Scaffold, auth, project dashboard + readiness viewer
   - [x] P11b — Product information wizard (multi-step, controlled vocabularies)
-  - [ ] P11c — Narrative review, validation viewer, build + download
+  - [x] P11c — Narrative review, validation viewer, build + download
 - [ ] P12 — eCTD v4.0 (RPS) — future
 
 ## 8. How to work through the prompts

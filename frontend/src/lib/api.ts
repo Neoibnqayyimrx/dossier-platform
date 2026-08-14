@@ -14,9 +14,14 @@
 
 import type {
   AuthToken,
+  CtdBuildResponse,
+  EctdBuildResponse,
+  EctdValidationResponse,
+  Narrative,
   Product,
   Project,
   ReadinessResponse,
+  SectionSpec,
   Sequence,
   Vocabularies,
 } from "@/lib/types";
@@ -190,6 +195,123 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     });
+  },
+
+  /** Which sections exist and which narrative slots each offers. */
+  getSections() {
+    return request<SectionSpec[]>("/sections");
+  },
+
+  // ---- narrative review (P05) ------------------------------------------
+  //
+  // The `:generate` / `:approve` / `:edit` suffixes are the backend's
+  // deliberate "custom method" convention: these are state transitions
+  // with side effects (an LLM call, a human review decision), not CRUD on
+  // a resource. Kept verbatim here rather than prettified into REST verbs.
+
+  listNarratives(projectId: string, section: string, slot: string) {
+    return request<Narrative[]>(
+      `/projects/${projectId}/sections/${section}/narrative/${slot}`,
+    );
+  },
+
+  generateNarrative(projectId: string, section: string, slot: string) {
+    return request<{ narrative: Narrative; warnings: string[] }>(
+      `/projects/${projectId}/sections/${section}/narrative/${slot}:generate`,
+      { method: "POST" },
+    );
+  },
+
+  approveNarrative(
+    projectId: string,
+    section: string,
+    slot: string,
+    narrativeId: string,
+  ) {
+    return request<Narrative>(
+      `/projects/${projectId}/sections/${section}/narrative/${slot}/${narrativeId}:approve`,
+      { method: "POST" },
+    );
+  },
+
+  editNarrative(
+    projectId: string,
+    section: string,
+    slot: string,
+    narrativeId: string,
+    text: string,
+  ) {
+    return request<Narrative>(
+      `/projects/${projectId}/sections/${section}/narrative/${slot}/${narrativeId}:edit`,
+      { method: "POST", body: JSON.stringify({ text }) },
+    );
+  },
+
+  // ---- build + validate -------------------------------------------------
+
+  buildCtd(projectId: string) {
+    return request<CtdBuildResponse>(`/projects/${projectId}/build/ctd`, {
+      method: "POST",
+    });
+  },
+
+  createSequence(projectId: string, description?: string) {
+    return request<Sequence>(`/projects/${projectId}/sequences`, {
+      method: "POST",
+      body: JSON.stringify({ description: description ?? null }),
+    });
+  },
+
+  buildEctd(projectId: string, sequenceId: string) {
+    return request<EctdBuildResponse>(
+      `/projects/${projectId}/build/ectd?sequence_id=${sequenceId}`,
+      { method: "POST" },
+    );
+  },
+
+  validateEctd(projectId: string, sequenceId: string) {
+    return request<EctdValidationResponse>(
+      `/projects/${projectId}/validate/ectd?sequence_id=${sequenceId}`,
+      { method: "POST" },
+    );
+  },
+
+  /**
+   * Download a built package, saving it with its real filename.
+   *
+   * WHY fetch-then-save rather than pointing an <a href> at the endpoint:
+   * a plain link or window.open() cannot carry an Authorization header,
+   * so the obvious version would need the token in the query string --
+   * and tokens in URLs leak into server logs, browser history, and
+   * referrers. Fetching the bytes with the normal auth header and handing
+   * the browser a blob keeps the credential where it belongs, at the cost
+   * of holding the zip in memory (fine at dossier scale; revisit with a
+   * one-time signed URL if packages ever get large).
+   */
+  async downloadArtifact(projectId: string, key: string): Promise<void> {
+    const token = getStoredToken();
+    const headers = new Headers();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+
+    const params = new URLSearchParams({ key });
+    const response = await fetch(
+      `${API_BASE_URL}/projects/${projectId}/artifacts?${params}`,
+      { headers },
+    );
+    if (!response.ok) {
+      throw new ApiError(response.status, await extractErrorMessage(response));
+    }
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = key.split("/").pop() ?? "package.zip";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    // Revoking immediately would race the browser's save on some engines.
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
   },
 };
 
