@@ -31,6 +31,85 @@ Newest entry at the top.
 
 ---
 
+## Fix — the QOS showed only the first active ingredient (2026-08-14)
+
+A defect flagged during P11c and cleared afterwards, before starting any
+new phase. Worth reading for the scoping as much as the fix: **most of
+what I thought was broken had already been fixed, and the one real bug
+was somewhere I hadn't looked.**
+
+### What was actually wrong
+
+`render.py` built the 2.3 QOS chemical-structure image from
+`project.product.apis[0].smiles` — the first active ingredient, full
+stop. For AMPICLOX (ampicillin + cloxacillin) the Quality Overall
+Summary rendered ampicillin's structural formula and silently omitted
+cloxacillin's. No error, no placeholder, nothing on the page saying a
+substance was missing — just a dossier describing half the product.
+
+This is a regulatory error, not only a rendering one. **2.3.S (like
+3.2.S) is repeated *per drug substance*.** A fixed-dose combination owes
+the assessor one structural formula per active. "The structure of the
+API" is a question that only has an answer for a single-API product, and
+the code had quietly assumed every product was one.
+
+### The fix
+
+- `SectionSpec.structure_image_slot` → `structure_images_slot`, now
+  bound to a **list**. The single-API case is a list of length one, so
+  there is no special case to get wrong.
+- `_build_structure_images` returns one `StructureSlot(name, image)` per
+  API; the QOS template loops over them.
+- Every structure is now **captioned with its substance name**, single-API
+  included. With two formulas on a page an uncaptioned image is ambiguous,
+  and an assessor cannot verify a structure they can't attach to a named
+  substance.
+- Degradation is **per substance**: if one active has a SMILES and the
+  other doesn't, the first still gets its picture and only the second
+  gets the placeholder. One missing field no longer blanks both.
+
+The docx template itself had to change (`{{ structure }}` → a
+`{%p for s in structures %}` loop), which meant editing the `.docx`
+XML with python-docx rather than the source. **Note for next time:** the
+templates are binary artifacts checked into the repo with no generating
+script, so every template change is surgery on a zip. That's a real
+maintenance cost we've now paid twice; worth reconsidering if it happens
+again.
+
+### The scoping lesson — I over-reported the problem
+
+I had flagged this as "the `apis[0]` limitation", implying a data-model
+gap. Grepping first showed that was wrong:
+
+- Strength had **already** been moved from `Product` to
+  `ActiveIngredient` back in P06, precisely so a second active had
+  somewhere to put its own strength.
+- R01 and R04 **already** loop over every API, and `AMPICLOX` exists as a
+  seed fixture whose deliberate defect is on the *second* active — built
+  specifically to prove those rules don't stop at `apis[0]`.
+- The remaining `apis[0]` in `rules.py` is a guarded fallback (`if api is
+  None and len(product.apis) == 1`), which is correct, not a bug.
+
+So the data model and rule engine were fine. The template engine — built
+in P04, *before* that P06 rework — was never revisited, and it was the
+only layer still carrying the old single-API assumption. **A fix applied
+at one layer doesn't propagate to layers written earlier against the old
+shape.** Grep before scoping; the memory of a bug is not evidence.
+
+### Known gap, deliberately not closed here
+
+AMPICLOX has only ever been exercised through the rule engine (P06) and
+now the template engine (P04). **No combination product has been run
+through P07 assembly or a P08 CTD build.** Nothing in those layers
+branches on API count (checked by grep — only `regional.py` touches
+`apis`, and it loops correctly), so there's no known bug. But "no known
+bug" is not "tested". Closing this needs the AMPICLOX seed fleshed out
+with an applicant, certificates and declarations so it can clear the
+completeness rules and actually build — real work, deliberately left for
+its own commit rather than smuggled into this one.
+
+---
+
 ## P11c — Narrative review, validation viewer, build + download (P11 complete)
 
 The last slice, and the one that closes the loop the platform promises:

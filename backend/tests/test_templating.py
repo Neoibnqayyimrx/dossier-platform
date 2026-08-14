@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.storage import InMemoryStorageClient
 from app.models import Base
+from app.seed.ampiclox import build_ampiclox
 from app.seed.examox import build_examox
 from app.templating.registry import get_section
 from app.templating.render import render_section
@@ -25,6 +26,21 @@ def project():
     Base.metadata.create_all(engine)
     session = Session(engine, expire_on_commit=False)
     project = build_examox(buggy=False)
+    session.add(project)
+    session.commit()
+    session.refresh(project)
+    return project
+
+
+@pytest.fixture
+def fdc_project():
+    """AMPICLOX -- the fixed-dose combination fixture. Anything in the
+    template engine that quietly assumes one active per product fails here
+    and nowhere else, since every other seed happens to be single-API."""
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    session = Session(engine, expire_on_commit=False)
+    project = build_ampiclox(buggy=False)
     session.add(project)
     session.commit()
     session.refresh(project)
@@ -106,6 +122,43 @@ def test_render_qos_embeds_the_structure_image_when_smiles_present(project):
     text = "\n".join(p.text for p in doc.paragraphs)
     assert "A beta-lactam antibiotic." in text
     assert "Structure not available" not in text
+    # every structure is captioned with its substance, single-API included --
+    # an uncaptioned formula is one an assessor can't tie to a named active.
+    assert "Structural formula — Amoxicillin:" in text
+
+
+def test_render_qos_embeds_one_structure_per_active_for_a_combination(fdc_project):
+    """The regression this file exists to prevent: the QOS structure slot
+    used to render `apis[0]` only, so AMPICLOX's summary showed ampicillin
+    and silently dropped cloxacillin. 2.3.S is repeated per drug substance,
+    so an FDC owes one captioned structural formula per active."""
+    storage = InMemoryStorageClient()
+
+    result = render_section("2.3", fdc_project, storage=storage)
+
+    doc = Document(io.BytesIO(storage.get(result.storage_key)))
+    assert len(doc.inline_shapes) == 2
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Structural formula — Ampicillin:" in text
+    assert "Structural formula — Cloxacillin:" in text
+
+
+def test_render_qos_placeholder_is_per_active_not_all_or_nothing(fdc_project):
+    """A half-entered combination degrades per substance: the active that
+    has a SMILES still gets its picture, and only the one that doesn't gets
+    the placeholder -- rather than one missing field blanking both."""
+    by_name = {api.inn_name: api for api in fdc_project.product.apis}
+    by_name["Cloxacillin"].smiles = None
+    storage = InMemoryStorageClient()
+
+    result = render_section("2.3", fdc_project, storage=storage)
+
+    doc = Document(io.BytesIO(storage.get(result.storage_key)))
+    assert len(doc.inline_shapes) == 1
+    text = "\n".join(p.text for p in doc.paragraphs)
+    assert "Structural formula — Ampicillin:" in text
+    assert "Structural formula — Cloxacillin:" in text
+    assert text.count("Structure not available") == 1
 
 
 def test_render_qos_shows_placeholder_when_smiles_missing(project):

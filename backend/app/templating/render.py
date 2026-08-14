@@ -27,6 +27,19 @@ NO_STRUCTURE_PLACEHOLDER = "[[Structure not available — SMILES not yet entered
 
 
 @dataclass
+class StructureSlot:
+    """One drug substance's structure block, as the QOS template loops over it.
+
+    `image` is a docxtpl `InlineImage` when a SMILES is on file, and the
+    placeholder *string* otherwise -- docxtpl renders either into the same
+    `{{ s.image }}` position, so the template needs no conditional.
+    """
+
+    name: str
+    image: InlineImage | str
+
+
+@dataclass
 class RenderResult:
     section_number: str
     storage_key: str
@@ -50,8 +63,8 @@ def render_section(
     context = build_context(section_number, project, narrative)
 
     template = DocxTemplate(section.template_path)
-    if section.structure_image_slot:
-        context[section.structure_image_slot] = _build_structure_image(template, project)
+    if section.structure_images_slot:
+        context[section.structure_images_slot] = _build_structure_images(template, project)
     template.render(context)
 
     buffer = io.BytesIO()
@@ -65,9 +78,22 @@ def render_section(
     return RenderResult(section_number=section_number, storage_key=key, size_bytes=len(data))
 
 
-def _build_structure_image(template: DocxTemplate, project: Project) -> InlineImage | str:
-    """Return an embeddable structure image for the project's (first) API,
-    or a clearly-marked text placeholder if no SMILES is on file yet.
+def _build_structure_images(template: DocxTemplate, project: Project) -> list[StructureSlot]:
+    """One structure block per active ingredient, in the product's own API
+    order -- each with the API's name and either an embeddable image or a
+    clearly-marked text placeholder if no SMILES is on file yet.
+
+    WHY one per API rather than one per product: 2.3.S is repeated per drug
+    substance (see `/reference/dossier-anatomy.md`), so a fixed-dose
+    combination owes the assessor a structural formula for EACH active. The
+    earlier version rendered `apis[0]` only, which meant AMPICLOX's QOS
+    showed ampicillin and silently omitted cloxacillin -- a dossier that
+    describes half the product, with nothing on the page to say so.
+
+    WHY the name is emitted alongside every image, even for a single-API
+    product: with two structures on the page an uncaptioned image is
+    ambiguous, and an assessor cannot verify a structure they can't attach
+    to a named substance.
 
     WHY a missing SMILES gets a soft placeholder but an invalid one doesn't
     (see `render_structure_png`'s `InvalidSmilesError`, left uncaught here):
@@ -77,9 +103,12 @@ def _build_structure_image(template: DocxTemplate, project: Project) -> InlineIm
     strength value, and should fail loudly rather than be silently papered
     over with a placeholder image.
     """
-    apis = project.product.apis
-    smiles = apis[0].smiles if apis else None
-    if not smiles:
-        return NO_STRUCTURE_PLACEHOLDER
-    png_bytes = render_structure_png(smiles)
-    return InlineImage(template, io.BytesIO(png_bytes), width=Mm(80))
+    slots: list[StructureSlot] = []
+    for api in project.product.apis:
+        if api.smiles:
+            png_bytes = render_structure_png(api.smiles)
+            image: InlineImage | str = InlineImage(template, io.BytesIO(png_bytes), width=Mm(80))
+        else:
+            image = NO_STRUCTURE_PLACEHOLDER
+        slots.append(StructureSlot(name=api.inn_name, image=image))
+    return slots

@@ -33,12 +33,18 @@ class SectionSpec:
     # not just reusing `title` verbatim — so retrieval targets what the
     # narrative actually needs to say, not just what the section is called.
     grounding_query: str | None = None
-    # P04 chemical-structure capability: the context key an embedded 2D
-    # structure image is bound to, if this section's template has one.
-    # None (the default) means "no image slot" -- any section can opt in
-    # by naming a key here and putting a matching `{{ key }}` in its
+    # P04 chemical-structure capability: the context key the list of
+    # per-drug-substance 2D structure images is bound to, if this section's
+    # template has one. None (the default) means "no image slot" -- any
+    # section can opt in by naming a key here and looping over it in its
     # template; this is not QOS-specific.
-    structure_image_slot: str | None = None
+    #
+    # WHY a list and not a single image: 2.3.S (and 3.2.S) are repeated
+    # PER DRUG SUBSTANCE -- a fixed-dose combination like AMPICLOX
+    # (ampicillin + cloxacillin) owes the assessor one structural formula
+    # per active, not one for "the product". The template loops; the
+    # single-API case is just a list of length one.
+    structure_images_slot: str | None = None
 
     @property
     def template_path(self) -> Path:
@@ -84,7 +90,7 @@ SECTIONS: dict[str, SectionSpec] = {
         template_filename="section_2_3_qos.docx",
         narrative_slots=["overview"],
         grounding_query="quality overall summary drug substance drug product",
-        structure_image_slot="structure",
+        structure_images_slot="structures",
     ),
 }
 
@@ -94,5 +100,5 @@ def get_section(number: str) -> SectionSpec:
         return SECTIONS[number]
     except KeyError:
         raise KeyError(
-            f"No registered section {number!r}; registered sections: " f"{', '.join(SECTIONS)}"
+            f"No registered section {number!r}; registered sections: {', '.join(SECTIONS)}"
         )
