@@ -5,6 +5,57 @@ and one concept to revisit. Newest at the top.
 
 ---
 
+## P11b — Frontend: the Product Information Wizard (second slice of P11)
+
+The screen that carries the product's whole thesis: it captures
+structured **data** and never asks anyone to upload a finished dossier.
+Seven steps — Product → Manufacturers → Active ingredients → Excipients →
+Packaging → Stability → create the Project.
+
+- **New `GET /enums` endpoint, rather than hard-coding the vocabularies
+  in TypeScript.** These enums *are* the regulatory control — a Postgres
+  ENUM physically cannot store a value that isn't on the approved list
+  (`app/models/enums.py`). A second hand-maintained copy in the UI is
+  exactly how the approved list and the offered list drift apart, and the
+  dangerous failure isn't "the UI offered something the DB rejects" (loud,
+  harmless) but "the UI quietly offered a stale vocabulary a regulator
+  later queries". Adding a dosage form stays a one-line change to
+  `enums.py`; the wizard picks it up with no frontend edit. Four tests,
+  written so they'd fail on drift rather than needing an update when a
+  38th dosage form appears.
+- **The wizard is driven by field specs (`lib/wizard-steps.ts`), not six
+  bespoke forms** — mirroring the backend, which builds all six
+  Product-child routers from one factory
+  (`app/api/routers/product_children.py`) precisely because they are the
+  same resource shape with different fields. Adding a field is one line;
+  adding a collection is one entry.
+- **Saves as you go**, because that's how the API is actually shaped: step
+  1 creates the Product, every later step attaches children to that id. A
+  half-finished product is a legitimate state — P06's completeness rules
+  decide whether it can be *exported*, not the form. Re-entering step 1
+  after going back doesn't create a second Product.
+- **Real bug caught by driving a real browser, not by types or lint:**
+  the add-button label was derived with `title.replace(/s$/, "")`, which
+  renders "Stability studies" as **"Add stability studie"**. English
+  plurals aren't regex-able, so the singular is now written out as data
+  (`addLabel`) like everything else in the spec, with a regression test.
+  A good reminder that a clean typecheck says nothing about what the
+  screen actually reads like.
+- **Verified end-to-end in a browser, including the case the data model
+  was reshaped for:** the run adds *two* active ingredients with their own
+  strengths, and the created project's detail page renders
+  `Ampicillin 250 mg + Cloxacillin 250 mg` — the combination-product
+  support from the pre-P06 interlude, now reachable through the UI. The
+  readiness report then fires **R07 once per active ingredient**, which is
+  the multi-API fix (no more `apis[0]` shortcuts) proving itself through
+  the full stack.
+- Field help text names the rule each value feeds (shelf life → R05,
+  GMP status → R08, specifications → R07, salt factor → R04), so the form
+  teaches *why* a field matters rather than just demanding it.
+- 3 new frontend tests (13 → 16) and 4 new backend tests (201 → 205).
+
+---
+
 ## P11a — Frontend: scaffold, auth, dashboard (first slice of P11)
 
 P11 is the biggest phase in the plan (8 tasks), so it's being built in

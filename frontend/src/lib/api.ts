@@ -14,9 +14,11 @@
 
 import type {
   AuthToken,
+  Product,
   Project,
   ReadinessResponse,
   Sequence,
+  Vocabularies,
 } from "@/lib/types";
 
 /**
@@ -133,4 +135,69 @@ export const api = {
   listSequences(projectId: string) {
     return request<Sequence[]>(`/projects/${projectId}/sequences`);
   },
+
+  /** Controlled vocabularies for every dropdown -- see lib/types.ts. */
+  getEnums() {
+    return request<Vocabularies>("/enums");
+  },
+
+  createProduct(payload: Record<string, unknown>) {
+    return request<Product>("/products", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  getProduct(productId: string) {
+    return request<Product>(`/products/${productId}`);
+  },
+
+  /**
+   * The six Product-child collections all share one URL shape and one
+   * verb set, because the backend builds their routers from a single
+   * factory (app/api/routers/product_children.py). Mirroring that with
+   * one parameterised method instead of six near-identical ones keeps the
+   * two sides the same shape -- add a resource there, and nothing here
+   * needs to change.
+   */
+  createProductChild(
+    productId: string,
+    resource: ProductChildResource,
+    payload: Record<string, unknown>,
+  ) {
+    return request<{ id: string }>(`/products/${productId}/${resource}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  deleteProductChild(
+    productId: string,
+    resource: ProductChildResource,
+    childId: string,
+  ) {
+    return request<void>(`/products/${productId}/${resource}/${childId}`, {
+      method: "DELETE",
+    });
+  },
+
+  createProject(payload: {
+    name: string;
+    region: string;
+    product_id: string;
+  }) {
+    return request<Project>("/projects", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
 };
+
+/** The child collections mounted under /products/{id}/... */
+export type ProductChildResource =
+  | "manufacturers"
+  | "apis"
+  | "excipients"
+  | "packaging"
+  | "stability"
+  | "clinical";

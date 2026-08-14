@@ -31,9 +31,11 @@ function ProjectList() {
     return (
       <Card>
         <p className="text-sm text-slate-600 dark:text-slate-400">
-          No projects yet. Seed one from the backend
-          (<code className="font-mono text-xs">scripts/</code>) or create one
-          through the wizard once it lands.
+          No projects yet.{" "}
+          <Link href="/products/new" className="underline">
+            Add a product
+          </Link>{" "}
+          to get started.
         </p>
       </Card>
     );
@@ -76,6 +78,14 @@ export default function ProjectsPage() {
       <PageHeading
         title="Projects"
         subtitle="Each project is one product filed to one regulator."
+        actions={
+          <Link
+            href="/products/new"
+            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white dark:bg-slate-100 dark:text-slate-900"
+          >
+            New product
+          </Link>
+        }
       />
       <ProjectList />
     </AuthGuard>

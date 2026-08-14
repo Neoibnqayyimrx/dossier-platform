@@ -120,7 +120,7 @@ Full field definitions and relationships are specified in Phase 01.
 - [x] P10 — eCTD validation (mechanical checks + validator adapter + AI reviewer)
 - [ ] P11 — Frontend wizard + dashboard + validation viewer
   - [x] P11a — Scaffold, auth, project dashboard + readiness viewer
-  - [ ] P11b — Product information wizard (multi-step, controlled vocabularies)
+  - [x] P11b — Product information wizard (multi-step, controlled vocabularies)
   - [ ] P11c — Narrative review, validation viewer, build + download
 - [ ] P12 — eCTD v4.0 (RPS) — future
 
