@@ -40,6 +40,21 @@ class Settings(BaseSettings):
     embedding_model: str = "voyage-3-lite"
     embedding_api_key: str | None = None
 
+    # Browser origins allowed to call this API (P11 -- the frontend is a
+    # separate origin, so without this every request from it fails CORS
+    # preflight). Comma-separated in the environment
+    # (CORS_ALLOW_ORIGINS=http://localhost:3000,https://app.example.com).
+    #
+    # WHY an explicit allowlist rather than "*": this API is
+    # bearer-token authenticated, and a wildcard origin is exactly the
+    # configuration that lets any site a logged-in user visits call it
+    # with their credentials. Dev convenience is not worth that default.
+    cors_allow_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+
+    @property
+    def cors_allow_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
+
     # External eCTD validator (P10) -- "null" (default) means no real
     # agency-recognized validator (e.g. an eValidator-class tool) is wired
     # up in this environment; the report says so explicitly rather than

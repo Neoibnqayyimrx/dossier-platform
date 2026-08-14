@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.errors import register_error_handlers
 from app.api.routers.auth import router as auth_router
@@ -15,6 +16,19 @@ from app.core.config import get_settings
 settings = get_settings()
 
 app = FastAPI(title="Dossier Platform API", version=settings.app_version)
+
+# P11: the frontend runs on its own origin, so browsers preflight every
+# request here. Without this the entire API is unreachable from a browser
+# -- something no backend test caught, because httpx (unlike a browser)
+# doesn't enforce the same-origin policy. Origins come from config, never
+# a "*" wildcard (see Settings.cors_allow_origins for why).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allow_origin_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 register_error_handlers(app)
 

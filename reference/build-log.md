@@ -5,6 +5,79 @@ and one concept to revisit. Newest at the top.
 
 ---
 
+## P11a — Frontend: scaffold, auth, dashboard (first slice of P11)
+
+P11 is the biggest phase in the plan (8 tasks), so it's being built in
+three runnable slices rather than one unreviewable drop. This is slice
+one: a user can sign in and see a real project's readiness report.
+
+Next.js 16.3 (App Router) + TypeScript + Tailwind 4 in `frontend/`, per
+AGENTS.md §3. The scaffold ships its own `AGENTS.md` warning that this
+Next version differs from training data — read
+`node_modules/next/dist/docs/` first, which is where `PageProps<'/route'>`
+/ `LayoutProps<'/'>` (route-aware type helpers, params arriving as a
+Promise) came from rather than guesswork.
+
+- **Real bug this phase existed to find: the backend had no CORS
+  middleware at all.** Every one of the 198 backend tests passed while the
+  API was, in fact, unreachable from any browser — httpx doesn't enforce
+  the same-origin policy, so nothing in the suite could have caught it.
+  Only driving a real browser at it surfaced the problem. Fixed with
+  `CORSMiddleware` + a configurable `CORS_ALLOW_ORIGINS` allowlist
+  (explicitly never `*`: this is a bearer-token API, and a wildcard origin
+  is exactly what lets any site a logged-in user visits call it with their
+  credentials). `tests/test_cors.py` locks in the one thing httpx *can*
+  check — that preflight responses carry the right headers, and that an
+  unlisted origin gets no grant.
+- **Two misleading symptoms worth remembering, both of which look like
+  CORS and aren't:** (1) if `localhost` resolves to `::1` first and the API
+  is bound only to `127.0.0.1`, the browser's connection is refused and
+  reported as "No 'Access-Control-Allow-Origin' header"; `curl` hides this
+  by falling back to IPv4. (2) any endpoint returning **500** produces the
+  same message, because FastAPI's CORS middleware doesn't attach headers
+  to unhandled-exception responses — the actual cause the second time was
+  simply Postgres being down. Both documented in `frontend/README.md`, so
+  the next person checks the API log before touching CORS config.
+- **`useSyncExternalStore` for auth, not `useState` + a mount effect.**
+  The first version read localStorage in an effect and called setState —
+  which `react-hooks/set-state-in-effect` correctly flags as a cascading
+  render. localStorage *is* an external store, so the purpose-built hook
+  is the right tool; it also gives cross-tab logout for free (the
+  `storage` event fires in other tabs). The server snapshot returns
+  `undefined` while the client snapshot returns `string | null`, which
+  keeps "not read yet" distinct from "signed out" — collapsing those two
+  makes every guarded page flash the login screen for a frame.
+- **Data is fetched in Client Components, deliberately.** The token lives
+  in localStorage, which a Server Component cannot read; going
+  server-side would mean an httpOnly cookie plus proxying every request
+  through Next's server, buying nothing (the backend already enforces
+  auth) and adding a second place for auth logic to drift. Reasoning is
+  recorded at the top of `lib/api.ts` along with what would have to change
+  to revisit it.
+- **One small backend consistency fix:** `FindingRead` (P06's `/readiness`
+  response) gained the `source` field P10 added to `Finding`, defaulted so
+  nothing else changed. The UI now renders one shape of finding
+  everywhere instead of two.
+- **Severity styling encodes a real distinction, not decoration:** ERROR
+  is the only severity that blocks an export, so it's the only red one;
+  ADVISORY (the AI reviewer) is visually distinct from every deterministic
+  severity so nobody mistakes a suggestion for a finding. A Vitest case
+  asserts those two never render identically.
+- **Dev-data note (not a code bug, but worth knowing):** migration
+  `bf6ef09c07bf` moved `strength_value`/`strength_unit` from `Product` to
+  `ActiveIngredient` with no data backfill, so any row seeded before
+  2026-07-25 shows a blank strength. Harmless in a dev database; in
+  production that same shape of migration would silently blank a value
+  regulators cross-check (it's exactly what R01 exists to verify). Future
+  column moves should carry an `op.execute` backfill between the add and
+  the drop.
+- 13 frontend tests (Vitest) + 3 new backend CORS tests (198 → 201).
+  Verified end-to-end in a real browser: sign in → project list →
+  readiness report → reload (session survives) → sign out, no console
+  errors.
+
+---
+
 ## P10 — eCTD Validation (mechanical checks + validator adapter + AI reviewer)
 
 Validates a BUILT sequence's zip artifact, merging four independent

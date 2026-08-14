@@ -11,6 +11,11 @@ class FindingRead(BaseModel):
     category: str
     message: str
     section: str | None = None
+    # P10: which layer produced this finding. Defaulted, so the P06-only
+    # /readiness endpoint keeps working unchanged -- but it now carries
+    # the same provenance the consolidated eCTD report does, so the UI
+    # renders one shape of finding everywhere instead of two.
+    source: str = "data-rule"
 
 
 class ReadinessResponse(BaseModel):
