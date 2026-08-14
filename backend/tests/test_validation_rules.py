@@ -20,6 +20,7 @@ from datetime import date, timedelta
 import app.validation.rules  # noqa: F401  registers rules
 from app.validation.engine import Severity, run_all
 from app.models import (
+    SpecificationTest,
     Product,
     Project,
     Manufacturer,
@@ -111,7 +112,7 @@ def test_r06_flags_missing_bioequivalence():
 
 def test_r07_flags_missing_api_specification():
     project = _minimal_project()
-    project.product.apis.append(ActiveIngredient(inn_name="Testolol", specifications=None))
+    project.product.apis.append(ActiveIngredient(inn_name="Testolol", specification=[]))
     report = run_all(project)
     assert any(f.rule_id == "R07" for f in report.findings)
 
@@ -119,7 +120,16 @@ def test_r07_flags_missing_api_specification():
 def test_r07_passes_when_specification_present():
     project = _minimal_project()
     project.product.apis.append(
-        ActiveIngredient(inn_name="Testolol", specifications="Assay 95.0-105.0%")
+        ActiveIngredient(
+            inn_name="Testolol",
+            specification=[
+                SpecificationTest(
+                    test_name="Assay",
+                    method="HPLC, BP monograph",
+                    acceptance_criterion="95.0 - 105.0 % w/w",
+                )
+            ],
+        )
     )
     report = run_all(project)
     assert not [f for f in report.findings if f.rule_id == "R07"]

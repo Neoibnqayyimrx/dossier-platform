@@ -18,7 +18,7 @@ from app.models import ActiveIngredient, BatchFormulaLine, Product, Project
 # Every child collection ProductRead nests (app/schemas/product.py).
 PRODUCT_CHILD_OPTIONS = (
     selectinload(Product.manufacturers),
-    selectinload(Product.apis),
+    selectinload(Product.apis).selectinload(ActiveIngredient.specification),
     selectinload(Product.excipients),
     selectinload(Product.packaging),
     selectinload(Product.stability),
@@ -29,7 +29,9 @@ PRODUCT_CHILD_OPTIONS = (
 # ProjectRead nests product (with all its children) + sequences.
 PROJECT_CHILD_OPTIONS = (
     selectinload(Project.product).selectinload(Product.manufacturers),
-    selectinload(Project.product).selectinload(Product.apis),
+    selectinload(Project.product)
+    .selectinload(Product.apis)
+    .selectinload(ActiveIngredient.specification),
     selectinload(Project.product).selectinload(Product.excipients),
     selectinload(Project.product).selectinload(Product.packaging),
     selectinload(Project.product).selectinload(Product.stability),
@@ -38,6 +40,9 @@ PROJECT_CHILD_OPTIONS = (
     selectinload(Project.sequences),
 )
 
+# P13: R07 reads each API's specification ROWS now (not a free-text field),
+# so that collection has to be loaded here too or the rule raises
+# MissingGreenlet -- the same trap the docstring above describes.
 # P06's run_all() walks the full project graph (rules read manufacturers,
 # apis + each API's manufacturer, batch_formula + each line's active
 # ingredient, certificates, and the project's sections) -- every one of

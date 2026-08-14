@@ -173,7 +173,21 @@ export interface ActiveIngredient {
   strength_unit: string | null;
   salt_form: string | null;
   compendial_std: string | null;
-  specifications: string | null;
+  /** 3.2.S.4.1 — one row per test. A specification is a table, not a
+   * sentence: each row is a commitment (test, method, acceptance
+   * criterion) the manufacturer is held to at release and on stability. */
+  specification: SpecificationTest[];
+}
+
+export interface SpecificationTest {
+  id: string;
+  test_name: string;
+  /** A citation ("BP monograph", "USP <467>"), never monograph text —
+   * pharmacopoeias are copyrighted. */
+  method: string;
+  acceptance_criterion: string;
+  sort_order: number;
+  notes: string | null;
 }
 
 export interface Excipient {

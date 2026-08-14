@@ -230,10 +230,15 @@ def generic_requires_bioequivalence(project) -> list[Finding]:
 @rule("R07")
 def api_specification_present(project) -> list[Finding]:
     """Every active ingredient must have a specification on file
-    (Module 3.2.S.4.1) -- completeness, not just "the row exists"."""
+    (Module 3.2.S.4.1) -- completeness, not just "the row exists".
+
+    Reads the specification TABLE now, not the old free-text field: a
+    specification with no test rows cannot be rendered as 3.2.S.4.1
+    requires, so an empty list is the same failure as the field being
+    absent used to be."""
     out: list[Finding] = []
     for api in project.product.apis:
-        if not api.specifications:
+        if not api.specification:
             out.append(
                 Finding(
                     "R07",

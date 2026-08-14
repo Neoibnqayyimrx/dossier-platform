@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app.models.enums import CompendialStatus
 from app.schemas.base import ReadMixin
+from app.schemas.specification import SpecificationTestRead
 
 
 class ActiveIngredientBase(BaseModel):
@@ -19,7 +20,6 @@ class ActiveIngredientBase(BaseModel):
     dmf_number: str | None = None
     cep_number: str | None = None
     retest_period_months: int | None = None
-    specifications: str | None = None
     particle_size: str | None = None
     residual_solvents: str | None = None
     smiles: str | None = None
@@ -40,7 +40,6 @@ class ActiveIngredientUpdate(BaseModel):
     dmf_number: str | None = None
     cep_number: str | None = None
     retest_period_months: int | None = None
-    specifications: str | None = None
     particle_size: str | None = None
     residual_solvents: str | None = None
     smiles: str | None = None
@@ -48,3 +47,8 @@ class ActiveIngredientUpdate(BaseModel):
 
 class ActiveIngredientRead(ActiveIngredientBase, ReadMixin):
     product_id: uuid.UUID
+    # Nested read-only: the specification is written through its own
+    # endpoints (/apis/{id}/specification), but a reader asking for an
+    # active ingredient almost always wants its specification table too,
+    # and a second round-trip per API would be wasteful.
+    specification: list[SpecificationTestRead] = []

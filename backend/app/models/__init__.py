@@ -39,6 +39,7 @@ from app.models.packaging import Packaging
 from app.models.stability import StabilityStudy
 from app.models.clinical import ClinicalEntry
 from app.models.batch_formula import BatchFormulaLine
+from app.models.specification import SpecificationTest
 from app.models.certificate import Certificate
 from app.models.applicant import Applicant
 from app.models.declaration import Declaration
@@ -52,6 +53,7 @@ from app.models.validation_override import ValidationOverride
 
 __all__ = [
     "Base",
+    "SpecificationTest",
     # enums
     "CertificateType",
     "ClinicalKind",

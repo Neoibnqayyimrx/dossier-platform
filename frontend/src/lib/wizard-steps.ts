@@ -142,12 +142,6 @@ export const CHILD_STEPS: ChildStepSpec[] = [
         type: "select",
         vocabulary: "compendial_status",
       },
-      {
-        name: "specifications",
-        label: "Specifications",
-        type: "textarea",
-        help: "Required for export (rule R07). A citation only — never monograph text.",
-      },
     ],
   },
   {

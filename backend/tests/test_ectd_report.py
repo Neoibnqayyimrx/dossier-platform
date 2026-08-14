@@ -18,7 +18,6 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.storage import InMemoryStorageClient
 from app.ectd.build import build_ectd_sequence
-from app.ectd.external_validator import NullExternalValidator
 from app.ectd.report import SequenceNotBuiltError, validate_ectd_sequence
 from app.models import Base, NarrativeStatus, Region, Sequence
 from app.models.narrative import NarrativeGeneration

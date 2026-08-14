@@ -47,6 +47,7 @@ from app.models import (
     DeclarationType,
     GMPStatus,
 )
+from app.seed.specifications import bp_substance_specification
 
 # The defect is only on Cloxacillin's strength (125mg instead of 250mg) --
 # a mismatch the old, single-API-assuming R01 could never have caught,
@@ -149,7 +150,7 @@ def build_ampiclox(buggy: bool = True) -> Project:
         salt_form="Ampicillin Trihydrate",
         salt_factor=1.155,  # trihydrate/anhydrous mass ratio
         compendial_std=CompendialStatus.BP,
-        specifications="Assay 90.0-120.0%, related substances per BP monograph.",
+        specification=bp_substance_specification(),
         smiles="CC1(C)S[C@@H]2[C@H](NC(=O)[C@H](N)c3ccccc3)C(=O)N2[C@H]1C(=O)O",
     )
     cloxacillin = ActiveIngredient(
@@ -159,7 +160,7 @@ def build_ampiclox(buggy: bool = True) -> Project:
         salt_form="Cloxacillin Sodium",
         salt_factor=1.092,  # sodium salt/free-acid mass ratio
         compendial_std=CompendialStatus.BP,
-        specifications="Assay 90.0-120.0%, related substances per BP monograph.",
+        specification=bp_substance_specification(),
         smiles="CC1(C)S[C@@H]2[C@H](NC(=O)c3c(C)onc3-c3ccccc3Cl)C(=O)N2[C@H]1C(=O)O",
     )
     product.apis.extend([ampicillin, cloxacillin])

@@ -14,6 +14,7 @@ from app.models.enums import CompendialStatus
 if TYPE_CHECKING:
     from app.models.manufacturer import Manufacturer
     from app.models.product import Product
+    from app.models.specification import SpecificationTest
 
 
 class ActiveIngredient(Base):
@@ -43,7 +44,9 @@ class ActiveIngredient(Base):
     dmf_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
     cep_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
     retest_period_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    specifications: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # NOTE: the drug substance's specification is NOT here -- it is the
+    # `specification` relationship below, one row per test. See
+    # specification.py for why a free-text field couldn't do the job.
     particle_size: Mapped[str | None] = mapped_column(String(120), nullable=True)
     residual_solvents: Mapped[str | None] = mapped_column(Text, nullable=True)
     # SMILES string for the API's structural formula -- public chemistry,
@@ -54,3 +57,10 @@ class ActiveIngredient(Base):
 
     product: Mapped["Product"] = relationship(back_populates="apis")
     manufacturer: Mapped["Manufacturer | None"] = relationship(back_populates="apis")
+    # ordered by sort_order so the rendered 3.2.S.4.1 table is deterministic
+    # -- the builders must be byte-identical across runs (AGENTS.md §5).
+    specification: Mapped[list["SpecificationTest"]] = relationship(
+        back_populates="active_ingredient",
+        cascade="all, delete-orphan",
+        order_by="SpecificationTest.sort_order",
+    )

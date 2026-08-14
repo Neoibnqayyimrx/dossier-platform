@@ -11,6 +11,7 @@ from app.models import (
     Excipient,
     Manufacturer,
     Packaging,
+    SpecificationTest,
     StabilityStudy,
 )
 from app.schemas.active_ingredient import (
@@ -27,6 +28,11 @@ from app.schemas.clinical import ClinicalEntryCreate, ClinicalEntryRead, Clinica
 from app.schemas.excipient import ExcipientCreate, ExcipientRead, ExcipientUpdate
 from app.schemas.manufacturer import ManufacturerCreate, ManufacturerRead, ManufacturerUpdate
 from app.schemas.packaging import PackagingCreate, PackagingRead, PackagingUpdate
+from app.schemas.specification import (
+    SpecificationTestCreate,
+    SpecificationTestRead,
+    SpecificationTestUpdate,
+)
 from app.schemas.stability import StabilityStudyCreate, StabilityStudyRead, StabilityStudyUpdate
 
 NESTED_ROUTERS = [
@@ -43,6 +49,7 @@ NESTED_ROUTERS = [
         create_schema=ActiveIngredientCreate,
         update_schema=ActiveIngredientUpdate,
         read_schema=ActiveIngredientRead,
+        nested_collections=("specification",),
     ),
     build_child_router(
         resource="excipients",
@@ -78,5 +85,20 @@ NESTED_ROUTERS = [
         create_schema=BatchFormulaLineCreate,
         update_schema=BatchFormulaLineUpdate,
         read_schema=BatchFormulaLineRead,
+    ),
+    # The one child whose parent is NOT a Product: a drug-substance
+    # specification belongs to a single active ingredient, because a
+    # fixed-dose combination has one specification per active (3.2.S is
+    # repeated per drug substance).
+    build_child_router(
+        resource="specification",
+        model=SpecificationTest,
+        create_schema=SpecificationTestCreate,
+        update_schema=SpecificationTestUpdate,
+        read_schema=SpecificationTestRead,
+        parent_model=ActiveIngredient,
+        parent_segment="apis",
+        parent_fk="active_ingredient_id",
+        order_by="sort_order",
     ),
 ]

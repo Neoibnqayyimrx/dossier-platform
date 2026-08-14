@@ -39,6 +39,7 @@ from app.models import (
     StabilityStudyType,
     ClinicalKind,
 )
+from app.seed.specifications import bp_substance_specification
 
 # Real dossier text (trimmed) — note the three planted-but-REAL defects.
 BUGGY_P1 = """
@@ -125,7 +126,7 @@ def build_lamox(buggy: bool = True) -> Project:
         salt_form="Amoxicillin Trihydrate",
         salt_factor=1.148,  # trihydrate/base mass ratio
         compendial_std=CompendialStatus.BP,
-        specifications="Assay 90.0-120.0%, related substances per BP monograph.",
+        specification=bp_substance_specification(),
         smiles="CC1(C)S[C@@H]2[C@H](NC(=O)[C@H](N)c3ccc(O)cc3)C(=O)N2[C@H]1C(=O)O",
     )
     product.apis.append(amoxicillin)
