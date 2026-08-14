@@ -26,6 +26,40 @@ MODULE_2_5_FOLDERS: dict[str, str] = {
 }
 
 
+# Sections repeated per drug substance live under a per-substance folder,
+# because "32s1-general-information" is not a unique location once a product
+# has two actives. The substance name is in the path for the same reason the
+# eCTD DTD puts it in a required attribute: an assessor must be able to tell
+# which substance a folder holds without opening it.
+DRUG_SUBSTANCE_FOLDERS: dict[str, str] = {
+    "3.2.S.1": "32s1-general-information",
+    "3.2.S.4.1": "32s4-control-of-drug-substance/32s41-specification",
+}
+
+
+def folder_for_section_instance(number: str, subject_slug: str | None) -> str:
+    """The CTD folder for one section INSTANCE (app/templating/instances.py).
+
+    Identical to `folder_for_section` for every section that appears once;
+    repeated sections get a `32s-<substance>` folder of their own.
+
+    Takes the slug rather than the instance object on purpose: this keeps
+    P08's folder map from importing P07's assembly types, and means the
+    only thing the CTD layer needs to know about repetition is "which
+    subject, by name".
+    """
+    if subject_slug is None:
+        return folder_for_section(number)
+    try:
+        tail = DRUG_SUBSTANCE_FOLDERS[number]
+    except KeyError:
+        raise KeyError(
+            f"No drug-substance CTD folder mapped for section {number!r} -- "
+            f"add it to DRUG_SUBSTANCE_FOLDERS before registering it in SECTIONS."
+        )
+    return f"m3/32-body-data/32s/32s-{subject_slug}/{tail}"
+
+
 def folder_for_section(number: str) -> str:
     try:
         return MODULE_2_5_FOLDERS[number]

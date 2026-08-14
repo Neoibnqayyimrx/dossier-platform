@@ -20,8 +20,14 @@ from app.templating.registry import get_section
 
 
 def build_context(
-    section_number: str, project: Project, narrative: dict[str, str] | None = None
+    section_number: str,
+    project: Project,
+    narrative: dict[str, str] | None = None,
+    subject=None,
 ) -> dict:
+    """`subject` is the drug substance this copy is about, for sections that
+    repeat per drug substance (3.2.S). None for every once-per-project
+    section -- see app/templating/instances.py."""
     section = get_section(section_number)
     narrative = {
         slot: narrative.get(slot) if narrative else None for slot in section.narrative_slots
@@ -79,6 +85,46 @@ def build_context(
         return {
             "product": product,
             "stability": product.stability,
+            "narrative": narrative,
+        }
+
+    if section_number == "3.2.S.1":
+        # Nomenclature as label/value rows rather than fixed template
+        # placeholders: which identifiers a substance actually has varies
+        # (many have no CAS on file, a salt form only exists for salts), and
+        # a table of blank rows reads as missing data rather than as
+        # "not applicable".
+        rows = [("INN / common name", subject.inn_name)]
+        if subject.salt_form:
+            rows.append(("Salt / hydrate form as manufactured", subject.salt_form))
+        if subject.compendial_std:
+            rows.append(("Compendial standard", subject.compendial_std.value))
+        if subject.manufacturer is not None:
+            rows.append(("Manufacturer", subject.manufacturer.name))
+        if subject.dmf_number:
+            rows.append(("DMF number", subject.dmf_number))
+        if subject.cep_number:
+            rows.append(("CEP number", subject.cep_number))
+        if subject.retest_period_months is not None:
+            rows.append(("Retest period", f"{subject.retest_period_months} months"))
+        return {
+            "product": product,
+            "substance": subject,
+            "nomenclature": [{"label": label, "value": value} for label, value in rows],
+            "narrative": narrative,
+        }
+
+    if section_number == "3.2.S.4.1":
+        return {
+            "product": product,
+            "substance": subject,
+            # Sorted here, not just relied on from the relationship's
+            # order_by: that ordering only applies when the rows are loaded
+            # from the database, so an object built in memory (a seed, a
+            # test, an API create) would render in insertion order. The
+            # rendered table has to be deterministic either way -- the
+            # builders must be byte-identical across runs.
+            "specification": sorted(subject.specification, key=lambda r: r.sort_order),
             "narrative": narrative,
         }
 

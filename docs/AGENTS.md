@@ -123,6 +123,7 @@ Full field definitions and relationships are specified in Phase 01.
   - [x] P11a — Scaffold, auth, project dashboard + readiness viewer
   - [x] P11b — Product information wizard (multi-step, controlled vocabularies)
   - [x] P11c — Narrative review, validation viewer, build + download
+- [x] P13 — Module 3.2.S drug substance sections (repeating sections, specification tables)
 - [ ] P12 — eCTD v4.0 (RPS) — future
 
 ## 8. How to work through the prompts

@@ -111,13 +111,26 @@ def build_lamox(buggy: bool = True) -> Project:
         ]
     )
 
-    product.manufacturers.append(
-        Manufacturer(
-            name="Local Pharma Manufacturing Ltd",
-            role=ManufacturerRole.FINISHED_PRODUCT,
-            country="Nigeria",
-            gmp_status=GMPStatus.CERTIFIED,
-        )
+    # The DRUG SUBSTANCE maker, distinct from the finished-product site.
+    # Required by rule R17: the eCTD DTD declares `manufacturer` on
+    # `m3-2-s-drug-substance` as #REQUIRED, so an API with no named maker
+    # cannot produce a valid backbone.
+    api_manufacturer_row = Manufacturer(
+        name="Lamox API Supplier",
+        role=ManufacturerRole.API_MANUFACTURER,
+        country="Nigeria",
+        gmp_status=GMPStatus.CERTIFIED,
+    )
+    product.manufacturers.extend(
+        [
+            api_manufacturer_row,
+            Manufacturer(
+                name="Local Pharma Manufacturing Ltd",
+                role=ManufacturerRole.FINISHED_PRODUCT,
+                country="Nigeria",
+                gmp_status=GMPStatus.CERTIFIED,
+            ),
+        ]
     )
     amoxicillin = ActiveIngredient(
         inn_name="Amoxicillin",
@@ -126,6 +139,7 @@ def build_lamox(buggy: bool = True) -> Project:
         salt_form="Amoxicillin Trihydrate",
         salt_factor=1.148,  # trihydrate/base mass ratio
         compendial_std=CompendialStatus.BP,
+        manufacturer=api_manufacturer_row,
         specification=bp_substance_specification(),
         smiles="CC1(C)S[C@@H]2[C@H](NC(=O)[C@H](N)c3ccc(O)cc3)C(=O)N2[C@H]1C(=O)O",
     )

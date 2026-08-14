@@ -23,7 +23,7 @@ from app.assembly.pdf import convert_docx_to_pdf
 from app.core.storage import StorageClient, get_storage_client
 from app.models.project import Project
 from app.narrative.context import get_approved_narrative
-from app.templating.registry import SECTIONS
+from app.templating.instances import expand_sections, slugify_subject
 from app.templating.render import render_section
 import app.validation.rules  # noqa: F401  registers every rule on import
 from app.validation.engine import run_all
@@ -38,13 +38,26 @@ class AssemblyBlockedError(RuntimeError):
 
 class LeafManifestEntry:
     def __init__(
-        self, section: str, title: str, storage_path: str, md5: str, filename: str
+        self,
+        section: str,
+        title: str,
+        storage_path: str,
+        md5: str,
+        filename: str,
+        section_number: str | None = None,
+        subject_slug: str | None = None,
     ) -> None:
-        self.section = section
+        self.section = section  # the INSTANCE key ("3.2.S.1-ampicillin")
         self.title = title
         self.storage_path = storage_path
         self.md5 = md5
         self.filename = filename
+        # The registry number and (for repeated sections) which subject this
+        # copy is about. Carried so P08/P09 can place the leaf without having
+        # to re-derive the split from the key string, and without P07
+        # importing either layer's folder map.
+        self.section_number = section_number or section
+        self.subject_slug = subject_slug
 
     def __repr__(self) -> str:  # pragma: no cover - debugging convenience
         return (
@@ -75,21 +88,37 @@ async def assemble_project(
     storage = storage or get_storage_client()
     manifest: list[LeafManifestEntry] = []
 
-    for number, section in SECTIONS.items():
-        narrative = await get_approved_narrative(db, project.id, number)
-        docx_result = render_section(number, project, narrative=narrative, storage=storage)
+    for instance in expand_sections(project):
+        # Narratives are keyed by INSTANCE, not section number: ampicillin's
+        # 3.2.S.1.3 prose is not cloxacillin's, and storing one approved
+        # narrative for "3.2.S.1" would silently put the same paragraph
+        # under both substances.
+        narrative = await get_approved_narrative(db, project.id, instance.key)
+        docx_result = render_section(
+            instance.number,
+            project,
+            narrative=narrative,
+            storage=storage,
+            subject=instance.subject,
+        )
         docx_bytes = storage.get(docx_result.storage_key)
 
-        pdf_bytes = convert_docx_to_pdf(docx_bytes, bookmark_title=section.title)
+        pdf_bytes = convert_docx_to_pdf(docx_bytes, bookmark_title=instance.title)
         md5 = hashlib.md5(pdf_bytes).hexdigest()
-        filename = f"{number}.pdf"
+        filename = f"{instance.key}.pdf"
         pdf_key = f"projects/{project.id}/leaves/{filename}"
         storage.put(pdf_key, pdf_bytes, PDF_CONTENT_TYPE)
 
         manifest.append(
             LeafManifestEntry(
-                section=number,
-                title=section.title,
+                section=instance.key,
+                title=instance.title,
+                section_number=instance.number,
+                subject_slug=(
+                    slugify_subject(instance.subject.inn_name)
+                    if instance.subject is not None
+                    else None
+                ),
                 storage_path=pdf_key,
                 md5=md5,
                 filename=filename,

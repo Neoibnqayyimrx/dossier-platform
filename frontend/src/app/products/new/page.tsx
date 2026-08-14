@@ -21,6 +21,7 @@ import { useRouter } from "next/navigation";
 
 import { api, ApiError, type ProductChildResource } from "@/lib/api";
 import type { Vocabularies } from "@/lib/types";
+import { SpecificationEditor } from "@/components/SpecificationEditor";
 import { CHILD_STEPS, PRODUCT_FIELDS, type ChildStepSpec } from "@/lib/wizard-steps";
 import { AuthGuard } from "@/components/AuthGuard";
 import { Field } from "@/components/Field";
@@ -113,16 +114,27 @@ function ChildStep({
           {rows.map((row) => (
             <li
               key={String(row.id)}
-              className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
+              className="rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
             >
-              <span>{step.summarise(row)}</span>
-              <button
-                type="button"
-                onClick={() => remove(String(row.id))}
-                className="text-xs text-slate-500 hover:text-red-600"
-              >
-                Remove
-              </button>
+              <div className="flex items-center justify-between">
+                <span>{step.summarise(row)}</span>
+                <button
+                  type="button"
+                  onClick={() => remove(String(row.id))}
+                  className="text-xs text-slate-500 hover:text-red-600"
+                >
+                  Remove
+                </button>
+              </div>
+              {/* Each active ingredient carries its own 3.2.S.4.1
+                  specification -- the section repeats per drug substance,
+                  so the table belongs to the substance, not the product. */}
+              {step.id === "apis" && (
+                <SpecificationEditor
+                  apiId={String(row.id)}
+                  substanceName={String(row.inn_name ?? "this substance")}
+                />
+              )}
             </li>
           ))}
         </ul>

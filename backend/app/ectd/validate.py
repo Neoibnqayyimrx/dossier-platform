@@ -261,14 +261,20 @@ def check_pdf_specs(prefix: str, files: dict[str, bytes]) -> list[Finding]:
     return findings
 
 
-def check_required_ctd_sections_present(live_section_keys: set[str]) -> list[Finding]:
+def check_required_ctd_sections_present(
+    live_section_keys: set[str], expected_keys: set[str] | None = None
+) -> list[Finding]:
     """Every section registered in app.templating.registry.SECTIONS must
     have appeared, live, at least once across the sequence's cumulative
     history. Certificates/declarations are deliberately NOT re-checked
     here -- their presence is already P06's job (R14/R15/R16), at the
     data layer, before anything is ever built; re-litigating it here
     would blur the P06-vs-P10 line this phase exists to keep separate."""
-    missing = set(SECTIONS) - live_section_keys
+    # P13: what a project OWES is its expanded section instances, not the
+    # registry's numbers -- a combination product owes two copies of
+    # 3.2.S.1, and "3.2.S.1" itself is never a leaf key. Falls back to the
+    # registry for callers that have no project to expand.
+    missing = (expected_keys if expected_keys is not None else set(SECTIONS)) - live_section_keys
     return [
         Finding(
             rule_id="M12", severity=Severity.ERROR, category="completeness",
@@ -284,6 +290,7 @@ def run_mechanical_checks(
     files: dict[str, bytes],
     prior_files: dict[str, dict[str, bytes]],
     live_section_keys: set[str],
+    expected_section_keys: set[str] | None = None,
 ) -> list[Finding]:
     findings: list[Finding] = []
     findings += check_dtd_validity(prefix, files)
@@ -291,5 +298,5 @@ def run_mechanical_checks(
     findings += check_href_resolution_and_orphans(prefix, files)
     findings += check_lifecycle_integrity(prefix, files, prior_files)
     findings += check_pdf_specs(prefix, files)
-    findings += check_required_ctd_sections_present(live_section_keys)
+    findings += check_required_ctd_sections_present(live_section_keys, expected_section_keys)
     return findings

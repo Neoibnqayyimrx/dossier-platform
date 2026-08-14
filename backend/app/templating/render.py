@@ -20,6 +20,7 @@ from app.core.storage import StorageClient, get_storage_client
 from app.models.project import Project
 from app.templating.chemistry import render_structure_png
 from app.templating.context import build_context
+from app.templating.instances import SectionInstance
 from app.templating.registry import get_section
 
 DOCX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -51,6 +52,7 @@ def render_section(
     project: Project,
     narrative: dict[str, str] | None = None,
     storage: StorageClient | None = None,
+    subject=None,
 ) -> RenderResult:
     """Render `section_number` for `project` and store the resulting .docx.
 
@@ -60,11 +62,15 @@ def render_section(
     retrieve functions rather than hard-coded to the cached singleton.
     """
     section = get_section(section_number)
-    context = build_context(section_number, project, narrative)
+    instance = SectionInstance(spec=section, subject=subject)
+    context = build_context(section_number, project, narrative, subject=subject)
 
     template = DocxTemplate(section.template_path)
     if section.structure_images_slot:
-        context[section.structure_images_slot] = _build_structure_images(template, project)
+        # A per-substance section shows ONLY its own substance's structure;
+        # a whole-product section (2.3) shows every active's.
+        subjects = [subject] if subject is not None else list(project.product.apis)
+        context[section.structure_images_slot] = _build_structure_images(template, subjects)
     template.render(context)
 
     buffer = io.BytesIO()
@@ -72,15 +78,16 @@ def render_section(
     data = buffer.getvalue()
 
     storage = storage or get_storage_client()
-    key = f"projects/{project.id}/sections/{section_number}.docx"
+    # instance.key equals section_number for non-repeating sections, so
+    # existing storage keys are unchanged.
+    key = f"projects/{project.id}/sections/{instance.key}.docx"
     storage.put(key, data, DOCX_CONTENT_TYPE)
 
-    return RenderResult(section_number=section_number, storage_key=key, size_bytes=len(data))
+    return RenderResult(section_number=instance.key, storage_key=key, size_bytes=len(data))
 
 
-def _build_structure_images(template: DocxTemplate, project: Project) -> list[StructureSlot]:
-    """One structure block per active ingredient, in the product's own API
-    order -- each with the API's name and either an embeddable image or a
+def _build_structure_images(template: DocxTemplate, subjects) -> list[StructureSlot]:
+    """One structure block per drug substance in `subjects`, in order -- each with the API's name and either an embeddable image or a
     clearly-marked text placeholder if no SMILES is on file yet.
 
     WHY one per API rather than one per product: 2.3.S is repeated per drug
@@ -104,7 +111,7 @@ def _build_structure_images(template: DocxTemplate, project: Project) -> list[St
     over with a placeholder image.
     """
     slots: list[StructureSlot] = []
-    for api in project.product.apis:
+    for api in subjects:
         if api.smiles:
             png_bytes = render_structure_png(api.smiles)
             image: InlineImage | str = InlineImage(template, io.BytesIO(png_bytes), width=Mm(80))

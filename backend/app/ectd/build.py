@@ -37,7 +37,7 @@ from app.assembly.assemble import assemble_project
 from app.assembly.pdf import convert_docx_to_pdf
 from app.core.storage import StorageClient, get_storage_client
 from app.ctd.region_profiles import get_region_profile
-from app.ctd.structure import folder_for_section
+from app.ctd.structure import folder_for_section_instance
 from app.ectd.backbone import V322BackboneBuilder
 from app.ectd.checksum import md5_hex
 from app.ectd.leaf import Leaf
@@ -124,7 +124,11 @@ async def build_ectd_sequence(
 
     for leaf in ctd_leaves:
         slot = module1_by_section.get(leaf.section)
-        folder = slot.folder if slot is not None else folder_for_section(leaf.section)
+        folder = (
+            slot.folder
+            if slot is not None
+            else folder_for_section_instance(leaf.section_number, leaf.subject_slug)
+        )
         path = f"{folder}/{leaf.filename}"
         data = storage.get(leaf.storage_path)
         new_leaves.append(

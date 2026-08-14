@@ -45,6 +45,13 @@ class SectionSpec:
     # per active, not one for "the product". The template loops; the
     # single-API case is just a list of length one.
     structure_images_slot: str | None = None
+    # P13: sections that are REPEATED per subject rather than appearing
+    # once. "drug_substance" means one rendered document per active
+    # ingredient -- 3.2.S is repeated per drug substance, and the ICH DTD
+    # says so itself: `m3-2-s-drug-substance*` is starred, with `substance`
+    # and `manufacturer` both #REQUIRED. None means the section appears
+    # exactly once for the project, which is every section built before P13.
+    repeat_per: str | None = None
 
     @property
     def template_path(self) -> Path:
@@ -83,6 +90,26 @@ SECTIONS: dict[str, SectionSpec] = {
         template_filename="stability_summary.docx",
         narrative_slots=["conclusion"],
         grounding_query="stability testing storage conditions retest period shelf life",
+    ),
+    "3.2.S.1": SectionSpec(
+        number="3.2.S.1",
+        title="General Information (Drug Substance)",
+        template_filename="section_3_2_s_1.docx",
+        narrative_slots=["general_properties"],
+        grounding_query="drug substance nomenclature structure general properties",
+        structure_images_slot="structures",
+        repeat_per="drug_substance",
+    ),
+    "3.2.S.4.1": SectionSpec(
+        number="3.2.S.4.1",
+        title="Specification (Drug Substance)",
+        template_filename="section_3_2_s_4_1.docx",
+        # No narrative slots: a specification is a table of commitments,
+        # every cell of which is structured data. There is nothing here for
+        # the LLM to draft -- same reasoning as the registration form (1.2).
+        narrative_slots=[],
+        grounding_query=None,
+        repeat_per="drug_substance",
     ),
     "2.3": SectionSpec(
         number="2.3",

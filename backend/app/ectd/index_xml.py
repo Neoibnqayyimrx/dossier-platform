@@ -57,6 +57,14 @@ ICH_HEADING_PATH: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Sections repeated per drug substance: the heading chain BELOW the
+# per-substance `m3-2-s-drug-substance` element. That element is inserted
+# for us, with its required attributes, by build_index_xml.
+DRUG_SUBSTANCE_HEADING_PATH: dict[str, tuple[str, ...]] = {
+    "3.2.S.1": ("m3-2-s-1-general-information",),
+    "3.2.S.4.1": ("m3-2-s-4-control-of-drug-substance", "m3-2-s-4-1-specification"),
+}
+
 # The DTD's real declared child order, keyed by parent element name
 # ("ectd:ectd" for the document root itself). Only parents that can ever
 # hold more than one *kind* of child need an entry here -- a heading we
@@ -103,17 +111,62 @@ _CHILD_ORDER: dict[str, tuple[str, ...]] = {
 
 
 class _Node:
-    __slots__ = ("tag", "children", "leaves")
+    """One heading element in the backbone tree.
 
-    def __init__(self, tag: str) -> None:
+    Children are keyed by (tag, discriminator) rather than by tag alone,
+    because `m3-2-s-drug-substance` is the first element that legitimately
+    REPEATS as a sibling: the DTD declares it `m3-2-s-drug-substance*` with
+    `substance` and `manufacturer` both #REQUIRED. Keying by tag alone
+    would silently merge ampicillin's and cloxacillin's subtrees into one
+    element -- and, being a merge rather than a crash, would have produced
+    a DTD-VALID backbone that files two substances' documents under one
+    substance's name.
+    """
+
+    __slots__ = ("tag", "attrs", "children", "leaves")
+
+    def __init__(self, tag: str, attrs: dict[str, str] | None = None) -> None:
         self.tag = tag
-        self.children: dict[str, "_Node"] = {}
+        self.attrs = attrs or {}
+        self.children: dict[tuple[str, str], "_Node"] = {}
         self.leaves: list[Leaf] = []
 
-    def child(self, tag: str) -> "_Node":
-        if tag not in self.children:
-            self.children[tag] = _Node(tag)
-        return self.children[tag]
+    def child(self, tag: str, discriminator: str = "", attrs: dict[str, str] | None = None):
+        key = (tag, discriminator)
+        if key not in self.children:
+            self.children[key] = _Node(tag, attrs)
+        return self.children[key]
+
+
+def _place_drug_substance_leaf(
+    root_node: _Node, section_key: str, leaf: Leaf, info: tuple[str, str]
+) -> None:
+    """File one 3.2.S leaf under its own `m3-2-s-drug-substance` element.
+
+    `substance` and `manufacturer` are both #REQUIRED by the DTD -- the
+    spec refuses to let a drug substance be filed anonymously, since an
+    assessor reviewing a combination product must be able to tell whose
+    specification they are reading and who made that material.
+    """
+    substance, manufacturer = info
+    number = section_key.split("-", 1)[0]
+    try:
+        tail = DRUG_SUBSTANCE_HEADING_PATH[number]
+    except KeyError:
+        raise ValueError(
+            f"section {number!r} repeats per drug substance but has no "
+            f"DRUG_SUBSTANCE_HEADING_PATH entry"
+        )
+    body = root_node.child("m3-quality").child("m3-2-body-of-data")
+    # discriminator = the substance, so two actives get two sibling elements
+    node = body.child(
+        "m3-2-s-drug-substance",
+        discriminator=substance,
+        attrs={"substance": substance, "manufacturer": manufacturer},
+    )
+    for tag in tail[:-1]:
+        node = node.child(tag)
+    node.child(tail[-1]).leaves.append(leaf)
 
 
 def _attach(el: etree._Element, node: _Node) -> None:
@@ -125,30 +178,43 @@ def _attach(el: etree._Element, node: _Node) -> None:
 
     order = _CHILD_ORDER.get(node.tag)
     if order is None:
-        child_tags = list(node.children)
+        keys = list(node.children)
     else:
-        unknown = set(node.children) - set(order)
+        unknown = {tag for tag, _ in node.children} - set(order)
         if unknown:
             raise ValueError(
                 f"{node.tag}: no declared DTD order for child(ren) {sorted(unknown)} -- "
                 "add them to _CHILD_ORDER before registering a section that uses them"
             )
-        child_tags = [t for t in order if t in node.children]
+        # Sort by the DTD's declared order of the TAG, keeping repeated
+        # siblings of one tag in insertion order relative to each other.
+        keys = sorted(node.children, key=lambda k: order.index(k[0]))
 
-    for tag in child_tags:
-        child_el = etree.SubElement(el, tag)
-        _attach(child_el, node.children[tag])
+    for key in keys:
+        child = node.children[key]
+        child_el = etree.SubElement(el, child.tag)
+        for name, value in child.attrs.items():
+            child_el.set(name, value)
+        _attach(child_el, child)
 
 
-def build_index_xml(leaves_by_section: dict[str, Leaf]) -> bytes:
+def build_index_xml(
+    leaves_by_section: dict[str, Leaf],
+    substance_info: dict[str, tuple[str, str]] | None = None,
+) -> bytes:
     """Build and DTD-validate `index.xml` from this sequence's leaves,
     keyed by `section_key` (an `app.templating.registry.SECTIONS` number).
     Leaves whose `section_key` has no `ICH_HEADING_PATH` entry (Module 1
     documents) are silently skipped here -- they belong only in the
     regional backbone (`app.ectd.regional`).
     """
+    substance_info = substance_info or {}
     root_node = _Node("ectd:ectd")
     for section_key, leaf in leaves_by_section.items():
+        info = substance_info.get(section_key)
+        if info is not None:
+            _place_drug_substance_leaf(root_node, section_key, leaf, info)
+            continue
         path = ICH_HEADING_PATH.get(section_key)
         if path is None:
             continue

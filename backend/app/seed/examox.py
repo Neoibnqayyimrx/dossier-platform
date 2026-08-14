@@ -116,6 +116,18 @@ def build_examox(buggy: bool = True) -> Project:
         ]
     )
 
+    # The DRUG SUBSTANCE maker, distinct from the finished-product site.
+    # Required by rule R17: the eCTD DTD declares `manufacturer` on
+    # `m3-2-s-drug-substance` as #REQUIRED, so an API with no named maker
+    # cannot produce a valid backbone.
+    api_manufacturer = Manufacturer(
+        name="Exagon API Division",
+        role=ManufacturerRole.API_MANUFACTURER,
+        site_address="Plot 4, Industrial Layout, Ota, Ogun State",
+        country="Nigeria",
+        gmp_status=GMPStatus.CERTIFIED,
+    )
+    product.manufacturers.append(api_manufacturer)
     product.manufacturers.append(
         Manufacturer(
             name="Exagon",
@@ -135,6 +147,7 @@ def build_examox(buggy: bool = True) -> Project:
         salt_form="Amoxicillin Trihydrate",
         salt_factor=1.148,  # trihydrate/base mass ratio
         compendial_std=CompendialStatus.BP,
+        manufacturer=api_manufacturer,
         specification=bp_substance_specification(),
         # base (anhydrous) amoxicillin structure -- public chemistry,
         # not the trihydrate salt actually weighed (see salt_factor).

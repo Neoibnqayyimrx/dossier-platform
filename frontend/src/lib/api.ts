@@ -23,6 +23,7 @@ import type {
   ReadinessResponse,
   SectionSpec,
   Sequence,
+  SpecificationTest,
   Vocabularies,
 } from "@/lib/types";
 
@@ -182,6 +183,36 @@ export const api = {
     childId: string,
   ) {
     return request<void>(`/products/${productId}/${resource}/${childId}`, {
+      method: "DELETE",
+    });
+  },
+
+  /**
+   * Specification rows hang off an ACTIVE INGREDIENT, not a product --
+   * 3.2.S is repeated per drug substance, so each active has its own
+   * specification. Same factory on the backend, different parent.
+   */
+  createSpecificationTest(
+    apiId: string,
+    payload: {
+      test_name: string;
+      method: string;
+      acceptance_criterion: string;
+      sort_order: number;
+    },
+  ) {
+    return request<SpecificationTest>(`/apis/${apiId}/specification`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  listSpecificationTests(apiId: string) {
+    return request<SpecificationTest[]>(`/apis/${apiId}/specification`);
+  },
+
+  deleteSpecificationTest(apiId: string, rowId: string) {
+    return request<void>(`/apis/${apiId}/specification/${rowId}`, {
       method: "DELETE",
     });
   },

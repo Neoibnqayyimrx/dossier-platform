@@ -22,7 +22,7 @@ from app.assembly.assemble import AssemblyBlockedError, assemble_project
 from app.core.storage import InMemoryStorageClient
 from app.models import Base
 from app.seed.examox import build_examox
-from app.templating.registry import SECTIONS
+from app.templating.instances import expand_sections
 from app.validation.engine import run_all
 
 
@@ -51,7 +51,10 @@ async def test_assembling_a_clean_project_covers_every_registered_section(db_fac
         storage = InMemoryStorageClient()
         manifest = await assemble_project(db, project, storage=storage)
 
-        assert {entry.section for entry in manifest} == set(SECTIONS)
+        # Every INSTANCE, not every registry number: a section that repeats
+        # per drug substance owes one leaf per active, and its bare number
+        # is never itself a leaf key.
+        assert {entry.section for entry in manifest} == {i.key for i in expand_sections(project)}
         for entry in manifest:
             assert entry.filename == f"{entry.section}.pdf"
             assert storage.get(entry.storage_path)  # actually stored, not just claimed
@@ -105,7 +108,7 @@ async def test_no_mega_pdf_is_ever_produced(db_factory):
         storage = InMemoryStorageClient()
         manifest = await assemble_project(db, project, storage=storage)
 
-        assert len(manifest) == len(SECTIONS)
+        assert len(manifest) == len(expand_sections(project))
         for entry in manifest:
             pdf_bytes = storage.get(entry.storage_path)
             reader = PdfReader(io.BytesIO(pdf_bytes))
@@ -136,7 +139,7 @@ async def test_assembly_proceeds_when_all_errors_are_overridden(db_factory):
         manifest = await assemble_project(
             db, project, overridden_rule_ids=error_ids, storage=InMemoryStorageClient()
         )
-        assert len(manifest) == len(SECTIONS)
+        assert len(manifest) == len(expand_sections(project))
 
 
 async def test_rendered_docx_source_is_not_the_pdf_itself(db_factory):

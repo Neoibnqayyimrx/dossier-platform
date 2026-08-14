@@ -7,7 +7,7 @@ from __future__ import annotations
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.models import Base
+from app.models import ManufacturerRole, Base
 import app.validation.rules  # noqa: F401  registers rules
 from app.validation.engine import Severity, run_all
 from app.seed.examox import build_examox
@@ -66,6 +66,11 @@ def test_corrected_examox_passes():
 def test_model_round_trip():
     project = _load(buggy=False)
     assert project.product.brand_name == "EXAMOX"
-    assert project.product.manufacturers[0].name == "Exagon"
+    # Looked up by ROLE, not by list position: the seed now carries a
+    # separate drug-substance manufacturer (rule R17), and an index-based
+    # assertion silently tracked whichever happened to be appended first.
+    by_role = {m.role: m for m in project.product.manufacturers}
+    assert by_role[ManufacturerRole.FINISHED_PRODUCT].name == "Exagon"
+    assert by_role[ManufacturerRole.API_MANUFACTURER].name == "Exagon API Division"
     assert project.product.apis[0].salt_form == "Amoxicillin Trihydrate"
     assert project.product.stability[0].duration_months == 24

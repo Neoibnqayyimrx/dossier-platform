@@ -16,6 +16,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from app.ectd.index_xml import build_index_xml
+from app.templating.instances import drug_substance_info
 from app.ectd.leaf import Leaf
 from app.ectd.checksum import index_md5_line
 from app.ectd.regional import REGIONAL_XML_RELATIVE_PATH, build_regional_xml
@@ -66,7 +67,7 @@ class V322BackboneBuilder(BackboneBuilder):
                 f"(got region={project.region!r}); FDA is not built yet"
             )
 
-        index_xml_bytes = build_index_xml(ich_leaves)
+        index_xml_bytes = build_index_xml(ich_leaves, substance_info=drug_substance_info(project))
         index_md5_bytes = index_md5_line(index_xml_bytes).encode("utf-8")
         regional_xml_bytes = build_regional_xml(
             project, sequence_number, related_sequence_numbers, regional_leaves_by_slot

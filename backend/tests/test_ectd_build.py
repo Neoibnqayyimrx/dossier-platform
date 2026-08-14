@@ -15,6 +15,7 @@ import io
 import zipfile
 
 import pytest
+from lxml import etree
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -27,6 +28,7 @@ from app.ectd.leaf import Leaf, leaf_id_for, slugify_section_key
 from app.ectd.lifecycle import NewLeafInput, resolve_lifecycle
 from app.ectd.regional import build_regional_xml
 from app.models import Base, Region, Sequence
+from app.seed.ampiclox import build_ampiclox
 from app.seed.examox import build_examox
 from app.validation.engine import run_all
 
@@ -89,8 +91,11 @@ def test_build_index_xml_is_dtd_valid_and_byte_stable():
 def test_build_index_xml_skips_module1_only_keys():
     leaves = _sample_leaves()
     leaves["1.0"] = Leaf(
-        id=leaf_id_for("1.0", "0000"), title="Cover", href="m1/eu/10-cover/1.0.pdf",
-        checksum="d" * 32, operation="new",
+        id=leaf_id_for("1.0", "0000"),
+        title="Cover",
+        href="m1/eu/10-cover/1.0.pdf",
+        checksum="d" * 32,
+        operation="new",
     )
     xml_bytes = build_index_xml(leaves)
     # 1.0 has no ICH_HEADING_PATH entry -- it must never appear in index.xml.
@@ -324,3 +329,53 @@ async def test_build_proceeds_when_all_errors_are_overridden(db_factory):
             db, project, seq0, overridden_rule_ids=error_ids, storage=InMemoryStorageClient()
         )
         assert result.operations
+
+
+async def test_combination_product_gets_one_drug_substance_element_per_active(db_factory):
+    """The ICH DTD declares `m3-2-s-drug-substance*` -- starred, repeating --
+    with `substance` and `manufacturer` both #REQUIRED. AMPICLOX therefore
+    owes TWO of those elements, each carrying its own substance's name and
+    maker, each holding that substance's 3.2.S leaves.
+
+    This is the test that actually exercises repetition: every other eCTD
+    test uses EXAMOX, which has one active, so a backbone builder that
+    silently merged all substances into a single element would pass all of
+    them -- and would produce a DTD-VALID package filing cloxacillin's
+    specification under ampicillin's name.
+    """
+    async with db_factory() as db:
+        project = build_ampiclox(buggy=False)
+        project.region = Region.EU
+        db.add(project)
+        await db.commit()
+        seq0 = Sequence(project_id=project.id, number="0000")
+        db.add(seq0)
+        await db.commit()
+
+        storage = InMemoryStorageClient()
+        result = await build_ectd_sequence(db, project, seq0, storage=storage)
+
+        with zipfile.ZipFile(io.BytesIO(storage.get(result.storage_key))) as zf:
+            names = set(zf.namelist())
+            index = etree.fromstring(zf.read("0000/index.xml"))
+
+        elements = index.findall(".//m3-2-s-drug-substance")
+        assert len(elements) == 2
+        assert [e.get("substance") for e in elements] == ["Ampicillin", "Cloxacillin"]
+        # #REQUIRED, and it must be the substance's maker -- not the
+        # finished-product site the earlier seeds only had.
+        assert {e.get("manufacturer") for e in elements} == {"Exagon API Division"}
+
+        # each substance's own leaves live under its own element, not pooled
+        for element, substance in zip(elements, ("ampicillin", "cloxacillin")):
+            hrefs = [
+                leaf.get("{http://www.w3c.org/1999/xlink}href") for leaf in element.iter("leaf")
+            ]
+            assert hrefs, f"no leaves filed under {substance}"
+            assert all(f"32s-{substance}/" in href for href in hrefs), hrefs
+
+        # and the physical files are where the backbone says they are
+        assert (
+            "0000/m3/32-body-data/32s/32s-cloxacillin/32s4-control-of-drug-substance"
+            "/32s41-specification/3.2.S.4.1-cloxacillin.pdf" in names
+        )

@@ -31,6 +31,100 @@ Newest entry at the top.
 
 ---
 
+## P13 — 3.2.S drug substance sections, and the first section that repeats (2026-08-14)
+
+The platform built five sections, none of which had a drug-substance page
+at all. 3.2.S was the obvious gap — and the interesting one, because it is
+the first section that is **repeated per subject** rather than appearing
+once.
+
+### The design problem
+
+Everything was keyed by a flat section number: the registry, the folder
+map, the leaf filename, the narrative lookup, the eCTD section key. One
+number, one document. 3.2.S breaks that: AMPICLOX owes two complete copies
+of 3.2.S.1 and two of 3.2.S.4.1, and "3.2.S.1" alone no longer names a
+document.
+
+`app/templating/instances.py` is the seam. The registry stays a flat table
+of specs (what sections *exist*); `expand_sections(project)` produces the
+instances (what documents this project *owes*). Everything downstream
+iterates instances.
+
+The compatibility trick that avoided a data migration: an instance's key
+equals the bare section number when the section doesn't repeat. Every
+pre-P13 section keeps exactly the identity it had, so stored narratives
+and persisted sequence leaves still resolve. Only repeated sections get
+the `3.2.S.1-ampicillin` form.
+
+### The DTD wrote most of the spec for us
+
+Reading `ich-ectd-3-2.dtd` before designing was worth more than any
+guessing:
+
+```
+<!ELEMENT m3-2-body-of-data (leaf*, m3-2-s-drug-substance*, ...)>
+<!ELEMENT m3-2-s-drug-substance (leaf*, m3-2-s-1-general-information?, ...)>
+<!ATTLIST m3-2-s-drug-substance  substance CDATA #REQUIRED
+                                 manufacturer CDATA #REQUIRED>
+```
+
+Starred, so it repeats. Both attributes #REQUIRED, so a drug substance
+**cannot be filed anonymously** — the spec refuses to let an assessor read
+a specification without knowing whose it is and who made the material.
+That handed us rule **R17** (every active must name its manufacturer),
+caught at the data layer where the applicant can still fix it rather than
+at a gateway. The seeds gained a real API-manufacturer site, distinct from
+the finished-product site.
+
+### The bug that would have been silent
+
+`_Node`, the backbone tree helper, keyed children **by tag**. With a
+repeating element that merges ampicillin's and cloxacillin's subtrees into
+one — and because it is a merge rather than a crash, it produces a
+**DTD-valid** backbone that files one substance's specification under the
+other's name. Children are now keyed by `(tag, discriminator)`.
+
+Every existing eCTD test used EXAMOX, which has one active, so all 36 of
+them passed against the merged version. The regression test deliberately
+uses AMPICLOX in the EU region and asserts two `m3-2-s-drug-substance`
+elements with the right attributes and each substance's leaves under its
+own element. **A test suite whose fixtures are all N=1 cannot see an N>1
+bug.** That is the second time today the same lesson has come up.
+
+### Specification: modelled as rows
+
+Committed separately (see the previous entry). One point belongs here: the
+relationship's `order_by` only applies when rows are **loaded from the
+database**. An object built in memory — a seed, a test, an API create —
+renders in insertion order. The rendered table has to be deterministic
+either way, so the context builder sorts explicitly. The test that caught
+this failed for a real reason, not a test-authoring mistake.
+
+### Templates are generated now
+
+`scripts/make_section_templates.py` builds both 3.2.S templates from
+readable, diffable code. The older five stay hand-authored — converting
+them is a separate behaviour-preserving change — but no new template
+should be a binary blob. This was already the third time in one day that
+editing a `.docx` meant surgery on a zip.
+
+Gotcha worth keeping: docxtpl's `{%tr %}` row loop needs the tags in
+**rows of their own**, above and below the data row. Putting `{%tr for %}`
+and `{%tr endfor %}` in the first and last cells of the data row — which
+reads like the obvious way — dies with `Encountered unknown tag 'endfor'`.
+The hand-authored 3.2.P.1 template already used the tag-row form; matching
+it was the fix.
+
+### Known gaps
+
+- Only 3.2.S.1 and 3.2.S.4.1 exist. S.2 (manufacture), S.3
+  (characterisation), S.5–S.7 are more of the same now that the repeating
+  mechanism works, and are deliberately not built yet.
+- 3.2.P.5 (drug product specification) is the same table shape with a
+  different owner. The `SpecificationTest` docstring says what to do when
+  it arrives: widen with a nullable owner, don't guess today.
+
 ## Fix — the QOS showed only the first active ingredient (2026-08-14)
 
 A defect flagged during P11c and cleared afterwards, before starting any

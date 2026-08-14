@@ -244,8 +244,7 @@ def api_specification_present(project) -> list[Finding]:
                     "R07",
                     Severity.ERROR,
                     "completeness",
-                    f"{api.inn_name} has no specification on file "
-                    f"(required, Module 3.2.S.4.1).",
+                    f"{api.inn_name} has no specification on file (required, Module 3.2.S.4.1).",
                 )
             )
     return out
@@ -264,8 +263,7 @@ def manufacturer_gmp_certified(project) -> list[Finding]:
                     "R08",
                     Severity.ERROR,
                     "completeness",
-                    f"Manufacturer {manufacturer.name}'s GMP status is "
-                    f"'{status}', not certified.",
+                    f"Manufacturer {manufacturer.name}'s GMP status is '{status}', not certified.",
                 )
             )
     return out
@@ -517,3 +515,29 @@ def nafdac_required_declarations_present(project) -> list[Finding]:
             )
         ]
     return []
+
+
+@rule("R17")
+def drug_substance_manufacturer_named(project) -> list[Finding]:
+    """Every active ingredient must name its manufacturer.
+
+    Not a house style rule -- the ICH eCTD DTD declares
+    `m3-2-s-drug-substance` with `substance` AND `manufacturer` both
+    #REQUIRED, so a nameless drug substance cannot produce a valid
+    backbone at all. Caught here, at the data layer, rather than at a
+    gateway: the point of P06 is that the applicant learns this while
+    they can still fix it.
+    """
+    out: list[Finding] = []
+    for api in project.product.apis:
+        if api.manufacturer is None:
+            out.append(
+                Finding(
+                    "R17",
+                    Severity.ERROR,
+                    "completeness",
+                    f"{api.inn_name} has no manufacturer on file (required for "
+                    f"Module 3.2.S; the eCTD backbone cannot name the substance without it).",
+                )
+            )
+    return out

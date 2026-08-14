@@ -25,7 +25,7 @@ from app.assembly.assemble import assemble_project
 from app.assembly.pdf import convert_docx_to_pdf
 from app.core.storage import StorageClient, get_storage_client
 from app.ctd.region_profiles import get_region_profile
-from app.ctd.structure import folder_for_section
+from app.ctd.structure import folder_for_section_instance
 from app.ctd.toc import build_toc_pdf
 from app.models.project import Project
 from app.templating.certificates import render_certificate_placeholder
@@ -76,7 +76,11 @@ async def build_ctd_package(
     }
     for leaf in leaves:
         slot = module1_by_section.get(leaf.section)
-        folder = slot.folder if slot is not None else folder_for_section(leaf.section)
+        folder = (
+            slot.folder
+            if slot is not None
+            else folder_for_section_instance(leaf.section_number, leaf.subject_slug)
+        )
         path = f"{folder}/{leaf.filename}"
         files[path] = storage.get(leaf.storage_path)
         titles[path] = leaf.title

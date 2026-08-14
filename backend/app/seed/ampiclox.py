@@ -133,6 +133,18 @@ def build_ampiclox(buggy: bool = True) -> Project:
         )
     )
 
+    # The DRUG SUBSTANCE maker, distinct from the finished-product site.
+    # Required by rule R17: the eCTD DTD declares `manufacturer` on
+    # `m3-2-s-drug-substance` as #REQUIRED, so an API with no named maker
+    # cannot produce a valid backbone.
+    api_manufacturer = Manufacturer(
+        name="Exagon API Division",
+        role=ManufacturerRole.API_MANUFACTURER,
+        site_address="Plot 4, Industrial Layout, Ota, Ogun State",
+        country="Nigeria",
+        gmp_status=GMPStatus.CERTIFIED,
+    )
+    product.manufacturers.append(api_manufacturer)
     product.manufacturers.append(
         Manufacturer(
             name="Exagon",
@@ -150,6 +162,7 @@ def build_ampiclox(buggy: bool = True) -> Project:
         salt_form="Ampicillin Trihydrate",
         salt_factor=1.155,  # trihydrate/anhydrous mass ratio
         compendial_std=CompendialStatus.BP,
+        manufacturer=api_manufacturer,
         specification=bp_substance_specification(),
         smiles="CC1(C)S[C@@H]2[C@H](NC(=O)[C@H](N)c3ccccc3)C(=O)N2[C@H]1C(=O)O",
     )
@@ -160,6 +173,7 @@ def build_ampiclox(buggy: bool = True) -> Project:
         salt_form="Cloxacillin Sodium",
         salt_factor=1.092,  # sodium salt/free-acid mass ratio
         compendial_std=CompendialStatus.BP,
+        manufacturer=api_manufacturer,
         specification=bp_substance_specification(),
         smiles="CC1(C)S[C@@H]2[C@H](NC(=O)c3c(C)onc3-c3ccccc3Cl)C(=O)N2[C@H]1C(=O)O",
     )

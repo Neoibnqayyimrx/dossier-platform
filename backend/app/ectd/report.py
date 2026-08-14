@@ -17,6 +17,7 @@ from app.core.storage import StorageClient, get_storage_client
 from app.ectd.ai_review import SOURCE as AI_SOURCE, review_narratives
 from app.ectd.external_validator import ExternalValidator, get_external_validator
 from app.ectd.validate import run_mechanical_checks
+from app.templating.instances import expand_sections
 from app.models.project import Project
 from app.models.sequence import Sequence
 from app.models.sequence_leaf import SequenceLeaf
@@ -94,7 +95,15 @@ async def validate_ectd_sequence(
         ).all()
     )
 
-    report.add(*run_mechanical_checks(sequence.number, files, prior_files, live_section_keys))
+    report.add(
+        *run_mechanical_checks(
+            sequence.number,
+            files,
+            prior_files,
+            live_section_keys,
+            expected_section_keys={i.key for i in expand_sections(sequence.project)},
+        )
+    )
     report.add(*external_validator.validate(storage.get(_zip_key(project.id, sequence.number))))
 
     if run_ai_review:
