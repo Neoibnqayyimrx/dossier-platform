@@ -96,17 +96,35 @@ only layer still carrying the old single-API assumption. **A fix applied
 at one layer doesn't propagate to layers written earlier against the old
 shape.** Grep before scoping; the memory of a bug is not evidence.
 
-### Known gap, deliberately not closed here
+### Follow-up — closing the gap: an FDC now builds end to end
 
-AMPICLOX has only ever been exercised through the rule engine (P06) and
-now the template engine (P04). **No combination product has been run
-through P07 assembly or a P08 CTD build.** Nothing in those layers
-branches on API count (checked by grep — only `regional.py` touches
-`apis`, and it loops correctly), so there's no known bug. But "no known
-bug" is not "tested". Closing this needs the AMPICLOX seed fleshed out
-with an applicant, certificates and declarations so it can clear the
-completeness rules and actually build — real work, deliberately left for
-its own commit rather than smuggled into this one.
+Committed separately from the fix above, since it's a different concern.
+
+AMPICLOX had only ever been exercised through the rule engine (P06) and
+the template engine (P04). **No combination product had ever been run
+through P07 assembly or a P08 CTD build** — so "the pipeline handles more
+than one active" was an assumption, not a tested fact. That is exactly
+the shape of gap that let the QOS bug survive until P11c.
+
+It couldn't be tested as it stood: the fixture had no applicant, no
+declarations, no CPP and no GMP status, so the P06 completeness rules
+blocked assembly before anything interesting happened. Added those (plus
+`specifications` on both actives, which R07 correctly demanded for *each*
+API — another rule that turned out to be multi-API-aware already), and
+the corrected variant now validates clean with **zero errors**.
+
+`test_a_combination_product_builds_end_to_end` runs the whole chain —
+render → DOCX→PDF → placement → TOC → manifest → zip — then opens the
+assembled `2.3.pdf` out of the package and asserts that **both**
+"Ampicillin" and "Cloxacillin" appear on the page, with no "Structure
+not available" placeholder. It deliberately uses the clean variant and
+passes **no overrides**, so it exercises the real validation gate rather
+than bypassing it.
+
+Result: no further bugs found. Nothing else in assembly or the CTD
+builder branched on API count, as the grep had suggested. But the test
+is the point — the assumption is now checked on every run instead of
+being re-verified by hand whenever someone remembers to wonder.
 
 ---
 

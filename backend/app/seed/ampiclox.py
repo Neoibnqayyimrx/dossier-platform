@@ -18,6 +18,8 @@ exactly the bug this fixture was built to catch.
 
 from __future__ import annotations
 
+from datetime import date
+
 from app.models import (
     Project,
     Product,
@@ -29,6 +31,9 @@ from app.models import (
     ClinicalEntry,
     BatchFormulaLine,
     Section,
+    Applicant,
+    Certificate,
+    Declaration,
     DosageForm,
     RegistrationType,
     Region,
@@ -38,6 +43,9 @@ from app.models import (
     PackagingComponent,
     StabilityStudyType,
     ClinicalKind,
+    CertificateType,
+    DeclarationType,
+    GMPStatus,
 )
 
 # The defect is only on Cloxacillin's strength (125mg instead of 250mg) --
@@ -82,12 +90,55 @@ def build_ampiclox(buggy: bool = True) -> Project:
     )
     project = Project(name="AMPICLOX new registration", region=Region.NAFDAC, product=product)
 
+    # Administrative completeness, mirroring EXAMOX. WHY this fixture needs
+    # it at all: without an applicant, declarations, a CPP and a GMP status,
+    # the P06 completeness rules block assembly, so AMPICLOX could only ever
+    # be run through the rule engine -- which meant NO combination product
+    # had ever been through P07 assembly or a P08 CTD build. These facts are
+    # unrelated to the planted R01 defect and are present in both variants.
+    project.applicant = Applicant(
+        company_name="Exagon Pharmaceuticals Ltd",
+        address="Cadastral Zone, Gwagwalada, Abuja",
+        country="Nigeria",
+        contact_name="Aisha Bello",
+        contact_email="regulatory@exagon.example",
+        contact_phone="+234-800-000-0000",
+        authorized_representative_name="Aisha Bello",
+        authorized_representative_title="Head of Regulatory Affairs",
+    )
+    project.declarations.extend(
+        [
+            Declaration(
+                declaration_type=DeclarationType.POWER_OF_ATTORNEY,
+                signed=True,
+                signed_date=date(2026, 1, 20),
+                notarized=True,
+                notarization_date=date(2026, 1, 22),
+            ),
+            Declaration(
+                declaration_type=DeclarationType.DECLARATION_OF_AUTHENTICITY,
+                signed=True,
+                signed_date=date(2026, 1, 20),
+            ),
+        ]
+    )
+    product.certificates.append(
+        Certificate(
+            certificate_type=CertificateType.CPP,
+            issuing_authority="NAFDAC",
+            certificate_number="NAFDAC/CPP/2026/AMPICLOX-001",
+            issue_date=date(2026, 1, 15),
+            expiry_date=date.today().replace(year=date.today().year + 2),
+        )
+    )
+
     product.manufacturers.append(
         Manufacturer(
             name="Exagon",
             role=ManufacturerRole.FINISHED_PRODUCT,
             site_address="Cadastral Zone, Gwagwalada, Abuja",
             country="Nigeria",
+            gmp_status=GMPStatus.CERTIFIED,
         )
     )
 
@@ -98,6 +149,7 @@ def build_ampiclox(buggy: bool = True) -> Project:
         salt_form="Ampicillin Trihydrate",
         salt_factor=1.155,  # trihydrate/anhydrous mass ratio
         compendial_std=CompendialStatus.BP,
+        specifications="Assay 90.0-120.0%, related substances per BP monograph.",
         smiles="CC1(C)S[C@@H]2[C@H](NC(=O)[C@H](N)c3ccccc3)C(=O)N2[C@H]1C(=O)O",
     )
     cloxacillin = ActiveIngredient(
@@ -107,6 +159,7 @@ def build_ampiclox(buggy: bool = True) -> Project:
         salt_form="Cloxacillin Sodium",
         salt_factor=1.092,  # sodium salt/free-acid mass ratio
         compendial_std=CompendialStatus.BP,
+        specifications="Assay 90.0-120.0%, related substances per BP monograph.",
         smiles="CC1(C)S[C@@H]2[C@H](NC(=O)c3c(C)onc3-c3ccccc3Cl)C(=O)N2[C@H]1C(=O)O",
     )
     product.apis.extend([ampicillin, cloxacillin])

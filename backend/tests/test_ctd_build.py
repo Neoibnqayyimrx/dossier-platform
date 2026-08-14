@@ -23,6 +23,7 @@ from app.ctd.build import build_ctd_package
 from app.ctd.region_profiles import get_region_profile
 from app.ctd.structure import folder_for_section
 from app.models import Base, Region
+from app.seed.ampiclox import build_ampiclox
 from app.seed.examox import build_examox
 from app.validation.engine import run_all
 
@@ -185,3 +186,41 @@ async def test_build_proceeds_when_all_errors_are_overridden(db_factory):
             db, project, overridden_rule_ids=error_ids, storage=InMemoryStorageClient()
         )
         assert result.manifest
+
+
+async def test_a_combination_product_builds_end_to_end(db_factory):
+    """AMPICLOX -- ampicillin + cloxacillin -- through the whole P07/P08
+    pipeline: render, DOCX->PDF, placement, TOC, manifest, zip.
+
+    WHY this test exists: the FDC fixture had only ever been run through
+    the rule engine (P06) and the template engine (P04). No combination
+    product had ever been assembled or packaged, so "the pipeline handles
+    more than one active" was an assumption, not a tested fact -- and the
+    one place that assumption was already false (the 2.3 QOS structure
+    slot rendering apis[0] only) went unnoticed until P11c.
+    """
+    async with db_factory() as db:
+        project = build_ampiclox(buggy=False)
+        db.add(project)
+        await db.commit()
+
+        # the corrected fixture is genuinely clean -- no overrides needed,
+        # so this exercises the real gate rather than bypassing it.
+        assert not run_all(project).errors()
+
+        storage = InMemoryStorageClient()
+        result = await build_ctd_package(db, project, storage=storage)
+
+        paths = {f.path for f in result.manifest}
+        assert paths >= (EXPECTED_PATHS - {"manifest.json"})
+
+        with zipfile.ZipFile(io.BytesIO(storage.get(result.storage_key))) as zf:
+            assert zf.testzip() is None
+            qos = PdfReader(io.BytesIO(zf.read("m2/23-quality-overall-summary/2.3.pdf")))
+            text = "\n".join(page.extract_text() for page in qos.pages)
+
+        # both actives reach the assessor's page, each named -- the whole
+        # point of the fix this test was written alongside.
+        assert "Ampicillin" in text
+        assert "Cloxacillin" in text
+        assert "Structure not available" not in text
