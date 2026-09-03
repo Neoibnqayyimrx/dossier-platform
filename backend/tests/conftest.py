@@ -61,8 +61,17 @@ async def client(session_factory):
 @pytest.fixture
 async def auth_client(client):
     """A client with a registered user's bearer token already attached —
-    for tests that only care about exercising protected write endpoints."""
-    await client.post("/auth/register", json={"email": TEST_EMAIL, "password": TEST_PASSWORD})
+    for tests that only care about exercising protected write endpoints.
+
+    `client.user_id` is stashed here too -- tests that seed a Project
+    directly into the DB (bypassing the API) need it to set
+    Product.owner_id, or the ownership check makes their own seeded data
+    invisible to this same client (see app.seed.attach_owner's WHY).
+    """
+    register = await client.post(
+        "/auth/register", json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
+    )
+    client.user_id = uuid.UUID(register.json()["id"])
     login = await client.post(
         "/auth/login", data={"username": TEST_EMAIL, "password": TEST_PASSWORD}
     )

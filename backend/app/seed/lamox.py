@@ -10,8 +10,10 @@ Everything else reflects LAMOX's actual, non-confidential label facts.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 
+from app.seed import attach_owner
 from app.models import (
     Project,
     Product,
@@ -70,7 +72,7 @@ Batch Size: 250,000 capsules.
 """
 
 
-def build_lamox(buggy: bool = True) -> Project:
+def build_lamox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Project:
     product = Product(
         brand_name="LAMOX",
         generic_name="Amoxicillin",
@@ -80,6 +82,7 @@ def build_lamox(buggy: bool = True) -> Project:
         registration_type=RegistrationType.RENEWAL,
         country="Nigeria",
     )
+    attach_owner(product, owner_id)
     project = Project(name="LAMOX renewal", region=Region.NAFDAC, product=product)
 
     # Module 1 (P08): same treatment as EXAMOX -- present regardless of the

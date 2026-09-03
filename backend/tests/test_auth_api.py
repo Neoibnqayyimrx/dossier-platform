@@ -53,6 +53,10 @@ async def test_authenticated_write_succeeds(auth_client):
     assert resp.status_code == 201
 
 
-async def test_reads_do_not_require_auth(client):
+async def test_reads_require_auth_too(client):
+    """Reversed from the P02-era "reads are open" convention: once Product
+    carries owner_id (see app.models.product.Product's WHY), listing
+    products without knowing whose to list makes no sense -- there's no
+    "open" reading of someone else's data to fall back to."""
     resp = await client.get("/products")
-    assert resp.status_code == 200
+    assert resp.status_code == 401

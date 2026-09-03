@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, require_project_owner
 from app.api.loading import READINESS_LOAD_OPTIONS
 from app.models import Project, User, ValidationOverride
 from app.schemas.validation import (
@@ -23,7 +23,11 @@ from app.schemas.validation import (
 import app.validation.rules  # noqa: F401  registers every rule on import
 from app.validation.engine import run_all
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["validation"])
+router = APIRouter(
+    prefix="/projects/{project_id}",
+    tags=["validation"],
+    dependencies=[Depends(require_project_owner)],
+)
 
 
 async def _get_project_or_404(project_id: uuid.UUID, db: AsyncSession) -> Project:

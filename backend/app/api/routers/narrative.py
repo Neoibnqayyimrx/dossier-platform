@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, require_project_owner
 from app.api.loading import PROJECT_CHILD_OPTIONS
 from app.models import Project, User
 from app.models.kb import KBChunk
@@ -25,7 +25,9 @@ from app.narrative.review import approve_narrative, edit_narrative
 from app.schemas.narrative import NarrativeEditRequest, NarrativeGenerateResponse, NarrativeRead
 
 router = APIRouter(
-    prefix="/projects/{project_id}/sections/{section_number}/narrative", tags=["narrative"]
+    prefix="/projects/{project_id}/sections/{section_number}/narrative",
+    tags=["narrative"],
+    dependencies=[Depends(require_project_owner)],
 )
 
 

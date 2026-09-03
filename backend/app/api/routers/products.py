@@ -17,8 +17,12 @@ from app.schemas.product import ProductCreate, ProductRead, ProductUpdate
 router = APIRouter(prefix="/products", tags=["products"])
 
 
-async def _get_product_or_404(product_id: uuid.UUID, db: AsyncSession) -> Product:
-    stmt = select(Product).where(Product.id == product_id).options(*PRODUCT_CHILD_OPTIONS)
+async def _get_product_or_404(product_id: uuid.UUID, user: User, db: AsyncSession) -> Product:
+    stmt = (
+        select(Product)
+        .where(Product.id == product_id, Product.owner_id == user.id)
+        .options(*PRODUCT_CHILD_OPTIONS)
+    )
     product = await db.scalar(stmt)
     if product is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
@@ -29,23 +33,31 @@ async def _get_product_or_404(product_id: uuid.UUID, db: AsyncSession) -> Produc
 async def create_product(
     payload: ProductCreate,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> Product:
-    product = Product(**payload.model_dump())
+    # owner_id is never taken from the payload -- ProductCreate has no such
+    # field, so there is nothing for a client to spoof here.
+    product = Product(**payload.model_dump(), owner_id=user.id)
     db.add(product)
     await db.commit()
-    return await _get_product_or_404(product.id, db)
+    return await _get_product_or_404(product.id, user, db)
 
 
 @router.get("", response_model=list[ProductRead])
-async def list_products(db: AsyncSession = Depends(get_db)) -> list[Product]:
-    stmt = select(Product).options(*PRODUCT_CHILD_OPTIONS)
+async def list_products(
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> list[Product]:
+    stmt = select(Product).where(Product.owner_id == user.id).options(*PRODUCT_CHILD_OPTIONS)
     return list((await db.scalars(stmt)).all())
 
 
 @router.get("/{product_id}", response_model=ProductRead)
-async def get_product(product_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Product:
-    return await _get_product_or_404(product_id, db)
+async def get_product(
+    product_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> Product:
+    return await _get_product_or_404(product_id, user, db)
 
 
 @router.patch("/{product_id}", response_model=ProductRead)
@@ -53,21 +65,21 @@ async def update_product(
     product_id: uuid.UUID,
     payload: ProductUpdate,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> Product:
-    product = await _get_product_or_404(product_id, db)
+    product = await _get_product_or_404(product_id, user, db)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(product, field, value)
     await db.commit()
-    return await _get_product_or_404(product_id, db)
+    return await _get_product_or_404(product_id, user, db)
 
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_product(
     product_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> None:
-    product = await _get_product_or_404(product_id, db)
+    product = await _get_product_or_404(product_id, user, db)
     await db.delete(product)
     await db.commit()

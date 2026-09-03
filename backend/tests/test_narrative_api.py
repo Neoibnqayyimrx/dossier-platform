@@ -14,9 +14,9 @@ from app.models.narrative import NarrativeGeneration
 from app.seed.examox import build_examox
 
 
-async def _seed_project(session_factory) -> uuid.UUID:
+async def _seed_project(session_factory, owner_id: uuid.UUID | None = None) -> uuid.UUID:
     async with session_factory() as session:
-        project = build_examox(buggy=False)
+        project = build_examox(buggy=False, owner_id=owner_id)
         session.add(project)
         await session.commit()
         return project.id
@@ -45,17 +45,17 @@ async def test_generate_requires_auth(client, session_factory):
     assert resp.status_code == 401
 
 
-async def test_list_generations_empty_by_default(client, session_factory):
-    project_id = await _seed_project(session_factory)
-    resp = await client.get(f"/projects/{project_id}/sections/3.2.P.8.1/narrative/conclusion")
+async def test_list_generations_empty_by_default(auth_client, session_factory):
+    project_id = await _seed_project(session_factory, auth_client.user_id)
+    resp = await auth_client.get(f"/projects/{project_id}/sections/3.2.P.8.1/narrative/conclusion")
     assert resp.status_code == 200
     assert resp.json() == []
 
 
-async def test_list_generations_returns_seeded_row(client, session_factory):
-    project_id = await _seed_project(session_factory)
+async def test_list_generations_returns_seeded_row(auth_client, session_factory):
+    project_id = await _seed_project(session_factory, auth_client.user_id)
     await _seed_narrative(session_factory, project_id)
-    resp = await client.get(f"/projects/{project_id}/sections/3.2.P.8.1/narrative/conclusion")
+    resp = await auth_client.get(f"/projects/{project_id}/sections/3.2.P.8.1/narrative/conclusion")
     assert resp.status_code == 200
     [row] = resp.json()
     assert row["status"] == "pending"
@@ -72,7 +72,7 @@ async def test_approve_requires_auth(client, session_factory):
 
 
 async def test_approve_sets_status_and_final_text(auth_client, session_factory):
-    project_id = await _seed_project(session_factory)
+    project_id = await _seed_project(session_factory, auth_client.user_id)
     narrative_id = await _seed_narrative(session_factory, project_id)
 
     resp = await auth_client.post(
@@ -85,7 +85,7 @@ async def test_approve_sets_status_and_final_text(auth_client, session_factory):
 
 
 async def test_edit_sets_status_and_overrides_text(auth_client, session_factory):
-    project_id = await _seed_project(session_factory)
+    project_id = await _seed_project(session_factory, auth_client.user_id)
     narrative_id = await _seed_narrative(session_factory, project_id)
 
     resp = await auth_client.post(
@@ -99,7 +99,7 @@ async def test_edit_sets_status_and_overrides_text(auth_client, session_factory)
 
 
 async def test_approve_unknown_narrative_404s(auth_client, session_factory):
-    project_id = await _seed_project(session_factory)
+    project_id = await _seed_project(session_factory, auth_client.user_id)
     resp = await auth_client.post(
         f"/projects/{project_id}/sections/3.2.P.8.1/narrative/conclusion/{uuid.uuid4()}:approve"
     )
@@ -126,37 +126,38 @@ async def test_generate_round_trip_over_http(pg_session_factory):
 
     app.dependency_overrides[get_db] = override_get_db
     try:
-        async with pg_session_factory() as db:
-            project = build_examox(buggy=False)
-            db.add(project)
-            await db.commit()
-            project_id = project.id
-
-            await ingest_document(
-                db,
-                FakeEmbeddingClient(),
-                source="ICH",
-                title="Q1A(R2) Stability Testing",
-                version="Step 4, 2003-02-06",
-                license="ich-harmonised-guideline",
-                text="2.1.6. Stability Testing\nLong term studies establish the stability profile.",
-                chunk_max_chars=500,
-            )
-
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            await ac.post(
+            register = await ac.post(
                 "/auth/register",
                 json={
                     "email": "narrative-tester@examox.example",
                     "password": "s3cret-password",
                 },
             )
+            owner_id = uuid.UUID(register.json()["id"])
             login = await ac.post(
                 "/auth/login",
                 data={"username": "narrative-tester@examox.example", "password": "s3cret-password"},
             )
             token = login.json()["access_token"]
+
+            async with pg_session_factory() as db:
+                project = build_examox(buggy=False, owner_id=owner_id)
+                db.add(project)
+                await db.commit()
+                project_id = project.id
+
+                await ingest_document(
+                    db,
+                    FakeEmbeddingClient(),
+                    source="ICH",
+                    title="Q1A(R2) Stability Testing",
+                    version="Step 4, 2003-02-06",
+                    license="ich-harmonised-guideline",
+                    text="2.1.6. Stability Testing\nLong term studies establish the stability profile.",
+                    chunk_max_chars=500,
+                )
 
             resp = await ac.post(
                 f"/projects/{project_id}/sections/3.2.P.8.1/narrative/conclusion:generate",

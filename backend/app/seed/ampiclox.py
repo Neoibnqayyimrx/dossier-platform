@@ -18,8 +18,10 @@ exactly the bug this fixture was built to catch.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 
+from app.seed import attach_owner
 from app.models import (
     Project,
     Product,
@@ -79,7 +81,7 @@ Batch Size: 100,000 capsules.
 """
 
 
-def build_ampiclox(buggy: bool = True) -> Project:
+def build_ampiclox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Project:
     product = Product(
         brand_name="AMPICLOX",
         generic_name="Ampicillin + Cloxacillin",
@@ -89,6 +91,7 @@ def build_ampiclox(buggy: bool = True) -> Project:
         registration_type=RegistrationType.NEW,
         country="Nigeria",
     )
+    attach_owner(product, owner_id)
     project = Project(name="AMPICLOX new registration", region=Region.NAFDAC, product=product)
 
     # Administrative completeness, mirroring EXAMOX. WHY this fixture needs

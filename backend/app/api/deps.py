@@ -8,6 +8,8 @@ app.core.db — that's the seam tests use to swap in a throwaway database
 
 from __future__ import annotations
 
+import uuid
+
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -16,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_session
 from app.core.security import decode_access_token
-from app.models import User
+from app.models import Product, Project, User
 
 get_db = get_session
 
@@ -41,3 +43,27 @@ async def get_current_user(
     if user is None or not user.is_active:
         raise unauthorized
     return user
+
+
+async def require_project_owner(
+    project_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Gate for every router mounted entirely under
+    `/projects/{project_id}/...` (ctd, ectd, artifacts, validation,
+    narrative) -- added as one line on each APIRouter's `dependencies=`
+    rather than repeated per-endpoint. 404, not 403: a project belonging
+    to someone else should look indistinguishable from one that doesn't
+    exist, not confirm its existence to a user who can't touch it.
+
+    Ownership is Product's (see Product.owner_id's WHY), so this joins
+    through Project.product_id rather than looking at Project itself.
+    """
+    stmt = (
+        select(Project.id)
+        .join(Product, Project.product_id == Product.id)
+        .where(Project.id == project_id, Product.owner_id == user.id)
+    )
+    if await db.scalar(stmt) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")

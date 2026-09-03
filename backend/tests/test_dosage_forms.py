@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 import app.validation.rules  # noqa: F401  registers rules
 from app.models import Base, DosageForm, Product, Project, Region, Section
+from app.seed import attach_owner
 from app.validation.engine import run_all
 
 
@@ -19,6 +20,7 @@ def test_every_dosage_form_round_trips_through_the_database():
 
     for form in DosageForm:
         product = Product(brand_name=f"TEST-{form.name}", generic_name="Testolol", dosage_form=form)
+        attach_owner(product, None)
         session.add(product)
     session.commit()
 
@@ -28,6 +30,7 @@ def test_every_dosage_form_round_trips_through_the_database():
 
 def _project_with_narrative(dosage_form: DosageForm, narrative_text: str) -> Project:
     product = Product(brand_name="TESTOX", generic_name="Testolol", dosage_form=dosage_form)
+    attach_owner(product, None)
     project = Project(name="TESTOX filing", region=Region.NAFDAC, product=product)
     project.sections.append(
         Section(number="3.2.P.1", title="Description & Composition", narrative_text=narrative_text)

@@ -23,11 +23,15 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, require_project_owner
 from app.core.storage import get_storage_client
 from app.models import Project, User
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["artifacts"])
+router = APIRouter(
+    prefix="/projects/{project_id}",
+    tags=["artifacts"],
+    dependencies=[Depends(require_project_owner)],
+)
 
 ZIP_CONTENT_TYPE = "application/zip"
 

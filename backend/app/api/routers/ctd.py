@@ -8,14 +8,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, require_project_owner
 from app.api.loading import READINESS_LOAD_OPTIONS
 from app.assembly.assemble import AssemblyBlockedError
 from app.ctd.build import build_ctd_package
 from app.models import Project, ValidationOverride
 from app.schemas.ctd import CtdBuildResponse, PackagedFileRead
 
-router = APIRouter(prefix="/projects/{project_id}", tags=["ctd"])
+router = APIRouter(
+    prefix="/projects/{project_id}",
+    tags=["ctd"],
+    dependencies=[Depends(require_project_owner)],
+)
 
 
 async def _overridden_rule_ids(db: AsyncSession, project_id: uuid.UUID) -> frozenset[str]:

@@ -100,5 +100,6 @@ NESTED_ROUTERS = [
         parent_segment="apis",
         parent_fk="active_ingredient_id",
         order_by="sort_order",
+        owner_via="product",
     ),
 ]

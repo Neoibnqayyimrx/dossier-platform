@@ -15,9 +15,9 @@ from app.seed.examox import build_examox
 from app.templating.registry import SECTIONS
 
 
-async def _seed_project(session_factory) -> uuid.UUID:
+async def _seed_project(session_factory, owner_id: uuid.UUID | None = None) -> uuid.UUID:
     async with session_factory() as session:
-        project = build_examox(buggy=False)
+        project = build_examox(buggy=False, owner_id=owner_id)
         session.add(project)
         await session.commit()
         return project.id
@@ -50,7 +50,7 @@ async def test_a_data_only_section_reports_no_narrative_slots(client):
 
 
 async def test_download_returns_the_stored_bytes(auth_client, session_factory):
-    project_id = await _seed_project(session_factory)
+    project_id = await _seed_project(session_factory, auth_client.user_id)
     key = f"projects/{project_id}/ctd-package.zip"
     get_storage_client().put(key, b"PK\x03\x04 pretend zip", "application/zip")
 
@@ -64,18 +64,16 @@ async def test_download_returns_the_stored_bytes(auth_client, session_factory):
 async def test_cannot_download_another_projects_artifact(auth_client, session_factory):
     """The whole point of the prefix check: a key that isn't scoped to this
     project is refused even though it exists in storage."""
-    project_id = await _seed_project(session_factory)
+    project_id = await _seed_project(session_factory, auth_client.user_id)
     other_key = f"projects/{uuid.uuid4()}/ctd-package.zip"
     get_storage_client().put(other_key, b"someone else's dossier", "application/zip")
 
-    response = await auth_client.get(
-        f"/projects/{project_id}/artifacts", params={"key": other_key}
-    )
+    response = await auth_client.get(f"/projects/{project_id}/artifacts", params={"key": other_key})
     assert response.status_code == 403
 
 
 async def test_cannot_escape_the_prefix_with_traversal(auth_client, session_factory):
-    project_id = await _seed_project(session_factory)
+    project_id = await _seed_project(session_factory, auth_client.user_id)
     response = await auth_client.get(
         f"/projects/{project_id}/artifacts",
         params={"key": "kb/secret-document.pdf"},
@@ -84,7 +82,7 @@ async def test_cannot_escape_the_prefix_with_traversal(auth_client, session_fact
 
 
 async def test_unbuilt_artifact_404s_rather_than_500s(auth_client, session_factory):
-    project_id = await _seed_project(session_factory)
+    project_id = await _seed_project(session_factory, auth_client.user_id)
     response = await auth_client.get(
         f"/projects/{project_id}/artifacts",
         params={"key": f"projects/{project_id}/never-built.zip"},

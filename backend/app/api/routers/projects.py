@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, require_project_owner
 from app.api.loading import PROJECT_CHILD_OPTIONS
 from app.models import Product, Project, Sequence, User
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
@@ -41,9 +41,15 @@ async def _get_project_or_404(project_id: uuid.UUID, db: AsyncSession) -> Projec
 async def create_project(
     payload: ProjectCreate,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> Project:
-    if await db.scalar(select(Product.id).where(Product.id == payload.product_id)) is None:
+    # Owned, not just exists: creating a Project against someone else's
+    # Product would let you read/edit that Product's whole tree through
+    # the new Project, defeating the ownership check on every other route.
+    owns_product = await db.scalar(
+        select(Product.id).where(Product.id == payload.product_id, Product.owner_id == user.id)
+    )
+    if owns_product is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
 
     project = Project(**payload.model_dump())
@@ -53,13 +59,24 @@ async def create_project(
 
 
 @router.get("", response_model=list[ProjectRead])
-async def list_projects(db: AsyncSession = Depends(get_db)) -> list[Project]:
-    stmt = select(Project).options(*PROJECT_CHILD_OPTIONS)
+async def list_projects(
+    db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+) -> list[Project]:
+    stmt = (
+        select(Project)
+        .join(Product, Project.product_id == Product.id)
+        .where(Product.owner_id == user.id)
+        .options(*PROJECT_CHILD_OPTIONS)
+    )
     return list((await db.scalars(stmt)).all())
 
 
 @router.get("/{project_id}", response_model=ProjectRead)
-async def get_project(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Project:
+async def get_project(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _owned: None = Depends(require_project_owner),
+) -> Project:
     return await _get_project_or_404(project_id, db)
 
 
@@ -68,7 +85,7 @@ async def update_project(
     project_id: uuid.UUID,
     payload: ProjectUpdate,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _owned: None = Depends(require_project_owner),
 ) -> Project:
     project = await _get_project_or_404(project_id, db)
     for field, value in payload.model_dump(exclude_unset=True).items():
@@ -81,7 +98,7 @@ async def update_project(
 async def delete_project(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _owned: None = Depends(require_project_owner),
 ) -> None:
     project = await _get_project_or_404(project_id, db)
     await db.delete(project)
@@ -95,15 +112,12 @@ async def create_sequence(
     project_id: uuid.UUID,
     payload: SequenceCreateRequest,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _owned: None = Depends(require_project_owner),
 ) -> Sequence:
     """Auto-numbers the next sequence: 0000, then 0001, ... — the transaction
     id is derived state, never client input, same as any other
     regulator-facing identifier (that's why SequenceCreateRequest has no
     `number` field at all)."""
-    if await db.scalar(select(Project.id).where(Project.id == project_id)) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-
     # max(), not count(): stays correct even if a sequence is ever removed,
     # since the transaction id must never be reused.
     highest = await db.scalar(
@@ -125,10 +139,10 @@ async def create_sequence(
 
 @router.get("/{project_id}/sequences", response_model=list[SequenceRead])
 async def list_sequences(
-    project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _owned: None = Depends(require_project_owner),
 ) -> list[Sequence]:
-    if await db.scalar(select(Project.id).where(Project.id == project_id)) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     stmt = select(Sequence).where(Sequence.project_id == project_id).order_by(Sequence.number)
     return list((await db.scalars(stmt)).all())
 
@@ -139,7 +153,7 @@ async def update_sequence(
     sequence_id: uuid.UUID,
     payload: SequenceUpdate,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _owned: None = Depends(require_project_owner),
 ) -> Sequence:
     stmt = select(Sequence).where(Sequence.id == sequence_id, Sequence.project_id == project_id)
     sequence = await db.scalar(stmt)

@@ -7,6 +7,13 @@ here, not the other way round. See build-log.md for why this differs
 from the original LAMOX vertical slice, which nested Product 1:1 inside
 Project.
 
+WHY owner_id lives here and not on Project: Product is the root of
+everything a user can touch — every Project points at a Product, and
+every child resource (manufacturers, excipients, specs, ...) hangs off
+Product or off an ActiveIngredient that itself hangs off Product. One
+owner column here, checked once, covers the whole tree instead of a
+column (and a check) repeated on every table.
+
 WHY strength is NOT a column here (it moved to ActiveIngredient): a
 fixed-dose combination product -- Ampiclox (ampicillin + cloxacillin),
 artemether-lumefantrine -- doesn't have ONE strength, it has one per
@@ -20,9 +27,10 @@ special case.
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Integer, Enum as SAEnum
+from sqlalchemy import ForeignKey, String, Integer, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -38,10 +46,14 @@ if TYPE_CHECKING:
     from app.models.packaging import Packaging
     from app.models.project import Project
     from app.models.stability import StabilityStudy
+    from app.models.user import User
 
 
 class Product(Base):
     __tablename__ = "product"
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"))
+    owner: Mapped["User"] = relationship(back_populates="products")
 
     brand_name: Mapped[str] = mapped_column(String(120))
     generic_name: Mapped[str] = mapped_column(String(200))

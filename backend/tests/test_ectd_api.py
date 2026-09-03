@@ -13,9 +13,9 @@ from app.models import Region
 from app.seed.examox import build_examox
 
 
-async def _seed_eu_project(session_factory, buggy: bool = False) -> uuid.UUID:
+async def _seed_eu_project(session_factory, owner_id: uuid.UUID, buggy: bool = False) -> uuid.UUID:
     async with session_factory() as session:
-        project = build_examox(buggy=buggy)
+        project = build_examox(buggy=buggy, owner_id=owner_id)
         project.region = Region.EU
         session.add(project)
         await session.commit()
@@ -30,7 +30,7 @@ async def _create_sequence(client, project_id: uuid.UUID) -> str:
 
 async def test_build_ectd_returns_a_build_report_for_a_clean_project(auth_client, session_factory):
     client = auth_client
-    project_id = await _seed_eu_project(session_factory, buggy=False)
+    project_id = await _seed_eu_project(session_factory, client.user_id, buggy=False)
     sequence_id = await _create_sequence(client, project_id)
 
     resp = await client.post(
@@ -45,7 +45,7 @@ async def test_build_ectd_returns_a_build_report_for_a_clean_project(auth_client
 
 async def test_build_ectd_409s_when_validation_has_unresolved_errors(auth_client, session_factory):
     client = auth_client
-    project_id = await _seed_eu_project(session_factory, buggy=True)
+    project_id = await _seed_eu_project(session_factory, client.user_id, buggy=True)
     sequence_id = await _create_sequence(client, project_id)
 
     resp = await client.post(
@@ -54,17 +54,17 @@ async def test_build_ectd_409s_when_validation_has_unresolved_errors(auth_client
     assert resp.status_code == 409
 
 
-async def test_build_ectd_missing_project_404s(client):
-    resp = await client.post(
+async def test_build_ectd_missing_project_404s(auth_client):
+    resp = await auth_client.post(
         "/projects/00000000-0000-0000-0000-000000000000/build/ectd",
         params={"sequence_id": str(uuid.uuid4())},
     )
     assert resp.status_code == 404
 
 
-async def test_build_ectd_missing_sequence_404s(client, session_factory):
-    project_id = await _seed_eu_project(session_factory, buggy=False)
-    resp = await client.post(
+async def test_build_ectd_missing_sequence_404s(auth_client, session_factory):
+    project_id = await _seed_eu_project(session_factory, auth_client.user_id, buggy=False)
+    resp = await auth_client.post(
         f"/projects/{project_id}/build/ectd", params={"sequence_id": str(uuid.uuid4())}
     )
     assert resp.status_code == 404
@@ -75,7 +75,7 @@ async def test_build_ectd_missing_sequence_404s(client, session_factory):
 
 async def test_validate_ectd_returns_a_consolidated_report(auth_client, session_factory):
     client = auth_client
-    project_id = await _seed_eu_project(session_factory, buggy=False)
+    project_id = await _seed_eu_project(session_factory, client.user_id, buggy=False)
     sequence_id = await _create_sequence(client, project_id)
     build = await client.post(
         f"/projects/{project_id}/build/ectd", params={"sequence_id": sequence_id}
@@ -99,7 +99,7 @@ async def test_validate_ectd_returns_a_consolidated_report(auth_client, session_
 
 async def test_validate_ectd_404s_when_the_sequence_was_never_built(auth_client, session_factory):
     client = auth_client
-    project_id = await _seed_eu_project(session_factory, buggy=False)
+    project_id = await _seed_eu_project(session_factory, client.user_id, buggy=False)
     sequence_id = await _create_sequence(client, project_id)
 
     # deliberately NOT built first
@@ -109,8 +109,8 @@ async def test_validate_ectd_404s_when_the_sequence_was_never_built(auth_client,
     assert resp.status_code == 404
 
 
-async def test_validate_ectd_missing_project_404s(client):
-    resp = await client.post(
+async def test_validate_ectd_missing_project_404s(auth_client):
+    resp = await auth_client.post(
         "/projects/00000000-0000-0000-0000-000000000000/validate/ectd",
         params={"sequence_id": str(uuid.uuid4())},
     )
