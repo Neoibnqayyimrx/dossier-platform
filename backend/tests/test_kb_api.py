@@ -6,8 +6,12 @@ pgvector's cosine_distance operator (see tests/test_knowledge.py).
 
 from __future__ import annotations
 
+import uuid
+
 from app.api.deps import get_db
 from app.main import app
+from app.models import User
+from app.models.enums import UserRole
 
 Q1A_EXCERPT = """\
 2.1.7. Storage Conditions
@@ -31,8 +35,25 @@ async def test_ingest_requires_auth(client):
     assert resp.status_code == 401
 
 
-async def test_ingest_success(auth_client):
+async def test_ingest_is_refused_to_an_ordinary_user(auth_client):
+    """403, not 404: unlike someone else's project, there is no reason to
+    hide that a shared knowledge base exists from a logged-in user who
+    simply may not write to it (see require_admin)."""
     resp = await auth_client.post(
+        "/kb/ingest",
+        json={
+            "source": "ICH",
+            "title": "Q1A(R2)",
+            "version": "Step 4, 2003-02-06",
+            "license": "ich-harmonised-guideline",
+            "text": Q1A_EXCERPT,
+        },
+    )
+    assert resp.status_code == 403
+
+
+async def test_ingest_success(admin_client):
+    resp = await admin_client.post(
         "/kb/ingest",
         json={
             "source": "ICH",
@@ -51,8 +72,8 @@ async def test_ingest_success(auth_client):
     assert body["source"] == "ICH"
 
 
-async def test_ingest_rejects_pharmacopoeia_source(auth_client):
-    resp = await auth_client.post(
+async def test_ingest_rejects_pharmacopoeia_source(admin_client):
+    resp = await admin_client.post(
         "/kb/ingest",
         json={
             "source": "USP",
@@ -80,10 +101,18 @@ async def test_search_round_trip(pg_session_factory):
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            await ac.post(
+            register = await ac.post(
                 "/auth/register",
                 json={"email": "kb-tester@examox.example", "password": "s3cret-password"},
             )
+            # Ingest is admin-only (see the kb router's docstring), and there
+            # is no API path to admin -- same DB-level promotion the
+            # admin_client fixture and scripts/promote_admin.py use.
+            async with pg_session_factory() as promoting:
+                user = await promoting.get(User, uuid.UUID(register.json()["id"]))
+                user.role = UserRole.ADMIN
+                await promoting.commit()
+
             login = await ac.post(
                 "/auth/login",
                 data={"username": "kb-tester@examox.example", "password": "s3cret-password"},

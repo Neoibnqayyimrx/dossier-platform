@@ -19,12 +19,15 @@ cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 cd frontend && npm run dev        # http://localhost:3000
 ```
 
-Sign in at `/login`. "Create account" registers and signs you in with the
-same form — the backend has no roles or email verification (P02 kept auth
-deliberately minimal), so a separate signup page would be the same form
-with a different button.
+Sign in at `/login`, or create an account at `/register` (registering signs
+you straight in — the backend has no email verification step). Every account
+registers as a plain user; `/admin/users` and its nav link appear only for an
+admin, and the first one is made with `scripts/promote_admin.py`.
 
-To get a project to look at: `cd backend && uv run python -m scripts.seed_demo`.
+To get a project to look at:
+`cd backend && uv run python scripts/seed_demo.py your@email` — pass the
+account you sign in with, or the demo will belong to someone else and stay
+invisible to you (products are owned; see P14a in `reference/build-log.md`).
 
 ## Configuration
 

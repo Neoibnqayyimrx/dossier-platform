@@ -122,15 +122,26 @@ retrieval uses pgvector's `<=>`, which the SQLite fixture has no
 equivalent for. The intruder half still runs there, because the gate is a
 router dependency and answers before retrieval is reached.
 
-### Known gaps this opened or exposed
+### Two things the audit found, and closed the same day
 
-- `scripts/seed_demo.py` attaches its product to a synthetic seed user, so
-  the EXAMOX/AMPICLOX demo data is now invisible to every real login. The
-  script needs an owner argument.
-- `/kb/ingest` is still gated on "any logged-in user" over a **global**
-  knowledge base that feeds every user's retrieval context. Its docstring
-  deferred a role check until a role existed; one exists now.
-- Unrelated to P14 but found in the same audit: a NAFDAC dossier cannot be
+- `scripts/seed_demo.py` attached its product to the placeholder account
+  `attach_owner` invents for model tests, so after P14a the EXAMOX demo
+  seeded fine and was invisible to every real login. It now takes an
+  owner email, and — when called with no argument — falls back to the
+  earliest account while *printing which one it chose*. Silently picking
+  an owner is how you end up hunting for a demo project that seeded
+  perfectly and belongs to someone else.
+- `/kb/ingest` was gated on "any logged-in user" over a **global**
+  knowledge base. Unlike a Product, the KB has no owner: one account's
+  ingest changes the retrieved context behind everyone else's narrative
+  generation. Its docstring had deferred a role check until a role
+  existed, so P14b made this the honest fix — admin-only. Search stays
+  open, because copyrighted pharmacopoeial text is refused at ingest by
+  construction, leaving nothing there that needs an account to read.
+
+### Known gap, still open
+
+- Found in the same audit: a NAFDAC dossier cannot be
   completed through the API at all. Applicant, CPP certificate and
   declarations have models but no routers, so R13/R14/R16 block export
   permanently, and the only escape — validation overrides — has no

@@ -1,11 +1,17 @@
 """Knowledge-base endpoints (P03): ingest a guideline, search over it.
 
-WHY ingest requires auth but search doesn't: matches the P02 convention
-already used everywhere else in this API — reads stay open, writes require
-a logged-in user. There's no admin role yet (P02 deliberately didn't build
-one — "don't gold-plate"), so `get_current_user` is the closest available
-gate; adding a real role check is a P02-scope follow-up, not something to
-improvise here.
+WHY ingest is admin-only while search stays open: the knowledge base is
+GLOBAL. Unlike a Product, it has no owner and is not scoped to anyone --
+one account's ingest changes the retrieved context behind every other
+user's narrative generation. "Any logged-in user" was the closest gate
+available when this was written (P02 built no roles, and this docstring
+said a real role check was the follow-up); UserRole (P14b) is that role,
+so the check is now the honest one.
+
+Search stays open because retrieval is read-only over documents that are
+freely redistributable by construction -- copyrighted pharmacopoeial text
+is refused at ingest (see KBIngestRejected), so there is nothing here
+that needs an account to read.
 """
 
 from __future__ import annotations
@@ -13,7 +19,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_db, require_admin
 from app.core.config import get_settings
 from app.knowledge.embeddings import get_embedding_client
 from app.knowledge.ingest import KBIngestRejected, ingest_document
@@ -28,7 +34,7 @@ router = APIRouter(prefix="/kb", tags=["knowledge-base"])
 async def ingest(
     payload: KBIngestRequest,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _admin: User = Depends(require_admin),
 ) -> KBIngestResponse:
     settings = get_settings()
     try:
