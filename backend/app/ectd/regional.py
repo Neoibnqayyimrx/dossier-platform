@@ -120,7 +120,9 @@ def _build_envelope(
         related_el.text = related
 
     description = etree.SubElement(envelope, "submission-description")
-    description.text = f"{_submission_type(project).upper()} submission for {project.product.brand_name}"
+    description.text = (
+        f"{_submission_type(project).upper()} submission for {project.product.brand_name}"
+    )
 
     return envelope_root
 

@@ -81,8 +81,11 @@ def check_dtd_validity(prefix: str, files: dict[str, bytes]) -> list[Finding]:
         if not dtd.validate(etree.fromstring(index_xml)):
             findings.append(
                 Finding(
-                    rule_id="M01", severity=Severity.ERROR, category="dtd",
-                    message=f"index.xml failed DTD validation: {dtd.error_log}", source=SOURCE,
+                    rule_id="M01",
+                    severity=Severity.ERROR,
+                    category="dtd",
+                    message=f"index.xml failed DTD validation: {dtd.error_log}",
+                    source=SOURCE,
                 )
             )
     regional_xml = files.get(f"{prefix}/{REGIONAL_XML_RELATIVE_PATH}")
@@ -91,8 +94,11 @@ def check_dtd_validity(prefix: str, files: dict[str, bytes]) -> list[Finding]:
         if not dtd.validate(etree.fromstring(regional_xml)):
             findings.append(
                 Finding(
-                    rule_id="M02", severity=Severity.ERROR, category="dtd",
-                    message=f"eu-regional.xml failed DTD validation: {dtd.error_log}", source=SOURCE,
+                    rule_id="M02",
+                    severity=Severity.ERROR,
+                    category="dtd",
+                    message=f"eu-regional.xml failed DTD validation: {dtd.error_log}",
+                    source=SOURCE,
                 )
             )
     return findings
@@ -112,7 +118,9 @@ def check_checksum_integrity(prefix: str, files: dict[str, bytes]) -> list[Findi
         if actual != leaf.checksum:
             findings.append(
                 Finding(
-                    rule_id="M03", severity=Severity.ERROR, category="checksum",
+                    rule_id="M03",
+                    severity=Severity.ERROR,
+                    category="checksum",
                     message=(
                         f"leaf {leaf.id!r} ({leaf.href}) states checksum {leaf.checksum} "
                         f"but the actual file's MD5 is {actual}"
@@ -128,7 +136,9 @@ def check_checksum_integrity(prefix: str, files: dict[str, bytes]) -> list[Findi
         if actual not in index_md5_txt.decode():
             findings.append(
                 Finding(
-                    rule_id="M04", severity=Severity.ERROR, category="checksum",
+                    rule_id="M04",
+                    severity=Severity.ERROR,
+                    category="checksum",
                     message=(
                         f"index-md5.txt does not match index.xml's actual MD5 "
                         f"(expected {actual})"
@@ -147,7 +157,9 @@ def check_href_resolution_and_orphans(prefix: str, files: dict[str, bytes]) -> l
         if leaf.href not in files:
             findings.append(
                 Finding(
-                    rule_id="M05", severity=Severity.ERROR, category="structure",
+                    rule_id="M05",
+                    severity=Severity.ERROR,
+                    category="structure",
                     message=f"leaf {leaf.id!r} points at {leaf.href}, which is not in the package",
                     source=SOURCE,
                 )
@@ -160,7 +172,9 @@ def check_href_resolution_and_orphans(prefix: str, files: dict[str, bytes]) -> l
         if path not in referenced:
             findings.append(
                 Finding(
-                    rule_id="M06", severity=Severity.WARNING, category="structure",
+                    rule_id="M06",
+                    severity=Severity.WARNING,
+                    category="structure",
                     message=f"{path} is in the package but no leaf references it (orphan file)",
                     source=SOURCE,
                 )
@@ -182,7 +196,9 @@ def check_lifecycle_integrity(
         if not match:
             findings.append(
                 Finding(
-                    rule_id="M07", severity=Severity.ERROR, category="lifecycle",
+                    rule_id="M07",
+                    severity=Severity.ERROR,
+                    category="lifecycle",
                     message=(
                         f"leaf {leaf.id!r} has operation={leaf.operation!r} but an "
                         f"unparseable modified-file={leaf.modified_file!r}"
@@ -200,7 +216,9 @@ def check_lifecycle_integrity(
         if prior_bundle is None:
             findings.append(
                 Finding(
-                    rule_id="M08", severity=Severity.ERROR, category="lifecycle",
+                    rule_id="M08",
+                    severity=Severity.ERROR,
+                    category="lifecycle",
                     message=(
                         f"leaf {leaf.id!r} targets sequence {sequence_number}, which was "
                         f"never built (or is unavailable) -- modified-file cannot be verified"
@@ -215,7 +233,9 @@ def check_lifecycle_integrity(
         if target is None or target.href != full_path:
             findings.append(
                 Finding(
-                    rule_id="M09", severity=Severity.ERROR, category="lifecycle",
+                    rule_id="M09",
+                    severity=Severity.ERROR,
+                    category="lifecycle",
                     message=(
                         f"leaf {leaf.id!r}'s modified-file points at leaf {target_id!r}/"
                         f"{full_path} in sequence {sequence_number}, but no such leaf exists there"
@@ -240,7 +260,9 @@ def check_pdf_specs(prefix: str, files: dict[str, bytes]) -> list[Finding]:
         if reader.is_encrypted:
             findings.append(
                 Finding(
-                    rule_id="M10", severity=Severity.ERROR, category="pdf-spec",
+                    rule_id="M10",
+                    severity=Severity.ERROR,
+                    category="pdf-spec",
                     message=f"{path} is encrypted -- eCTD PDFs must not be password-protected",
                     source=SOURCE,
                 )
@@ -250,7 +272,9 @@ def check_pdf_specs(prefix: str, files: dict[str, bytes]) -> list[Finding]:
         if not text.strip():
             findings.append(
                 Finding(
-                    rule_id="M11", severity=Severity.WARNING, category="pdf-spec",
+                    rule_id="M11",
+                    severity=Severity.WARNING,
+                    category="pdf-spec",
                     message=(
                         f"{path}'s first page has no extractable text -- may be a scanned "
                         f"image rather than a text-searchable document"
@@ -277,9 +301,12 @@ def check_required_ctd_sections_present(
     missing = (expected_keys if expected_keys is not None else set(SECTIONS)) - live_section_keys
     return [
         Finding(
-            rule_id="M12", severity=Severity.ERROR, category="completeness",
+            rule_id="M12",
+            severity=Severity.ERROR,
+            category="completeness",
             message=f"section {key!r} is registered but has never appeared in any built sequence",
-            section=key, source=SOURCE,
+            section=key,
+            source=SOURCE,
         )
         for key in sorted(missing)
     ]

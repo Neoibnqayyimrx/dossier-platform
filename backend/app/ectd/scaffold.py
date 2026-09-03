@@ -15,9 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_DTD_SOURCE_DIR = (
-    Path(__file__).resolve().parent.parent.parent.parent / "reference" / "ectd_dtd"
-)
+_DTD_SOURCE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "reference" / "ectd_dtd"
 
 # WHY only the EU regional files are conditional (FDA has none yet): the
 # ICH-level util files are the same for every region -- only the regional

@@ -5,15 +5,15 @@ Revises: fed49611d433
 Create Date: 2026-08-12 11:29:21.459201
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
 
-
 # revision identifiers, used by Alembic.
-revision: str = '8434fdfbdb4f'
-down_revision: Union[str, Sequence[str], None] = 'fed49611d433'
+revision: str = "8434fdfbdb4f"
+down_revision: Union[str, Sequence[str], None] = "fed49611d433"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -43,10 +43,16 @@ def upgrade() -> None:
         sa.Column("modified_file", sa.String(length=600), nullable=True),
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.ForeignKeyConstraint(["sequence_id"], ["sequence.id"]),
         sa.PrimaryKeyConstraint("id"),

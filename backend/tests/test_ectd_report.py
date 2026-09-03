@@ -171,9 +171,7 @@ async def test_ai_reviewer_failure_degrades_instead_of_breaking_the_report(db_fa
         storage = InMemoryStorageClient()
         await build_ectd_sequence(db, project, seq0, storage=storage)
 
-        with patch(
-            "app.ectd.report.review_narratives", side_effect=RuntimeError("no API key")
-        ):
+        with patch("app.ectd.report.review_narratives", side_effect=RuntimeError("no API key")):
             report = await validate_ectd_sequence(db, project, seq0, storage=storage)
 
         degraded = [f for f in report.findings if f.rule_id == "AI99"]
@@ -196,9 +194,14 @@ async def test_ai_reviewer_findings_are_advisory_and_never_block_export(pg_sessi
         await db.commit()
 
         narrative = NarrativeGeneration(
-            project_id=project.id, section_number="3.2.P.8.1", slot="conclusion",
-            model_name="stub", prompt="p", output="text",
-            status=NarrativeStatus.APPROVED, final_text="text",
+            project_id=project.id,
+            section_number="3.2.P.8.1",
+            slot="conclusion",
+            model_name="stub",
+            prompt="p",
+            output="text",
+            status=NarrativeStatus.APPROVED,
+            final_text="text",
         )
         db.add(narrative)
         seq0 = Sequence(project_id=project.id, number="0000")

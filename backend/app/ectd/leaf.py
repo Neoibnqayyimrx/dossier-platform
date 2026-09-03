@@ -44,7 +44,7 @@ _SLUG_RE = re.compile(r"[^A-Za-z0-9]+")
 
 
 def slugify_section_key(section_key: str) -> str:
-    """"3.2.P.1" -> "3-2-P-1"; "cover-letter" -> "cover-letter"."""
+    """ "3.2.P.1" -> "3-2-P-1"; "cover-letter" -> "cover-letter"."""
     return _SLUG_RE.sub("-", section_key).strip("-")
 
 

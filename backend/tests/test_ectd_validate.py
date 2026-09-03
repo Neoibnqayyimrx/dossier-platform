@@ -25,7 +25,9 @@ from app.ectd.validate import (
 from app.validation.engine import Severity
 
 
-def _leaf_xml(leaf_id: str, href: str, checksum: str, operation: str = "new", modified_file: str | None = None) -> str:
+def _leaf_xml(
+    leaf_id: str, href: str, checksum: str, operation: str = "new", modified_file: str | None = None
+) -> str:
     mf = f' modified-file="{modified_file}"' if modified_file else ""
     return (
         f'<leaf xmlns:xlink="{XLINK_NS}" ID="{leaf_id}" operation="{operation}"{mf} '
@@ -126,8 +128,11 @@ def test_href_resolution_does_not_flag_util_files_as_orphans():
 
 def test_lifecycle_integrity_catches_a_missing_prior_sequence():
     leaf = _leaf_xml(
-        leaf_id_for("3.2.P.1", "0001"), "m3/x.pdf", "a" * 32,
-        operation="replace", modified_file=f"../0000/m3/x.pdf#{leaf_id_for('3.2.P.1', '0000')}",
+        leaf_id_for("3.2.P.1", "0001"),
+        "m3/x.pdf",
+        "a" * 32,
+        operation="replace",
+        modified_file=f"../0000/m3/x.pdf#{leaf_id_for('3.2.P.1', '0000')}",
     )
     files = {"0001/index.xml": _index_xml(leaf), "0001/m3/x.pdf": b"data"}
     findings = check_lifecycle_integrity("0001", files, prior_files={})
@@ -136,8 +141,11 @@ def test_lifecycle_integrity_catches_a_missing_prior_sequence():
 
 def test_lifecycle_integrity_catches_a_modified_file_pointing_at_no_real_leaf():
     leaf = _leaf_xml(
-        leaf_id_for("3.2.P.1", "0001"), "m3/x.pdf", "a" * 32,
-        operation="replace", modified_file="../0000/m3/x.pdf#ID-does-not-exist",
+        leaf_id_for("3.2.P.1", "0001"),
+        "m3/x.pdf",
+        "a" * 32,
+        operation="replace",
+        modified_file="../0000/m3/x.pdf#ID-does-not-exist",
     )
     files = {"0001/index.xml": _index_xml(leaf), "0001/m3/x.pdf": b"data"}
     prior_files = {"0000": {"0000/index.xml": _index_xml(), "0000/m3/x.pdf": b"data"}}
@@ -148,8 +156,11 @@ def test_lifecycle_integrity_catches_a_modified_file_pointing_at_no_real_leaf():
 def test_lifecycle_integrity_passes_a_real_replace_chain():
     prior_leaf = _leaf_xml(leaf_id_for("3.2.P.1", "0000"), "m3/x.pdf", md5_hex(b"old"))
     new_leaf = _leaf_xml(
-        leaf_id_for("3.2.P.1", "0001"), "m3/x.pdf", md5_hex(b"new"),
-        operation="replace", modified_file=f"../0000/m3/x.pdf#{leaf_id_for('3.2.P.1', '0000')}",
+        leaf_id_for("3.2.P.1", "0001"),
+        "m3/x.pdf",
+        md5_hex(b"new"),
+        operation="replace",
+        modified_file=f"../0000/m3/x.pdf#{leaf_id_for('3.2.P.1', '0000')}",
     )
     prior_files = {"0000": {"0000/index.xml": _index_xml(prior_leaf), "0000/m3/x.pdf": b"old"}}
     files = {"0001/index.xml": _index_xml(new_leaf), "0001/m3/x.pdf": b"new"}
