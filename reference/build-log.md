@@ -31,6 +31,114 @@ Newest entry at the top.
 
 ---
 
+## P14 — ownership, roles, and the tests that were missing (2026-09-03)
+
+Until now every authenticated user could read and write every product,
+project and dossier in the database. That was a deliberate P02
+simplification ("no roles/permissions yet; add scoping later if the
+wizard needs it"), and the wizard needed it.
+
+### Where the owner column belongs
+
+The obvious place looks like Project — a project is what a person works
+on. It is the wrong place. Every child resource (manufacturers, actives,
+excipients, stability, packaging, specifications) hangs off **Product**,
+and Project points at Product, so an owner on Project would leave the
+entire product tree reachable by anyone who knew a product id. Worse, it
+would let a stranger create their *own* Project against someone else's
+Product and then walk in through the front door.
+
+So `Product.owner_id` is the root, and every check joins through it:
+`require_project_owner` goes Project → Product → owner, the child-router
+factory checks the parent, and `create_project` verifies you own the
+product you are naming. One column, checked in four shapes.
+
+`ActiveIngredient` is the awkward case: it is one hop from Product and
+owns the 3.2.S.4.1 specification rows. Rather than give it an owner
+column of its own, `build_child_router` grew an `owner_via` argument
+naming the relationship to walk, and raises `TypeError` at import time if
+a non-Product parent is registered without one — a wiring mistake that
+would otherwise ship as an open endpoint.
+
+**404, never 403.** Someone else's project must be indistinguishable from
+one that never existed. A 403 confirms the id is real, which is itself a
+disclosure.
+
+### Roles, and the first admin problem
+
+`UserRole` (USER/ADMIN) gates `/admin/users` only — account management,
+never a bypass of the ownership check. An admin reaches dossiers exactly
+the way everyone else does. Two consequences worth writing down:
+
+- The JWT carries a user id and no role claim. Baking the role in would
+  let it go stale the moment an admin changed it, since nothing forces
+  the holder to log in again; `GET /auth/me` looks it up fresh instead.
+- There is no self-service path to ADMIN, so the first one cannot come
+  from the API. `scripts/promote_admin.py` is that path — an operator
+  action, not a feature the app exposes to itself.
+
+`update_user` refuses to change the caller's own role or active flag: an
+admin could otherwise demote the only admin there is and lock everyone
+out of user management with no way back but psql.
+
+### The migration gotcha
+
+Adding a brand-new enum-typed column with `add_column` does **not** create
+the Postgres type — every earlier enum here was born inside a
+`create_table`, whose DDL creates the type as a side effect. Omitting the
+explicit `role_enum.create(...)` fails with "type userrole does not
+exist". The downgrade has the mirror problem: the type outlives the
+column it served, so it needs an explicit, dialect-guarded drop or a
+re-run of upgrade() fails with "type userrole already exists".
+
+### What the audit found: the tests proved the wrong half
+
+The suite went green through all of this. It was still green when two of
+the ownership filters were deleted. Every API test asserts that an owner
+*can* reach their own data, and the fixtures had simply been re-pointed at
+the test user to keep them passing — nobody had ever asked whether a
+second account was refused. A security boundary verified only by its happy
+path is not verified.
+
+`tests/test_ownership.py` is that missing half: a second registered
+account probing all 17 project-scoped routes, every product-child
+collection, the specification join, and the file-a-project-against-
+someone-else's-product hole. Two things keep it from rotting:
+
+- Every probe asserts the **domain message** ("Project not found"), not
+  just the status. A mistyped URL returns 404 as well, so a status-only
+  assertion passes just as happily against a route that does not exist.
+- A mirror test replays every probe as the owner and asserts they never
+  receive the *ownership* 404 — some of those routes legitimately 404 for
+  their owner (validating an eCTD sequence that was never built), so the
+  assertion is about which 404, not whether.
+
+Verified by mutation: removing the filter in `require_project_owner` and
+in `_get_product_or_404` turns 20 of the 55 red; restoring them returns
+all 55 to green.
+
+One probe (narrative `:generate`) skips its owner-side half — RAG
+retrieval uses pgvector's `<=>`, which the SQLite fixture has no
+equivalent for. The intruder half still runs there, because the gate is a
+router dependency and answers before retrieval is reached.
+
+### Known gaps this opened or exposed
+
+- `scripts/seed_demo.py` attaches its product to a synthetic seed user, so
+  the EXAMOX/AMPICLOX demo data is now invisible to every real login. The
+  script needs an owner argument.
+- `/kb/ingest` is still gated on "any logged-in user" over a **global**
+  knowledge base that feeds every user's retrieval context. Its docstring
+  deferred a role check until a role existed; one exists now.
+- Unrelated to P14 but found in the same audit: a NAFDAC dossier cannot be
+  completed through the API at all. Applicant, CPP certificate and
+  declarations have models but no routers, so R13/R14/R16 block export
+  permanently, and the only escape — validation overrides — has no
+  frontend client. Clinical and batch formula have endpoints but no wizard
+  step. That is the next phase's work.
+
+---
+
 ## P13 — 3.2.S drug substance sections, and the first section that repeats (2026-08-14)
 
 The platform built five sections, none of which had a drug-substance page

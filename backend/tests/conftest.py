@@ -30,6 +30,8 @@ TEST_EMAIL = "tester@examox.example"
 TEST_PASSWORD = "s3cret-password"
 ADMIN_EMAIL = "admin@examox.example"
 ADMIN_PASSWORD = "s3cret-admin-password"
+INTRUDER_EMAIL = "someone-else@examox.example"
+INTRUDER_PASSWORD = "s3cret-intruder-password"
 
 
 @pytest.fixture
@@ -106,6 +108,35 @@ async def admin_client(client, session_factory):
     client.headers["Authorization"] = f"Bearer {token}"
     client.user_id = user_id
     return client
+
+
+@pytest.fixture
+async def intruder_client(client, session_factory):
+    """A SECOND registered account, on its own client -- the other half of
+    every ownership test (see tests/test_ownership.py).
+
+    WHY a separate AsyncClient rather than swapping the token on `client`:
+    httpx keeps ONE Authorization header per client, so re-using it would
+    mean the victim and the intruder can never be in flight in the same
+    test -- and a test that has to log out the owner to check the intruder
+    is a test that can't compare the two answers.
+
+    Depends on `client` so the get_db override is installed (and stays
+    installed until after this fixture tears down) -- both clients must
+    talk to the same in-memory database or the intruder would 404 on
+    everything for the wrong reason: an empty schema.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        register = await ac.post(
+            "/auth/register", json={"email": INTRUDER_EMAIL, "password": INTRUDER_PASSWORD}
+        )
+        ac.user_id = uuid.UUID(register.json()["id"])
+        login = await ac.post(
+            "/auth/login", data={"username": INTRUDER_EMAIL, "password": INTRUDER_PASSWORD}
+        )
+        ac.headers["Authorization"] = f"Bearer {login.json()['access_token']}"
+        yield ac
 
 
 @pytest.fixture
