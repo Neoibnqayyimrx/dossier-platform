@@ -25,17 +25,28 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useState,
   useSyncExternalStore,
 } from "react";
 
 import { api, clearStoredToken, getStoredToken, storeToken } from "@/lib/api";
+import type { User } from "@/lib/types";
 
 type AuthStatus = "loading" | "authenticated" | "anonymous";
 
 interface AuthContextValue {
   status: AuthStatus;
   token: string | null;
+  /**
+   * The token's owner (email, role, ...) -- null both while signed out AND
+   * for the brief window after sign-in before GET /auth/me resolves.
+   * `status === "authenticated"` on its own only proves a token exists,
+   * not that it's valid or who it belongs to; anything gating on role
+   * (an "Admin" nav link) should check `user` too, not `status` alone.
+   */
+  user: User | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -74,8 +85,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const status: AuthStatus =
     token === undefined ? "loading" : token ? "authenticated" : "anonymous";
 
+  const [fetchedUser, setFetchedUser] = useState<User | null>(null);
+
+  // Layered on top of the token, not part of the sync external-store read
+  // above: it's an async fetch (who does this token belong to right now),
+  // not a local read, so it can't live in getSnapshot. Re-runs whenever
+  // the token itself changes (sign-in, sign-out, cross-tab sign-out).
+  //
+  // WHY no synchronous setFetchedUser for the "not authenticated" case
+  // (react-hooks/set-state-in-effect flags exactly that): `user` below
+  // derives from `status` instead, so a stale fetchedUser from a previous
+  // session never leaks through a logout -- nothing needs to rush in and
+  // clear it before paint.
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    let cancelled = false;
+    api
+      .me()
+      .then((current) => {
+        if (!cancelled) setFetchedUser(current);
+      })
+      .catch(() => {
+        // An expired/invalid token: leave fetchedUser as-is. AuthGuard-
+        // protected pages still work off `status`; anything role-gated
+        // just stays hidden via the `user` derivation below, which is the
+        // safe default.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [status, token]);
+
+  // Derived, not the raw fetch state: guarantees a signed-out (or
+  // not-yet-signed-in) render can never show a previous session's user.
+  const user = status === "authenticated" ? fetchedUser : null;
+
   const login = useCallback(async (email: string, password: string) => {
     const result = await api.login(email, password);
+    // Clears out whoever the PREVIOUS token belonged to before the new one
+    // takes effect -- otherwise a login-as-someone-else briefly derives
+    // `user` from the prior session's fetchedUser while the fresh
+    // GET /auth/me (fired by the effect above) is still in flight.
+    setFetchedUser(null);
     storeToken(result.access_token);
     notify();
   }, []);
@@ -86,8 +137,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ status, token: token ?? null, login, logout }),
-    [status, token, login, logout],
+    () => ({ status, token: token ?? null, user, login, logout }),
+    [status, token, user, login, logout],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

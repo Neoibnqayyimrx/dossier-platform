@@ -4,16 +4,17 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import { ApiError } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Card, ErrorNotice } from "@/components/ui";
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const { status, login } = useAuth();
   const router = useRouter();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -24,8 +25,20 @@ export default function LoginPage() {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
+
+    // Checked client-side only -- confirmPassword never travels to the
+    // backend, /auth/register only ever sees one password field.
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
     setBusy(true);
     try {
+      await api.register(email, password);
+      // Register-then-login rather than sending the user to /login: the
+      // backend has no email verification step, so there's no reason to
+      // make someone type their password twice in a row.
       await login(email, password);
       router.replace("/projects");
     } catch (err) {
@@ -39,7 +52,7 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto max-w-sm">
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight">Sign in</h1>
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight">Sign up</h1>
       <Card>
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <ErrorNotice message={error} />}
@@ -69,8 +82,27 @@ export default function LoginPage() {
               id="password"
               type="password"
               required
+              minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="confirmPassword"
+              className="mb-1 block text-sm font-medium"
+            >
+              Confirm password
+            </label>
+            <input
+              id="confirmPassword"
+              type="password"
+              required
+              minLength={8}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
             />
           </div>
@@ -81,13 +113,13 @@ export default function LoginPage() {
               disabled={busy}
               className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900"
             >
-              {busy ? "Signing in…" : "Sign in"}
+              {busy ? "Signing up…" : "Sign up"}
             </button>
             <Link
-              href="/register"
+              href="/login"
               className="text-sm text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
             >
-              New here? Sign up
+              Already have an account? Sign in
             </Link>
           </div>
         </form>

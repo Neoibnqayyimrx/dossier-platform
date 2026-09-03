@@ -87,6 +87,19 @@ export interface AuthToken {
   token_type: string;
 }
 
+/** Matches backend/app/models/enums.py::UserRole -- lowercase, same
+ * reasoning as NarrativeStatus below (Pydantic serializes `.value`). */
+export type UserRole = "user" | "admin";
+
+/** Matches backend/app/schemas/user.py::UserRead. */
+export interface User {
+  id: string;
+  email: string;
+  is_active: boolean;
+  role: UserRole;
+  created_at: string;
+}
+
 /**
  * Matches backend/app/models/enums.py::NarrativeStatus.
  *

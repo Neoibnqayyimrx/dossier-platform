@@ -246,3 +246,14 @@ class KBLicense(str, enum.Enum):
     ICH_HARMONISED = "ich-harmonised-guideline"
     GOVERNMENT_PUBLIC = "government-public-guidance"
     PUBLIC_DOMAIN = "public-domain"
+
+
+class UserRole(str, enum.Enum):
+    """Access level, not dossier content -- lives here anyway since this is
+    the project's one place enums live (see module WHY), same as
+    NarrativeStatus above. USER can only ever reach data it owns (see
+    Product.owner_id's WHY); ADMIN additionally reaches app.api.routers.admin
+    -- account management, never a bypass of the ownership check itself."""
+
+    USER = "user"
+    ADMIN = "admin"

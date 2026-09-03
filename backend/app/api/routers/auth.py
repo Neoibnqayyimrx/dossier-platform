@@ -1,5 +1,8 @@
-"""Auth: register + login. No OAuth providers, no roles — just an account
-that can hold a bearer token (AGENTS.md P02: "keep it simple but real").
+"""Auth: register + login. No OAuth providers -- just an account that can
+hold a bearer token (AGENTS.md P02: "keep it simple but real"). Every
+account registers as UserRole.USER; there is no self-service path to
+ADMIN (see app.api.routers.admin's module docstring and
+scripts/promote_admin.py).
 """
 
 from __future__ import annotations
@@ -9,7 +12,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import User
 from app.schemas.user import Token, UserCreate, UserRead
@@ -45,3 +48,15 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return Token(access_token=create_access_token(user.id))
+
+
+@router.get("/me", response_model=UserRead)
+async def me(user: User = Depends(get_current_user)) -> User:
+    """Who the bearer token belongs to -- the frontend has no other way to
+    know its own role (see app.api.routers.admin's gate). A JWT here
+    carries only a user id (see create_access_token), never a role claim:
+    baking the role into the token would let it go stale the moment an
+    admin changed it, since nothing forces the holder to log in again.
+    Looking it up fresh here means a demotion/deactivation takes effect
+    the next time the frontend asks, not only at next login."""
+    return user

@@ -23,10 +23,13 @@ from sqlalchemy.pool import StaticPool
 from app.api.deps import get_db
 from app.core.config import get_settings
 from app.main import app
-from app.models import Base
+from app.models import Base, User
+from app.models.enums import UserRole
 
 TEST_EMAIL = "tester@examox.example"
 TEST_PASSWORD = "s3cret-password"
+ADMIN_EMAIL = "admin@examox.example"
+ADMIN_PASSWORD = "s3cret-admin-password"
 
 
 @pytest.fixture
@@ -77,6 +80,31 @@ async def auth_client(client):
     )
     token = login.json()["access_token"]
     client.headers["Authorization"] = f"Bearer {token}"
+    return client
+
+
+@pytest.fixture
+async def admin_client(client, session_factory):
+    """Like auth_client, but promoted to UserRole.ADMIN directly in the DB
+    before logging in -- there is no API path to admin (see
+    app/api/routers/auth.py's module docstring and scripts/promote_admin.py),
+    so a test needs the same DB-level shortcut that script uses."""
+    register = await client.post(
+        "/auth/register", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
+    )
+    user_id = uuid.UUID(register.json()["id"])
+
+    async with session_factory() as session:
+        user = await session.get(User, user_id)
+        user.role = UserRole.ADMIN
+        await session.commit()
+
+    login = await client.post(
+        "/auth/login", data={"username": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
+    )
+    token = login.json()["access_token"]
+    client.headers["Authorization"] = f"Bearer {token}"
+    client.user_id = user_id
     return client
 
 

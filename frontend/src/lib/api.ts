@@ -24,6 +24,8 @@ import type {
   SectionSpec,
   Sequence,
   SpecificationTest,
+  User,
+  UserRole,
   Vocabularies,
 } from "@/lib/types";
 
@@ -123,6 +125,26 @@ export const api = {
     return request<{ id: string; email: string }>("/auth/register", {
       method: "POST",
       body: JSON.stringify({ email, password }),
+    });
+  },
+
+  /** Who the current bearer token belongs to, looked up fresh every call
+   * (see backend/app/api/routers/auth.py's me() WHY -- a role change
+   * takes effect the next time this is called, not just at next login). */
+  me() {
+    return request<User>("/auth/me");
+  },
+
+  // ---- admin-only user management (P14b) ---------------------------------
+
+  listUsers() {
+    return request<User[]>("/admin/users");
+  },
+
+  updateUser(userId: string, payload: { role?: UserRole; is_active?: boolean }) {
+    return request<User>(`/admin/users/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
     });
   },
 

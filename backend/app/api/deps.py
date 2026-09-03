@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.db import get_session
 from app.core.security import decode_access_token
 from app.models import Product, Project, User
+from app.models.enums import UserRole
 
 get_db = get_session
 
@@ -67,3 +68,12 @@ async def require_project_owner(
     )
     if await db.scalar(stmt) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Gate for app.api.routers.admin -- 403, not 404: unlike a project you
+    don't own, there's no reason to hide that /admin exists from a logged-in
+    user who simply isn't one."""
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
+    return user

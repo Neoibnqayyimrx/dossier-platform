@@ -60,3 +60,17 @@ async def test_reads_require_auth_too(client):
     "open" reading of someone else's data to fall back to."""
     resp = await client.get("/products")
     assert resp.status_code == 401
+
+
+async def test_me_returns_the_caller(auth_client):
+    resp = await auth_client.get("/auth/me")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["email"] == TEST_EMAIL
+    assert body["role"] == "user"
+    assert "hashed_password" not in body
+
+
+async def test_me_requires_auth(client):
+    resp = await client.get("/auth/me")
+    assert resp.status_code == 401
