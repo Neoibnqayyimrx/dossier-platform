@@ -128,7 +128,10 @@ Full field definitions and relationships are specified in Phase 01.
   - [x] P14a — Product-rooted ownership on every resource route
   - [x] P14b — Admin user management (roles, activation)
   - [x] P14c — Negative tests for the ownership boundary
-- [ ] P15 — Module 1 completion (applicant, certificates, declarations) + override path
+- [x] P15 — Module 1 completion (applicant, certificates, declarations) + override path
+  - [x] P15a — Applicant/certificate/declaration routers; requirements moved to region config
+  - [x] P15b — Wizard steps for the remaining collections; Module 1 tab; override control
+  - [x] P15c — Overrides withdrawable, reasoned, and reported on every build
 - [ ] P12 — eCTD v4.0 (RPS) — future
 
 ## 8. How to work through the prompts

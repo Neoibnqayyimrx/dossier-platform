@@ -31,6 +31,132 @@ Newest entry at the top.
 
 ---
 
+## P15 — Module 1, and the override made honest (2026-09-04)
+
+The P14 audit ended on a finding that had nothing to do with ownership: a
+NAFDAC dossier could not be finished in the browser at all. R13, R14 and
+R16 blocked every export, and the three entities that would clear them —
+Applicant, Certificate, Declaration — had models and document renderers
+since P08 but no schemas, no routers, no UI. The only way to a package
+was a validation override, which is meant to be a deliberate exception
+rather than the normal route to an export.
+
+### Three entities, three scopes, and why they differ
+
+Worth restating, because they look interchangeable and are not:
+
+- **Applicant → Project.** Who is filing is a property of the *filing*.
+  The same product is filed by the manufacturer at home and by a local
+  agent in Nigeria; one Product, two Projects, two applicants. Many-to-one,
+  because an agent handling twelve products is one legal entity.
+- **Certificate → Product.** A CPP attests to the *medicine*. It stays
+  true across filings, so re-filing should not re-enter it.
+- **Declaration → Project.** A Power of Attorney names a representative
+  for *this* submission; next year's renewal may appoint someone else.
+  Hence the cascade delete — a per-filing document outliving its filing
+  would be a compliance error, not a convenience.
+
+### The ownership hop the plan got wrong
+
+The plan claimed declarations would need `owner_via` to walk two
+relationships and that the factory needed teaching. It did not: the
+parent is Project, and Project → Product is *one* hop, exactly what the
+specification router already does. The correction cost nothing because it
+was made before the code — but it is a fair warning about planning
+against a mental model of a factory instead of reading it.
+
+Applicant is the case that genuinely could not reuse the pattern. It is
+reached directly through `/applicants` rather than through a Product, so
+it has no owner to borrow and becomes the second owned root. Its
+migration could backfill from the real relationship (applicant ← project
+→ product.owner_id) rather than guessing at the earliest user, which is
+what P14a had to settle for.
+
+`Project.product_id` and `applicant_id` are both re-pointable FKs, and
+only creation had been checking them. Moving a project onto someone
+else's product would have silently handed it away; naming someone else's
+applicant would have leaked their contact details through your own
+project's reads. Both are re-checked on PATCH now, both have probes.
+
+### Requirements were stated twice
+
+R13 and R16 held NAFDAC's required certificate and declaration types as
+constants in the rule engine. The wizard needed the same list to know
+which Module 1 fields to ask for — a second copy in TypeScript, drifting
+from the first the moment a requirement changed. They moved into the
+region profile, where the slots already lived, and are served by
+`GET /regions`. The rules read them too, so the form and the engine
+cannot disagree about what a dossier needs.
+
+Note the distinction the profile now carries: a slot's
+`certificate_types` says what it **accepts**; `required_certificate_types`
+says what the region **demands**. NAFDAC accepts a CEP and a CoA and
+demands a CPP. EU's required lists are deliberately empty — "not
+modelled", not "nothing required" — which preserves exactly the behaviour
+the region-scoped rules had, and the UI says so rather than showing an
+empty list that reads like a clean bill of health.
+
+### The override: three gaps, one principle
+
+The question that opened this was whether the override should be
+admin-only. It should not, and the reasoning is worth keeping:
+
+`UserRole.ADMIN` means "may manage accounts". Overriding a validation
+error is a **documented deviation** — a quality decision. Reusing one bit
+for both would make it mean two unrelated jobs, and the principle people
+reach for ("who may approve") is really segregation of duties: the author
+of the data should not be the sole approver of bypassing a check on it.
+That needs a *project-scoped* role, not the account-administration bit.
+With one user per dossier, an admin gate would only mean the same person
+promotes themselves — theatre, which is worse than an honest open control
+because it looks like a safeguard. The control is the audit trail: who,
+why, when, reviewable, and named on every build that relied on it.
+
+So: any project owner may record one, and three things changed around it.
+
+1. **It can be withdrawn.** An override that can only be created and
+   never retracted is not caution, it is pressure — the mistaken one
+   stays forever, so the next gets logged with a vaguer reason "just in
+   case". Withdrawal is a new fact on the same row, never a DELETE: the
+   original decision and its reason survive it, which is the whole point.
+2. **The reason has a floor** (20 characters). It is the entire control,
+   and a free-text field with no floor collects "n/a".
+3. **A build names what it waived.** A package assembled over a waived
+   ERROR is byte-for-byte as convincing as one that passed cleanly.
+
+On (3), a deliberate deviation from the plan: the plan said to render the
+override list *into* the package. It is not written there. The ZIP is
+what goes to the regulator, and an internal deviation record is the
+applicant's own quality documentation, not submission content — shipping
+it would be a different, unasked-for disclosure. It surfaces to the
+person exporting instead.
+
+### Two things that bit
+
+**AmbiguousForeignKeysError.** Adding `withdrawn_by_id` gave
+`validation_override` a second FK to `user`, and SQLAlchemy could no
+longer infer which column `created_by` joins on. It announces itself at
+*mapper configuration* time — the first query anywhere in the app — not
+at the line that added the column, so the traceback points at an
+unrelated test. Both relationships now name `foreign_keys` explicitly.
+
+**Applicant ownership broke the seeds.** With `owner_id` NOT NULL, every
+seed builder that created a bare `Applicant` stopped inserting.
+`same_owner_as(product)` returns constructor kwargs rather than setting
+an attribute, because which one to set depends on how the product got its
+owner: a real seed holds an id, while one built for a model test holds a
+transient `User` with no id until flush — passing `owner_id` there would
+write None.
+
+### Definition of done, met
+
+`tests/test_module1_api.py` asserts it: a complete NAFDAC filing
+assembled entirely over HTTP reaches `is_exportable` with no overrides
+logged. The demo seed stays deliberately buggy — it is teaching material,
+and making it pass would delete the lesson.
+
+---
+
 ## P14 — ownership, roles, and the tests that were missing (2026-09-03)
 
 Until now every authenticated user could read and write every product,
