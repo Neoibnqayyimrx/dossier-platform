@@ -82,6 +82,12 @@ export interface Project {
    * rule R14 blocks export while it is. */
   applicant: Applicant | null;
   declarations: Declaration[];
+  /** P17: what KIND of application this is, which decides how much of
+   * Modules 2-5 the dossier owes. */
+  submission_type: string;
+  /** Answers to the conditional sections, keyed by section number. Written
+   * through PATCH /projects/{id}/conditions, never here. */
+  condition_answers: Record<string, boolean>;
   created_at: string;
   updated_at: string;
 }
@@ -214,6 +220,38 @@ export interface SectionSpec {
   title: string;
   /** Empty for data-only sections (e.g. 1.2, the registration form). */
   narrative_slots: string[];
+}
+
+/** Matches backend/app/ctd/region_profiles.py::Applicability — what the
+ * guideline says about a section, before the filer answers anything. */
+export type Applicability = "required" | "conditional" | "not-applicable";
+
+/** What the filer sees: not what the guideline requires, but where this
+ * dossier actually stands on that leaf. Matches the four STATUS_*
+ * constants in backend/app/api/routers/applicability.py. */
+export type SectionStatusValue =
+  | "produced"
+  | "not-applicable"
+  | "placeholder"
+  | "outstanding";
+
+/** Matches backend/app/api/routers/applicability.py::SectionStatusRead.
+ *
+ * Deliberately served rather than assembled here: the applicability table
+ * is regulatory config, and a copy in TypeScript would drift into telling
+ * a filer a section they owe is not applicable. */
+export interface SectionStatus {
+  number: string;
+  module: number;
+  title: string;
+  applicability: Applicability;
+  status: SectionStatusValue;
+  /** Set iff applicability is "conditional": the question to answer. */
+  condition: string | null;
+  /** null = nobody has answered yet, which rule R19 reports as a WARNING. */
+  answer: boolean | null;
+  /** The guideline cited in the statement, when one is being filed. */
+  citation: string | null;
 }
 
 /** Matches backend/app/schemas/ctd.py::OverrideSummaryRead. */

@@ -25,6 +25,7 @@ import type {
   RegionProfile,
   ReadinessResponse,
   SectionSpec,
+  SectionStatus,
   Sequence,
   SpecificationTest,
   User,
@@ -322,6 +323,10 @@ export const api = {
   createProject(payload: {
     name: string;
     region: string;
+    /** P17: how much of the CTD this filing owes. Optional here because
+     * the backend defaults it to the one scope the platform was built
+     * against; sent explicitly by the wizard so the choice is the filer's. */
+    submission_type?: string;
     product_id: string;
     /** Optional at creation: a project can exist before anyone has said
      * who is filing. Rule R14 is what makes it required before export,
@@ -337,6 +342,28 @@ export const api = {
   /** Which sections exist and which narrative slots each offers. */
   getSections() {
     return request<SectionSpec[]>("/sections");
+  },
+
+  // ---- applicability (P17) ---------------------------------------------
+
+  /** Every leaf this project's submission type declares, with its status. */
+  getSectionStatus(projectId: string) {
+    return request<SectionStatus[]>(`/projects/${projectId}/section-status`);
+  },
+
+  /**
+   * Answer one or more conditional sections. A MERGE, not a replace --
+   * sending the whole map on every click would let two people editing one
+   * project silently undo each other. `null` retracts an answer, which is
+   * not the same as `false` (a positive "does not apply" that files a
+   * statement). The recomputed list comes back, because answering "no"
+   * does not merely record a preference: it adds a leaf to the package.
+   */
+  answerConditions(projectId: string, answers: Record<string, boolean | null>) {
+    return request<SectionStatus[]>(`/projects/${projectId}/conditions`, {
+      method: "PATCH",
+      body: JSON.stringify({ answers }),
+    });
   },
 
   // ---- narrative review (P05) ------------------------------------------

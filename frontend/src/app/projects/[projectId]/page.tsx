@@ -14,6 +14,7 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { BuildPanel } from "@/components/BuildPanel";
 import { Module1Panel } from "@/components/Module1Panel";
 import { OverridePanel } from "@/components/OverridePanel";
+import { SectionListPanel } from "@/components/SectionListPanel";
 import { NarrativeSlot } from "@/components/NarrativeSlot";
 import { ValidationReport } from "@/components/ValidationReport";
 import { Badge, Card, ErrorNotice, PageHeading } from "@/components/ui";
@@ -22,7 +23,18 @@ import { Badge, Card, ErrorNotice, PageHeading } from "@/components/ui";
 // is the administrative half of a filing (who is applying, what they have
 // signed), and on a NAFDAC dossier it is the most common reason an
 // otherwise complete package cannot be exported.
-const TABS = ["Overview", "Module 1", "Narratives", "Validation", "Build"] as const;
+// "Sections" sits directly after Module 1 and before the narrative work: it
+// answers "what does this dossier still owe?", which is the question you ask
+// BEFORE deciding what to write (P17). It is also where the conditional
+// questions are answered, and those change what the other tabs show.
+const TABS = [
+  "Overview",
+  "Module 1",
+  "Sections",
+  "Narratives",
+  "Validation",
+  "Build",
+] as const;
 type Tab = (typeof TABS)[number];
 
 function Facts({ project }: { project: Project }) {
@@ -162,9 +174,15 @@ function ProjectDetail({ projectId }: { projectId: string }) {
         title={project.name}
         subtitle={`${project.region} · ${project.product.brand_name}`}
         actions={
-          <Badge tone={readiness.is_exportable ? "good" : "bad"}>
-            {readiness.is_exportable ? "Exportable" : "Blocked"}
-          </Badge>
+          <div className="flex items-center gap-2">
+            {/* The submission type is shown next to the export verdict
+                because it is the thing that decides what "complete" even
+                means for this dossier (P17). */}
+            <Badge>{project.submission_type}</Badge>
+            <Badge tone={readiness.is_exportable ? "good" : "bad"}>
+              {readiness.is_exportable ? "Exportable" : "Blocked"}
+            </Badge>
+          </div>
         }
       />
 
@@ -203,6 +221,10 @@ function ProjectDetail({ projectId }: { projectId: string }) {
           vocabularies={vocabularies}
           onChanged={refreshProject}
         />
+      )}
+
+      {tab === "Sections" && (
+        <SectionListPanel projectId={projectId} onChanged={refreshReadiness} />
       )}
 
       {tab === "Narratives" && (

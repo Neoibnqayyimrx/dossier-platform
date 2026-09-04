@@ -202,7 +202,10 @@ function Wizard() {
   const [productId, setProductId] = useState<string | null>(null);
   const [productDraft, setProductDraft] = useState<Draft>({});
   const [rows, setRows] = useState<SavedRows>({});
-  const [projectDraft, setProjectDraft] = useState<Draft>({ region: "NAFDAC" });
+  const [projectDraft, setProjectDraft] = useState<Draft>({
+    region: "NAFDAC",
+    submission_type: "multisource-generic",
+  });
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [applicantId, setApplicantId] = useState<string>("");
   const [newApplicant, setNewApplicant] = useState<Draft>({});
@@ -315,6 +318,9 @@ function Wizard() {
       const project = await api.createProject({
         name: String(projectDraft.name ?? ""),
         region: String(projectDraft.region ?? "NAFDAC"),
+        submission_type: String(
+          projectDraft.submission_type ?? "multisource-generic",
+        ),
         product_id: productId,
         applicant_id: chosenApplicantId,
       });
@@ -383,7 +389,8 @@ function Wizard() {
           <h2 className="mb-1 text-lg font-medium">Create the project</h2>
           <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
             A project files this product to one regulator. The region decides
-            which Module 1 documents and which builders apply.
+            which Module 1 documents and which builders apply; the submission
+            type decides how much of Modules 2–5 the dossier owes.
           </p>
           <form onSubmit={createProject} className="space-y-4">
             {error && <ErrorNotice message={error} />}
@@ -404,6 +411,29 @@ function Wizard() {
                 required: true,
               }}
               value={projectDraft.region}
+              vocabularies={vocabularies}
+              onChange={(name, value) =>
+                setProjectDraft((previous) => ({ ...previous, [name]: value }))
+              }
+            />
+
+            <Field
+              spec={{
+                name: "submission_type",
+                label: "Submission type",
+                type: "select",
+                vocabulary: "submission_type",
+                required: true,
+                // The one sentence that explains why this field exists at
+                // all: a generic does not repeat the originator's animal
+                // studies, so its dossier DECLARES those modules excluded
+                // rather than omitting them.
+                help:
+                  "A multisource (generic) filing declares Modules 2.4–2.7, " +
+                  "Module 4 and most of 5.3 not applicable, and files a cited " +
+                  "statement in each. Change this and the section list changes.",
+              }}
+              value={projectDraft.submission_type}
               vocabularies={vocabularies}
               onChange={(name, value) =>
                 setProjectDraft((previous) => ({ ...previous, [name]: value }))
