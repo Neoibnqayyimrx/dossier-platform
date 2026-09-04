@@ -28,6 +28,7 @@ from __future__ import annotations
 import io
 import subprocess
 import tempfile
+from functools import lru_cache
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
@@ -41,6 +42,22 @@ class PdfConversionError(RuntimeError):
     """Raised when `soffice` fails to produce a PDF."""
 
 
+# WHY caching a subprocess call is SAFE here specifically: this function's
+# whole contract (see the module docstring) is that identical input bytes
+# produce identical output bytes -- that is what P09's checksums depend on,
+# and there is a test asserting a rebuilt package is byte-identical. A cache
+# therefore cannot change any result; it can only skip work whose answer is
+# already known.
+#
+# WHY it earns its place: one `soffice` invocation costs about a second, and
+# a dossier converts one document per leaf. P17 added fourteen
+# not-applicable statements to every NAFDAC package, which made rebuilds --
+# and the test suite, which rebuilds constantly -- markedly slower for
+# documents that had not changed at all. Bounded so a long-lived server
+# cannot grow without limit.
+_PDF_CACHE_SIZE = 256
+
+
 def convert_docx_to_pdf(docx_bytes: bytes, *, bookmark_title: str | None = None) -> bytes:
     """Convert `docx_bytes` to a deterministic PDF via LibreOffice headless.
 
@@ -49,7 +66,27 @@ def convert_docx_to_pdf(docx_bytes: bytes, *, bookmark_title: str | None = None)
     app.templating.registry.SectionSpec.title) rather than guessed by
     scanning the rendered page for heading-sized text, which would be both
     less reliable and unnecessary when the title is already known data.
+
+    Repeat conversions of identical input are served from a process-local
+    cache -- see `_PDF_CACHE_SIZE` above for why that is sound.
     """
+    return _convert_docx_to_pdf_cached(docx_bytes, bookmark_title)
+
+
+def clear_conversion_cache() -> None:
+    """Forget every cached conversion.
+
+    Exists for tests that need `soffice` to actually be invoked -- notably
+    the one asserting a missing binary raises cleanly. A cached answer for
+    identical input is CORRECT there (the bytes are already known, and this
+    function's contract is that they cannot differ), but it means the error
+    path is never reached, so that test clears the cache first.
+    """
+    _convert_docx_to_pdf_cached.cache_clear()
+
+
+@lru_cache(maxsize=_PDF_CACHE_SIZE)
+def _convert_docx_to_pdf_cached(docx_bytes: bytes, bookmark_title: str | None) -> bytes:
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         docx_path = tmp_path / "input.docx"

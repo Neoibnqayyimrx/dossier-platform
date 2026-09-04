@@ -14,7 +14,7 @@ import io
 import pytest
 from pypdf import PdfReader
 
-from app.assembly.pdf import PdfConversionError, convert_docx_to_pdf
+from app.assembly.pdf import PdfConversionError, clear_conversion_cache, convert_docx_to_pdf
 
 TEMPLATE = "templates/section_3_2_p_1.docx"
 
@@ -79,5 +79,11 @@ def test_missing_soffice_binary_raises_a_clean_error(monkeypatch):
         raise FileNotFoundError("soffice not found")
 
     monkeypatch.setattr(subprocess, "run", _raise_not_found)
+    # `convert_docx_to_pdf` memoizes by input bytes (see _PDF_CACHE_SIZE),
+    # and an earlier test in this file has already converted this exact
+    # document -- so without clearing, the cached answer is returned and
+    # `soffice` is never invoked. That is the cache behaving correctly; it
+    # just means the error path is unreachable until the cache is emptied.
+    clear_conversion_cache()
     with pytest.raises(PdfConversionError, match="not installed"):
         convert_docx_to_pdf(_docx_bytes())
