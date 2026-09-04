@@ -31,6 +31,84 @@ Newest entry at the top.
 
 ---
 
+## P16 — The target TOC as the contract (2026-09-04)
+
+**Starting coverage: 9/98 leaves.** Every phase from here is measured as a
+delta against that number.
+
+`docs/target-toc.yaml` was derived leaf-by-leaf from a filed NAFDAC
+multisource dossier (Me Cure, Amlodipine Tablets 5 mg): 98 leaves, each
+declaring whether it is applicable, how it is produced, what it repeats over,
+and which capability blocks it. `scripts/check_target_toc.py` compares that
+target against what the platform can actually render. This phase fixed two
+defects that made the number untrustworthy, and put the check in CI.
+
+### Two ways a check can lie
+
+Both defects produced a report that looked fine.
+
+- **The import path defect.** Run as `python scripts/check_target_toc.py`,
+  Python puts `scripts/` on `sys.path` instead of `backend/`, `app` fails to
+  import, and the script's own `except` turned that into `unknown` for all 98
+  leaves — a report that had checked nothing, exiting 0. Run as
+  `python -m scripts.check_target_toc` from `backend/`, the same script
+  answered 6/98. Fixed by pinning `backend/` onto `sys.path` at import time,
+  so the invocation cannot change the answer, and by **raising** instead of
+  returning `unknown` when the app will not import. Universal ignorance
+  reported as a clean exit is worse than no check at all.
+
+- **The single-source defect.** `registered_keys()` read only
+  `templating.registry.SECTIONS`, but that is one of three producers. Module 1
+  documents come from `region_profiles.NAFDAC_PROFILE.module1_slots` plus the
+  `templating/certificates.py` and `templating/declarations.py` renderers. So
+  1.2.4–1.2.6 (Power of Attorney, notarized declaration, contract
+  manufacturing POA) reported `missing` while they genuinely render, and the
+  certificate slots reported `missing` when they have folder placement and a
+  placeholder path. Renamed to `producible_keys()` and unioned both sources:
+  **6/98 → 9/98**, with five certificate leaves moving `missing → placeholder`.
+
+### Where the leaf-to-producer mapping lives, and why
+
+A certificate or declaration slot has no single section number — it holds
+several leaves. The obvious fix is to list those leaf numbers in the script;
+the reason not to is that the contract would then have two copies, and the one
+in the script would drift. Instead the script asks the *profile* what a slot
+accepts (`certificate_types` / `declaration_types`) and asks the *target* which
+leaves that backs (`data_sources: [Certificate]` / `[Declaration]`). Each file
+answers the question it actually owns.
+
+### `placeholder` is its own status, deliberately
+
+A leaf with `production: uploaded` and a slot but no file is `placeholder`, not
+`done`. That distinction is the entire point of the check: the platform's
+largest gap is that there is no route by which anyone attaches the real CPP PDF
+(22 leaves blocked on `upload_path`), and crediting a placeholder as a finished
+document would launder that gap into a green tick.
+
+### CI without `--strict`, on purpose
+
+The check runs on every push alongside ruff and black, but **not** with
+`--strict`. `--strict` exits 1 on any gap, which today fails every build, and a
+permanently red build teaches everyone to ignore the build. The comment in
+`ci.yml` says when to switch it on: as coverage approaches complete, at which
+point the report stops being information and becomes a gate.
+
+### Tests
+
+`tests/test_target_toc.py` — the one that matters is
+`test_every_blocker_names_a_declared_capability`: a typo'd `blocked_by` still
+parses, still counts, and reports under a heading nobody recognises, and when
+the capability it meant to name is finally built, that leaf never unblocks.
+Nothing about reading the YAML would show it. Also pinned: the 1.2.4–1.2.6
+credit, the certificate `placeholder` status, and that no `status:` value in
+the YAML has been hand-edited (`status` is computed; a hand-maintained status
+column is a status column that lies).
+
+**Next:** P17 (applicability and N/A statements) — 14 leaves blocked on
+`na_statement_generator`, 11 on `applicability_profile`.
+
+---
+
 ## P15 — Module 1, and the override made honest (2026-09-04)
 
 The P14 audit ended on a finding that had nothing to do with ownership: a

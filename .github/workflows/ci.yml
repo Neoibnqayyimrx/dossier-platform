@@ -58,3 +58,15 @@ jobs:
 
       - name: Test
         run: uv run pytest -q
+
+      # P16: the target TOC is the contract for "what a finished dossier is".
+      # This reports coverage against it on every push, so the gap is a number
+      # that moves rather than an audit someone remembers to run.
+      #
+      # Deliberately WITHOUT --strict: --strict exits 1 on any gap, which today
+      # means every build fails, and a permanently red build teaches everyone
+      # to ignore the build. Switch --strict on when coverage approaches
+      # complete -- at that point the report stops being information and
+      # becomes a gate.
+      - name: Target TOC coverage
+        run: uv run python -m scripts.check_target_toc

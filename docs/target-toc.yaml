@@ -1,0 +1,1182 @@
+# =============================================================================
+# TARGET TABLE OF CONTENTS — the contract for "what a finished dossier is"
+# =============================================================================
+#
+# Derived leaf-by-leaf from a real filed NAFDAC dossier:
+#   Me Cure Industries Ltd — Amlodipine Tablets 5 mg (multisource / generic)
+#
+# WHY THIS FILE EXISTS
+# --------------------
+# Everything else in this repo already refuses to let a regulatory fact live
+# in prose: strengths are numbers, batch quantities are arithmetic, folder
+# placement raises on a miss. The one thing that was still prose was the
+# definition of DONE. "What sections does this dossier owe?" was answered by
+# reading reference/dossier-anatomy.md and judging — which means two audits
+# can disagree, and neither is wrong.
+#
+# This file makes the target data. Audits become comparisons instead of
+# judgements, progress becomes a number that moves, and CI can fail when an
+# applicable section has no route to being produced.
+#
+# SCOPE IS DECLARED, NOT ASSUMED
+# ------------------------------
+# The source dossier states its own scope three times, and those statements
+# are load-bearing:
+#   - "Modules 2.4-2.7 are not applicable"   (multisource guideline)
+#   - "Module 4 is not applicable"           (multisource guideline)
+#   - "Only Module 5.3.1 is applicable"      (multisource guideline)
+# A not-applicable section is NOT an absent section. It owes a statement leaf
+# citing the guideline. `applicable: false` + `production: na_statement` is a
+# thing to BUILD, not a thing to skip. A package that silently omits Module 4
+# looks incomplete; one that declares it correctly looks scoped.
+#
+# GRANULARITY
+# -----------
+# One entry per LEAF DOCUMENT, at eCTD leaf granularity — not one entry per
+# row of the source table of contents. Where the source TOC lists headings
+# that live inside a single document (3.2.S.1.1 Nomenclature, .1.2 Structure,
+# .1.3 General properties all sit inside one 3.2.S.1 document), the entry
+# carries a `covers:` list. Splitting those into separate leaves would create
+# folders no assessor expects and no regulator requires.
+#
+# STATUS IS NOT MAINTAINED BY HAND
+# --------------------------------
+# `status` is written by the audit / CI check, not by a human editing this
+# file. A hand-maintained status column is a status column that lies. The
+# only fields humans own are: applicable, production, repeat, data_sources,
+# blocked_by, and notes.
+# =============================================================================
+
+meta:
+  name: NAFDAC multisource (generic) — full dossier
+  region: NAFDAC
+  submission_type: multisource_generic
+  derived_from: Me Cure Industries Ltd, Amlodipine Tablets 5 mg, Modules 1-5
+  source_file: reference/target-toc/amlodipine-5mg-nafdac-toc.docx
+  schema_version: 1
+  # A caution worth keeping, per the README: regulatory formats change.
+  # Re-confirm against NAFDAC's current guideline before relying on this
+  # for a real submission.
+  confirmed_against_guideline: null   # set to a date once verified
+
+# -----------------------------------------------------------------------------
+# PRODUCTION TYPES — how a leaf comes into existence.
+#
+# This axis matters more than the module number. The platform today handles
+# exactly one of these (`generated`) and treats a second (`uploaded`) as a
+# placeholder. Roughly half of a real dossier is `uploaded`.
+# -----------------------------------------------------------------------------
+production_types:
+  generated:
+    description: >
+      Rendered deterministically from structured data in the platform. No
+      human prose, no attachment. The single-source-of-truth path.
+  hybrid:
+    description: >
+      Rendered from data with one or more narrative slots filled by approved
+      prose (LLM-drafted, human-approved, per the narrative guardrails).
+      The data half is still deterministic.
+  uploaded:
+    description: >
+      A third-party artifact the platform cannot author: a regulator's
+      certificate, a contract lab's validation report, a CRO's study report.
+      The platform's job is to accept the file, place it at the correct leaf
+      path, checksum it, and refuse to export while it is missing.
+  na_statement:
+    description: >
+      A generated statement declaring the section not applicable, citing the
+      guideline that makes it so. Cheap to build; conspicuous when absent.
+  toc:
+    description: >
+      A generated table of contents for a module, built by walking the leaves
+      actually present in the built package — never hand-written.
+
+# -----------------------------------------------------------------------------
+# CAPABILITIES — the foundation work that unblocks leaves.
+#
+# Every `blocked_by:` on a section below names one of these. Counting leaves
+# per capability is what tells you which foundation item to build first: it is
+# usually not the one that feels most urgent.
+# -----------------------------------------------------------------------------
+capabilities:
+  upload_path:
+    summary: Attach a real file to a section instance; treat it as a leaf.
+    detail: >
+      Today Certificate is metadata-only (type, authority, number, dates) and
+      its own docstring says it emits "a clearly-marked placeholder document".
+      MinIO storage exists but only builders write to it; the artifacts router
+      is download-only. There is no route by which a regulatory affairs officer
+      attaches the actual CPP PDF or the actual BE study report.
+      Needs: a SectionDocument model (section instance -> storage key, md5,
+      original filename, uploader, uploaded_at), an upload endpoint scoped to
+      the project prefix, UI on the section, and assembly iterating
+      rendered UNION uploaded UNION placeholder rather than rendered only.
+      Also needs a validation rule: an applicable leaf still standing on a
+      placeholder is an ERROR that blocks export.
+    unblocks_note: The single largest gap. Roughly half of all leaves.
+
+  spec_polymorphic_owner:
+    summary: Let SpecificationTest belong to a drug product or excipient, not only an API.
+    detail: >
+      SpecificationTest is FK'd to active_ingredient, so it is drug-substance-only
+      by construction. 3.2.P.5.1 and 3.2.P.4.1 are the same table with a
+      different owner. Doing this as one migration now is far cheaper than
+      building P.5.1 separately and refactoring two near-duplicate tables later.
+
+  stability_timepoints:
+    summary: Per-timepoint, per-test stability results.
+    detail: >
+      StabilityStudy carries result_summary as free text. 3.2.S.7.3 and
+      3.2.P.8.3 are data TABLES — timepoint x test x result x acceptance
+      criterion. Adding a StabilityResult child also upgrades the existing
+      shelf_life_within_stability rule from a duration check to a real
+      out-of-specification check.
+
+  be_study_model:
+    summary: Structured bioequivalence study data.
+    detail: >
+      ClinicalEntry is kind + reference_product + free-text summary. For this
+      submission type 5.3.1.2 IS the clinical argument, and 1.4.1 (BTI form)
+      is generated from the same data. Needs: design, reference product
+      identity and source/batch, subject count, fasting/fed, analyte, and
+      Cmax / AUCt / AUCinf point estimates with 90% confidence intervals.
+      Unlocks a real rule — CI within 80.00-125.00% — and cross-checking the
+      reference product named in the study against the one named elsewhere.
+
+  na_statement_generator:
+    summary: Emit "not applicable per <guideline>" leaves.
+    detail: >
+      Module 4, Modules 2.4-2.7, and Modules 5.3.2-5.3.7 all owe an explicit
+      statement. Should be driven by the region profile's applicability rules
+      so that switching submission type (new chemical entity, or an FDA
+      filing) flips applicability and the section list follows.
+
+  applicability_profile:
+    summary: Applicability as declared config, not silent omission.
+    detail: >
+      "2.4-2.7 not applicable for multisource" must be a rule in the region
+      profile that EMITS something, not sections that happen not to exist.
+      This is the seam that lets a second submission type be added without
+      touching the section registry.
+
+  product_information_model:
+    summary: SmPC / label / leaflet content as structured data.
+    detail: >
+      1.3.1-1.3.3 need indications, posology, contraindications, warnings,
+      storage, shelf life, pack description. These three documents contradict
+      each other constantly in real filings, so cross-checking them is a
+      genuine selling point rather than just more coverage.
+
+  batch_analysis_model:
+    summary: Batch analysis results (3.2.S.4.4, 3.2.P.5.4).
+    detail: >
+      Batch number, manufacture date, site, and per-test results checked
+      against the corresponding specification. Depends on spec_polymorphic_owner
+      so drug-product batches can be checked against the drug-product spec.
+
+  impurity_model:
+    summary: Named impurities with limits and justification.
+    detail: >
+      Needed for 3.2.S.3.2 and 3.2.P.5.5. Should reference the pharmacopoeial
+      monograph so the existing pharmacopoeial_version_reminder rule can reach
+      impurity limits too.
+
+  repeat_axis_generalisation:
+    summary: Generalise section repetition beyond drug substance.
+    detail: >
+      templating/instances.py repeats per active ingredient via a
+      REPEAT_PER_DRUG_SUBSTANCE constant. Sections below need repetition per
+      excipient (3.2.P.4.x), per manufacturing site (3.2.P.3.1), and per pack
+      (3.2.P.7). Make the repeat axis a field on SectionSpec.
+
+  per_module_toc:
+    summary: Generate 1.1 / 2.1 / 3.1 / 5.1 by walking the built package.
+    detail: >
+      ctd/toc.py already generates a TOC. Extending it to emit one per module,
+      built from leaves actually present, is small — and a TOC derived from
+      the real tree cannot disagree with it.
+
+  literature_references:
+    summary: A citation model for 3.3 and 5.4.
+    detail: >
+      Low priority, but these are real leaves in the target and currently have
+      nowhere to live.
+
+# -----------------------------------------------------------------------------
+# SECTIONS
+#
+# `registry_key` names the entry in templating/registry.SECTIONS that produces
+# this leaf, where one exists today. NOTE the mismatch flagged on 1.2.2: the
+# registry currently registers the registration form as "1.2", but in this
+# target it is 1.2.2 and 1.2 is a heading. That is exactly the kind of drift
+# this file is meant to surface.
+# -----------------------------------------------------------------------------
+sections:
+
+  # ===========================================================================
+  # MODULE 1 — Administrative and Prescribing Information (region-specific)
+  # ===========================================================================
+
+  - number: "1.0"
+    module: 1
+    title: Cover letter
+    applicable: true
+    production: generated
+    registry_key: "1.0"
+    data_sources: [Applicant, Project, Product]
+    status: unknown
+
+  - number: "1.1"
+    module: 1
+    title: Table of contents of Module 1
+    applicable: true
+    production: toc
+    blocked_by: [per_module_toc]
+    status: unknown
+
+  - number: "1.2.1"
+    module: 1
+    title: Application form
+    applicable: true
+    production: generated
+    data_sources: [Applicant, Product, Project]
+    notes: >
+      Distinct from 1.2.2 in the source TOC. Confirm against the current
+      NAFDAC form set whether these are two forms or one; if one, fold and
+      record the decision here.
+    status: unknown
+
+  - number: "1.2.2"
+    module: 1
+    title: Registration form
+    applicable: true
+    production: generated
+    registry_key: "1.2"
+    data_sources: [Applicant, Product, Manufacturer, Project]
+    notes: >
+      NUMBERING DRIFT: registry registers this as "1.2", but 1.2 is a heading
+      in the target and this document is 1.2.2. Renumber the registry entry
+      and its region-profile slot.
+    status: unknown
+
+  - number: "1.2.3"
+    module: 1
+    title: Certificate of incorporation
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path]
+    notes: Not present in the CertificateType enum. Add.
+    status: unknown
+
+  - number: "1.2.4"
+    module: 1
+    title: Power of Attorney
+    applicable: true
+    production: generated
+    data_sources: [Declaration, Applicant]
+    notes: Covered by templating/declarations.py.
+    status: unknown
+
+  - number: "1.2.5"
+    module: 1
+    title: Notarized declaration of applicant
+    applicable: true
+    production: generated
+    data_sources: [Declaration, Applicant]
+    status: unknown
+
+  - number: "1.2.6"
+    module: 1
+    title: Power of Attorney / Contract Manufacturing Agreement
+    applicable: true
+    production: generated
+    data_sources: [Declaration, Manufacturer]
+    notes: >
+      Generated when the platform authors the POA; an executed contract
+      manufacturing agreement is an uploaded artifact. May need to be split
+      into two leaves once upload_path exists.
+    status: unknown
+
+  - number: "1.2.7"
+    module: 1
+    title: Certificate of Pharmaceutical Product (CPP)
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path]
+    data_sources: [Certificate]
+    notes: CertificateType.CPP slot exists; the file does not.
+    status: unknown
+
+  - number: "1.2.8"
+    module: 1
+    title: Certificate of Good Manufacturing Practice
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path]
+    data_sources: [Certificate]
+    status: unknown
+
+  - number: "1.2.9"
+    module: 1
+    title: Manufacturing Authorization
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path]
+    data_sources: [Certificate]
+    notes: Maps to CertificateType.MANUFACTURING_LICENCE.
+    status: unknown
+
+  - number: "1.2.10"
+    module: 1
+    title: Evidence of trademark registration
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path]
+    data_sources: [Certificate]
+    status: unknown
+
+  - number: "1.2.11"
+    module: 1
+    title: Superintendent Pharmacist's Annual Licence to Practice
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path]
+    notes: Not present in the CertificateType enum. Add.
+    status: unknown
+
+  - number: "1.2.12"
+    module: 1
+    title: Certificate of Registration and Retention of Premises
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path]
+    notes: Not present in the CertificateType enum. Add.
+    status: unknown
+
+  - number: "1.2.13"
+    module: 1
+    title: Evidence of previous market authorization
+    applicable: conditional
+    condition: applicant holds a prior marketing authorization
+    production: uploaded
+    blocked_by: [upload_path]
+    status: unknown
+
+  - number: "1.2.14"
+    module: 1
+    title: Invitation letter for GMP inspection
+    applicable: true
+    production: generated
+    data_sources: [Manufacturer, Applicant, Project]
+    status: unknown
+
+  - number: "1.2.15"
+    module: 1
+    title: Certificate of Suitability of the European Pharmacopoeia (CEP)
+    applicable: conditional
+    condition: drug substance is covered by a CEP
+    production: uploaded
+    blocked_by: [upload_path]
+    data_sources: [Certificate]
+    status: unknown
+
+  - number: "1.2.16"
+    module: 1
+    title: Letter of Access for APIMF(s)
+    applicable: conditional
+    condition: drug substance is supported by an Active Pharmaceutical Ingredient Master File
+    production: uploaded
+    blocked_by: [upload_path]
+    status: unknown
+
+  - number: "1.2.17"
+    module: 1
+    title: Biowaiver request — BCS-based bioavailability study
+    applicable: conditional
+    condition: a BCS-based biowaiver is being claimed in place of an in vivo study
+    production: hybrid
+    blocked_by: [be_study_model]
+    notes: >
+      Mutually exclusive with a submitted in vivo BE study in 5.3.1.2 for the
+      same strength. A validation rule should assert that exactly one of the
+      two routes is present.
+    status: unknown
+
+  - number: "1.2.18"
+    module: 1
+    title: Biowaiver request — additional strength
+    applicable: conditional
+    condition: filing covers more than one strength and a biowaiver is claimed for the additional strength
+    production: hybrid
+    blocked_by: [be_study_model]
+    notes: >
+      SCALE SIGNAL: this leaf only makes sense if a Project can span multiple
+      strengths. Amlodipine files at 5 mg and 10 mg. If the data model cannot
+      represent a product family, this leaf is unreachable and the limitation
+      will surface again later at higher cost.
+    status: unknown
+
+  - number: "1.3.1"
+    module: 1
+    title: Summary of Product Characteristics (SmPC)
+    applicable: true
+    production: hybrid
+    blocked_by: [product_information_model]
+    status: unknown
+
+  - number: "1.3.2"
+    module: 1
+    title: Labelling (outer and inner labels)
+    applicable: true
+    production: generated
+    blocked_by: [product_information_model]
+    notes: >
+      High-value cross-check target: label, leaflet and SmPC must agree on
+      strength, shelf life, storage and pack. This is the copy-paste failure
+      mode the whole platform exists to prevent.
+    status: unknown
+
+  - number: "1.3.3"
+    module: 1
+    title: Package insert / Patient Information Leaflet
+    applicable: true
+    production: hybrid
+    blocked_by: [product_information_model]
+    status: unknown
+
+  - number: "1.4.1"
+    module: 1
+    title: Bioequivalence Trial Information form (BTI)
+    applicable: true
+    production: generated
+    blocked_by: [be_study_model]
+    notes: Derived entirely from the BE study data. No prose.
+    status: unknown
+
+  - number: "1.4.2"
+    module: 1
+    title: Quality Information Summary (QIS)
+    applicable: true
+    production: generated
+    blocked_by: [spec_polymorphic_owner, stability_timepoints]
+    notes: >
+      HIGHEST-LEVERAGE GENERATED DOCUMENT IN THE TARGET. The QIS is almost
+      entirely a re-presentation of Module 3 data in a different layout —
+      exactly the document that goes wrong when a human retypes Module 3 into
+      a form. If the single-source-of-truth premise pays off anywhere
+      visibly, it is here.
+    status: unknown
+
+  - number: "1.5"
+    module: 1
+    title: Electronic Review Documents
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path]
+    notes: Editable-format copies of the submission for the assessor.
+    status: unknown
+
+  - number: "1.6"
+    module: 1
+    title: Samples
+    applicable: true
+    production: generated
+    notes: >
+      Physical samples, not a document. What the dossier owes is a statement
+      of what was submitted. Confirm the expected form against NAFDAC.
+    status: unknown
+
+  # ===========================================================================
+  # MODULE 2 — Summaries and Overviews
+  # Source dossier: "Modules 2.4-2.7 are not applicable" for multisource.
+  # ===========================================================================
+
+  - number: "2.1"
+    module: 2
+    title: Table of contents of Module 2
+    applicable: true
+    production: toc
+    blocked_by: [per_module_toc]
+    status: unknown
+
+  - number: "2.2"
+    module: 2
+    title: Introduction
+    applicable: true
+    production: hybrid
+    data_sources: [Product, ActiveIngredient, Applicant]
+    status: unknown
+
+  - number: "2.3"
+    module: 2
+    title: Quality Overall Summary (QOS)
+    applicable: true
+    production: hybrid
+    registry_key: "2.3"
+    covers:
+      - 2.3.S.1 General information (nomenclature, structure, general properties)
+      - 2.3.S.2 Manufacture
+      - 2.3.S.3 Characterization
+      - 2.3.S.4 Control of drug substance
+      - 2.3.S.5 Reference standards or materials
+      - 2.3.S.6 Container closure system
+      - 2.3.S.7 Stability
+      - 2.3.P.1 Description and composition
+      - 2.3.P.2 Pharmaceutical development
+      - 2.3.P.3 Manufacture
+      - 2.3.P.4 Control of excipients
+      - 2.3.P.5 Control of drug product
+      - 2.3.P.6 Reference standards or materials
+      - 2.3.P.7 Container closure system
+    blocked_by: [spec_polymorphic_owner, stability_timepoints]
+    notes: >
+      Registered and rendering, but currently a thin overview. Every
+      subsection above mirrors a Module 3 section, so the QOS should be
+      ASSEMBLED from the same data those sections render from — never written
+      alongside them. A QOS that can drift from Module 3 is the exact defect
+      this platform exists to eliminate. Treat "registered" and "complete" as
+      different statuses here.
+    status: unknown
+
+  - number: "2.4"
+    module: 2
+    title: Nonclinical Overview
+    applicable: false
+    not_applicable_reason: NAFDAC guidelines for multisource (generic) pharmaceutical products
+    production: na_statement
+    blocked_by: [na_statement_generator, applicability_profile]
+    status: unknown
+
+  - number: "2.5"
+    module: 2
+    title: Clinical Overview
+    applicable: false
+    not_applicable_reason: NAFDAC guidelines for multisource (generic) pharmaceutical products
+    production: na_statement
+    blocked_by: [na_statement_generator, applicability_profile]
+    status: unknown
+
+  - number: "2.6"
+    module: 2
+    title: Nonclinical Summary
+    applicable: false
+    not_applicable_reason: NAFDAC guidelines for multisource (generic) pharmaceutical products
+    production: na_statement
+    blocked_by: [na_statement_generator, applicability_profile]
+    status: unknown
+
+  - number: "2.7"
+    module: 2
+    title: Clinical Summary
+    applicable: false
+    not_applicable_reason: NAFDAC guidelines for multisource (generic) pharmaceutical products
+    production: na_statement
+    blocked_by: [na_statement_generator, applicability_profile]
+    status: unknown
+
+  # ===========================================================================
+  # MODULE 3 — Quality / CMC. The heart of a generic dossier.
+  # ===========================================================================
+
+  - number: "3.1"
+    module: 3
+    title: Table of contents of Module 3
+    applicable: true
+    production: toc
+    blocked_by: [per_module_toc]
+    status: unknown
+
+  # --- 3.2.S — Drug Substance (repeated per active ingredient) ---------------
+
+  - number: "3.2.S.1"
+    module: 3
+    title: General information (drug substance)
+    applicable: true
+    production: generated
+    repeat: drug_substance
+    registry_key: "3.2.S.1"
+    covers: [3.2.S.1.1 Nomenclature, 3.2.S.1.2 Structure, 3.2.S.1.3 General properties]
+    status: unknown
+
+  - number: "3.2.S.2.1"
+    module: 3
+    title: Name and address of API manufacturer
+    applicable: true
+    production: generated
+    repeat: drug_substance
+    data_sources: [Manufacturer, ActiveIngredient]
+    notes: DATA READY — needs only a SectionSpec, folder mapping and template.
+    status: unknown
+
+  - number: "3.2.S.2.2"
+    module: 3
+    title: Description of manufacturing process and process controls
+    applicable: true
+    production: hybrid
+    repeat: drug_substance
+    notes: >
+      Frequently supplied by the API manufacturer or covered by an APIMF /
+      CEP (see 1.2.15, 1.2.16). Where a CEP is claimed, this may reduce to a
+      cross-reference rather than a full description.
+    status: unknown
+
+  - number: "3.2.S.2.3"
+    module: 3
+    title: Control of materials
+    applicable: true
+    production: hybrid
+    repeat: drug_substance
+    status: unknown
+
+  - number: "3.2.S.2.4"
+    module: 3
+    title: Control of critical steps and intermediates
+    applicable: true
+    production: hybrid
+    repeat: drug_substance
+    status: unknown
+
+  - number: "3.2.S.2.5"
+    module: 3
+    title: Process validation and/or evaluation
+    applicable: true
+    production: uploaded
+    repeat: drug_substance
+    blocked_by: [upload_path]
+    status: unknown
+
+  - number: "3.2.S.2.6"
+    module: 3
+    title: Manufacturing process development
+    applicable: true
+    production: hybrid
+    repeat: drug_substance
+    status: unknown
+
+  - number: "3.2.S.3.1"
+    module: 3
+    title: Elucidation of structure and other characteristics
+    applicable: true
+    production: uploaded
+    repeat: drug_substance
+    blocked_by: [upload_path]
+    notes: Spectral data and characterisation reports from the API manufacturer.
+    status: unknown
+
+  - number: "3.2.S.3.2"
+    module: 3
+    title: Impurities
+    applicable: true
+    production: generated
+    repeat: drug_substance
+    blocked_by: [impurity_model]
+    status: unknown
+
+  - number: "3.2.S.4.1"
+    module: 3
+    title: Specification (drug substance)
+    applicable: true
+    production: generated
+    repeat: drug_substance
+    registry_key: "3.2.S.4.1"
+    data_sources: [SpecificationTest]
+    status: unknown
+
+  - number: "3.2.S.4.2"
+    module: 3
+    title: Analytical procedures
+    applicable: true
+    production: hybrid
+    repeat: drug_substance
+    notes: >
+      Where the specification is pharmacopoeial, this is a citation of the
+      monograph; where in-house, a full method description. The existing
+      pharmacopoeial_version_reminder rule should reach this leaf.
+    status: unknown
+
+  - number: "3.2.S.4.3"
+    module: 3
+    title: Validation of analytical procedures
+    applicable: true
+    production: uploaded
+    repeat: drug_substance
+    blocked_by: [upload_path]
+    status: unknown
+
+  - number: "3.2.S.4.4"
+    module: 3
+    title: Batch analysis
+    applicable: true
+    production: generated
+    repeat: drug_substance
+    blocked_by: [batch_analysis_model]
+    status: unknown
+
+  - number: "3.2.S.5"
+    module: 3
+    title: Reference standards or materials
+    applicable: true
+    production: generated
+    repeat: drug_substance
+    status: unknown
+
+  - number: "3.2.S.6"
+    module: 3
+    title: Container closure system (drug substance)
+    applicable: true
+    production: generated
+    repeat: drug_substance
+    notes: >
+      Distinct from 3.2.P.7 — this is how the API is shipped and stored, not
+      how the finished product is packed. Do not let one Packaging model serve
+      both without an explicit role field.
+    status: unknown
+
+  - number: "3.2.S.7.1"
+    module: 3
+    title: Stability summary and conclusion (drug substance)
+    applicable: true
+    production: hybrid
+    repeat: drug_substance
+    data_sources: [StabilityStudy]
+    status: unknown
+
+  - number: "3.2.S.7.2"
+    module: 3
+    title: Post-approval stability protocol and stability commitment
+    applicable: true
+    production: hybrid
+    repeat: drug_substance
+    status: unknown
+
+  - number: "3.2.S.7.3"
+    module: 3
+    title: Stability data (drug substance)
+    applicable: true
+    production: generated
+    repeat: drug_substance
+    blocked_by: [stability_timepoints]
+    status: unknown
+
+  # --- 3.2.P — Drug Product --------------------------------------------------
+
+  - number: "3.2.P.1"
+    module: 3
+    title: Description and composition of the drug product
+    applicable: true
+    production: hybrid
+    registry_key: "3.2.P.1"
+    data_sources: [Product, BatchFormulaLine, Excipient]
+    status: unknown
+
+  - number: "3.2.P.2.1"
+    module: 3
+    title: Components of the drug product
+    applicable: true
+    production: hybrid
+    covers: [3.2.P.2.1.1 Drug substance, 3.2.P.2.1.2 Excipients]
+    status: unknown
+
+  - number: "3.2.P.2.2"
+    module: 3
+    title: Drug product (formulation development, overages, physicochemical properties)
+    applicable: true
+    production: hybrid
+    covers:
+      - 3.2.P.2.2.1 Formulation development report
+      - 3.2.P.2.2.2 Overages
+      - 3.2.P.2.2.3 Physicochemical and biological properties
+    notes: >
+      The source TOC numbers all three of these 3.2.P.2.2.1 — a genuine
+      typo in the filed document. Renumbered here. Worth keeping as evidence
+      of why hand-maintained TOCs are the problem this platform solves.
+      Overages, where present, must reconcile with the batch formula; that is
+      a validation rule waiting to be written.
+    status: unknown
+
+  - number: "3.2.P.2.3"
+    module: 3
+    title: Manufacturing process development
+    applicable: true
+    production: hybrid
+    status: unknown
+
+  - number: "3.2.P.2.4"
+    module: 3
+    title: Container closure system (development)
+    applicable: true
+    production: hybrid
+    data_sources: [Packaging]
+    status: unknown
+
+  - number: "3.2.P.2.5"
+    module: 3
+    title: Microbiological attributes
+    applicable: true
+    production: hybrid
+    status: unknown
+
+  - number: "3.2.P.3.1"
+    module: 3
+    title: Manufacturer (drug product)
+    applicable: true
+    production: generated
+    repeat: manufacturing_site
+    data_sources: [Manufacturer]
+    blocked_by: [repeat_axis_generalisation]
+    notes: DATA READY apart from the repeat axis.
+    status: unknown
+
+  - number: "3.2.P.3.2"
+    module: 3
+    title: Batch formula
+    applicable: true
+    production: generated
+    data_sources: [BatchFormulaLine, ActiveIngredient, Excipient]
+    notes: >
+      DATA READY — cheapest remaining Module 3 leaf. BatchFormulaLine already
+      backs the composition table in 3.2.P.1 and the salt_base_batch_arithmetic
+      rule. Needs only a SectionSpec, a folder mapping and a template.
+    status: unknown
+
+  - number: "3.2.P.3.3"
+    module: 3
+    title: Description of manufacturing process and process controls
+    applicable: true
+    production: hybrid
+    status: unknown
+
+  - number: "3.2.P.3.4"
+    module: 3
+    title: Controls of critical steps and intermediates
+    applicable: true
+    production: hybrid
+    status: unknown
+
+  - number: "3.2.P.3.5"
+    module: 3
+    title: Process validation and/or evaluation
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path]
+    status: unknown
+
+  - number: "3.2.P.4.1"
+    module: 3
+    title: Specification (excipients)
+    applicable: true
+    production: generated
+    repeat: excipient
+    blocked_by: [spec_polymorphic_owner, repeat_axis_generalisation]
+    status: unknown
+
+  - number: "3.2.P.4.2"
+    module: 3
+    title: Analytical procedures (excipients)
+    applicable: true
+    production: hybrid
+    status: unknown
+
+  - number: "3.2.P.4.3"
+    module: 3
+    title: Validation of analytical procedures (excipients)
+    applicable: conditional
+    condition: any excipient is controlled by an in-house rather than pharmacopoeial method
+    production: uploaded
+    blocked_by: [upload_path]
+    status: unknown
+
+  - number: "3.2.P.4.4"
+    module: 3
+    title: Justification of specification (excipients)
+    applicable: true
+    production: hybrid
+    status: unknown
+
+  - number: "3.2.P.4.5"
+    module: 3
+    title: Excipients of human or animal origin
+    applicable: true
+    production: generated
+    notes: >
+      A TSE/BSE statement. Generated from an origin field on Excipient —
+      which does not exist yet. Cheap to add and a natural validation rule
+      (an excipient of animal origin with no supporting certificate is an
+      ERROR).
+    status: unknown
+
+  - number: "3.2.P.4.6"
+    module: 3
+    title: Novel excipients
+    applicable: conditional
+    condition: formulation contains an excipient not previously used in an approved product by this route
+    production: na_statement
+    blocked_by: [na_statement_generator]
+    notes: For a conventional generic this is nearly always a not-applicable statement.
+    status: unknown
+
+  - number: "3.2.P.5.1"
+    module: 3
+    title: Specification (drug product)
+    applicable: true
+    production: generated
+    blocked_by: [spec_polymorphic_owner]
+    status: unknown
+
+  - number: "3.2.P.5.2"
+    module: 3
+    title: Analytical procedures (drug product)
+    applicable: true
+    production: hybrid
+    status: unknown
+
+  - number: "3.2.P.5.3"
+    module: 3
+    title: Validation of analytical procedures (drug product)
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path]
+    status: unknown
+
+  - number: "3.2.P.5.4"
+    module: 3
+    title: Batch analyses (drug product)
+    applicable: true
+    production: generated
+    blocked_by: [batch_analysis_model, spec_polymorphic_owner]
+    status: unknown
+
+  - number: "3.2.P.5.5"
+    module: 3
+    title: Characterization of impurities
+    applicable: true
+    production: generated
+    blocked_by: [impurity_model]
+    status: unknown
+
+  - number: "3.2.P.5.6"
+    module: 3
+    title: Justification of specification (drug product)
+    applicable: true
+    production: hybrid
+    status: unknown
+
+  - number: "3.2.P.6"
+    module: 3
+    title: Reference standards or materials (drug product)
+    applicable: true
+    production: generated
+    status: unknown
+
+  - number: "3.2.P.7"
+    module: 3
+    title: Container closure system (drug product)
+    applicable: true
+    production: generated
+    repeat: pack
+    data_sources: [Packaging]
+    blocked_by: [repeat_axis_generalisation]
+    notes: >
+      DATA READY apart from the repeat axis. The existing
+      pack_size_matches_packaging rule already reads this data.
+    status: unknown
+
+  - number: "3.2.P.8.1"
+    module: 3
+    title: Stability summary and conclusions (drug product)
+    applicable: true
+    production: hybrid
+    registry_key: "3.2.P.8.1"
+    data_sources: [StabilityStudy]
+    status: unknown
+
+  - number: "3.2.P.8.2"
+    module: 3
+    title: Post-approval stability protocol and stability commitment
+    applicable: true
+    production: hybrid
+    status: unknown
+
+  - number: "3.2.P.8.3"
+    module: 3
+    title: Stability data (drug product)
+    applicable: true
+    production: generated
+    blocked_by: [stability_timepoints]
+    status: unknown
+
+  - number: "3.2.A"
+    module: 3
+    title: Appendices (facilities and equipment, adventitious agents, novel excipients)
+    applicable: conditional
+    condition: facilities, adventitious agents or novel excipients require supporting information
+    production: na_statement
+    blocked_by: [na_statement_generator]
+    status: unknown
+
+  - number: "3.2.R"
+    module: 3
+    title: Regional information
+    applicable: true
+    production: generated
+    notes: >
+      Region-specific by definition — belongs in the region profile alongside
+      the Module 1 slots, not in the common section table.
+    status: unknown
+
+  - number: "3.3"
+    module: 3
+    title: Literature references
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path, literature_references]
+    status: unknown
+
+  # ===========================================================================
+  # MODULE 4 — Nonclinical Study Reports
+  # Source dossier: "Module 4 is not applicable" for multisource.
+  # Not absent — declared. One statement leaf.
+  # ===========================================================================
+
+  - number: "4.0"
+    module: 4
+    title: Module 4 not applicable — statement
+    applicable: false
+    not_applicable_reason: NAFDAC guidelines for multisource (generic) pharmaceutical products
+    production: na_statement
+    blocked_by: [na_statement_generator, applicability_profile]
+    notes: >
+      Covers the whole of 4.1-4.3. A generic dossier does not repeat the
+      originator's animal studies; it proves bioequivalence instead. The
+      package must SAY that. Confirm with ectd/scaffold.py how the empty m4
+      folder is currently handled — an empty folder and a declared exclusion
+      look very different to an assessor.
+    status: unknown
+
+  # ===========================================================================
+  # MODULE 5 — Clinical Study Reports
+  # Source dossier: "Only Module 5.3.1 is applicable" for multisource.
+  # ===========================================================================
+
+  - number: "5.1"
+    module: 5
+    title: Table of contents of Module 5
+    applicable: true
+    production: toc
+    blocked_by: [per_module_toc]
+    status: unknown
+
+  - number: "5.2"
+    module: 5
+    title: Tabular listing of all clinical studies
+    applicable: true
+    production: generated
+    blocked_by: [be_study_model]
+    notes: >
+      Generated by walking the studies present. Must not be able to disagree
+      with what is actually filed under 5.3.1.
+    status: unknown
+
+  - number: "5.3.1.1"
+    module: 5
+    title: Bioavailability study reports
+    applicable: conditional
+    condition: a BA study rather than a comparative BE study is being submitted
+    production: uploaded
+    blocked_by: [upload_path]
+    status: unknown
+
+  - number: "5.3.1.2"
+    module: 5
+    title: Comparative BA and bioequivalence (BE) study reports
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path, be_study_model]
+    notes: >
+      THE CRITICAL LEAF. For a multisource filing this single document carries
+      the entire scientific argument for approval. Two distinct things are
+      needed and neither exists: the study report FILE (upload_path), and the
+      STRUCTURED RESULTS (be_study_model) that generate 1.4.1, populate 5.2,
+      and make the 80.00-125.00% confidence interval check possible.
+      Mutually exclusive with a 1.2.17 biowaiver for the same strength.
+    status: unknown
+
+  - number: "5.3.1.3"
+    module: 5
+    title: In vitro - in vivo correlation study reports
+    applicable: conditional
+    condition: an IVIVC is claimed, typically for a modified-release product
+    production: na_statement
+    blocked_by: [na_statement_generator]
+    status: unknown
+
+  - number: "5.3.1.4"
+    module: 5
+    title: Reports of bioanalytical and analytical methods for human studies
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path]
+    notes: Normally supplied by the CRO alongside the BE study report.
+    status: unknown
+
+  - number: "5.3.2"
+    module: 5
+    title: Reports of studies pertinent to pharmacokinetics using human biomaterials
+    applicable: false
+    not_applicable_reason: NAFDAC guidelines for multisource — only 5.3.1 applicable
+    production: na_statement
+    blocked_by: [na_statement_generator, applicability_profile]
+    status: unknown
+
+  - number: "5.3.3"
+    module: 5
+    title: Reports of human pharmacokinetic studies
+    applicable: false
+    not_applicable_reason: NAFDAC guidelines for multisource — only 5.3.1 applicable
+    production: na_statement
+    blocked_by: [na_statement_generator, applicability_profile]
+    status: unknown
+
+  - number: "5.3.4"
+    module: 5
+    title: Reports of human pharmacodynamic studies
+    applicable: false
+    not_applicable_reason: NAFDAC guidelines for multisource — only 5.3.1 applicable
+    production: na_statement
+    blocked_by: [na_statement_generator, applicability_profile]
+    status: unknown
+
+  - number: "5.3.5"
+    module: 5
+    title: Reports of efficacy and safety studies
+    applicable: false
+    not_applicable_reason: NAFDAC guidelines for multisource — only 5.3.1 applicable
+    production: na_statement
+    blocked_by: [na_statement_generator, applicability_profile]
+    status: unknown
+
+  - number: "5.3.6"
+    module: 5
+    title: Reports of post-marketing experience
+    applicable: false
+    not_applicable_reason: NAFDAC guidelines for multisource — only 5.3.1 applicable
+    production: na_statement
+    blocked_by: [na_statement_generator, applicability_profile]
+    status: unknown
+
+  - number: "5.3.7"
+    module: 5
+    title: Case report forms and individual patient listings
+    applicable: false
+    not_applicable_reason: NAFDAC guidelines for multisource — only 5.3.1 applicable
+    production: na_statement
+    blocked_by: [na_statement_generator, applicability_profile]
+    status: unknown
+
+  - number: "5.4"
+    module: 5
+    title: Literature references
+    applicable: true
+    production: uploaded
+    blocked_by: [upload_path, literature_references]
+    status: unknown

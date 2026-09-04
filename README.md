@@ -63,6 +63,17 @@ alembic/         async-ready migrations
 
 Python 3.11 · FastAPI · Pydantic v2 · SQLAlchemy 2.x (async) · Alembic · PostgreSQL + pgvector · MinIO · Docker Compose · docxtpl/python-docx · pytest · ruff · black · GitHub Actions CI · uv
 
+## Coverage against a real dossier
+
+**9/98 leaves** of a filed NAFDAC multisource dossier (Me Cure, Amlodipine
+Tablets 5 mg) can be produced today. The target is data, not prose —
+`docs/target-toc.yaml` declares every leaf that dossier owes and how it is
+produced; `uv run python -m scripts.check_target_toc` (run in CI on every push)
+compares it against what the platform can actually render, and prints the gap
+broken down by module, by production type, and by the foundation capability
+blocking each leaf. The largest single blocker is the upload path: 22 leaves
+are third-party artifacts the platform can only place, not author.
+
 ## Roadmap
 
 - Grow the rule set and wire validation behind a `/readiness` API endpoint

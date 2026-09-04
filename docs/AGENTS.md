@@ -132,6 +132,7 @@ Full field definitions and relationships are specified in Phase 01.
   - [x] P15a — Applicant/certificate/declaration routers; requirements moved to region config
   - [x] P15b — Wizard steps for the remaining collections; Module 1 tab; override control
   - [x] P15c — Overrides withdrawable, reasoned, and reported on every build
+- [x] P16 — Target TOC as a checked contract (coverage in CI; baseline 9/98 leaves)
 - [ ] P12 — eCTD v4.0 (RPS) — future
 
 ## 8. How to work through the prompts
