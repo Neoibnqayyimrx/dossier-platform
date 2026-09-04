@@ -65,8 +65,10 @@ Python 3.11 · FastAPI · Pydantic v2 · SQLAlchemy 2.x (async) · Alembic · Po
 
 ## Coverage against a real dossier
 
-**9/98 leaves** of a filed NAFDAC multisource dossier (Me Cure, Amlodipine
-Tablets 5 mg) can be produced today. The target is data, not prose —
+**23/98 leaves** of a filed NAFDAC multisource dossier (Me Cure, Amlodipine
+Tablets 5 mg) can be produced today — including the fourteen sections the
+dossier declares *not applicable*, which are filed as generated statements
+citing the guideline that excuses them, not omitted. The target is data, not prose —
 `docs/target-toc.yaml` declares every leaf that dossier owes and how it is
 produced; `uv run python -m scripts.check_target_toc` (run in CI on every push)
 compares it against what the platform can actually render, and prints the gap

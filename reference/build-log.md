@@ -31,6 +31,265 @@ Newest entry at the top.
 
 ---
 
+## P17 — Applicability as data, and the statements it owes (2026-09-04)
+
+**Coverage: 9/98 → 23/98 leaves.** The largest single jump so far, and the
+cheapest — fourteen leaves whose entire content is one generated page.
+
+### The defect, which did not look like a defect
+
+The source dossier declares its own scope three times, in print: Modules
+2.4–2.7 not applicable, Module 4 not applicable, only 5.3.1 applicable. This
+platform expressed all three by having nothing there. To an assessor an empty
+`m4` folder and a declared exclusion look nothing alike — the first reads as a
+packaging failure, the second as a scoped filing. `ectd/scaffold.py` even said
+so in its own docstring ("nothing to scaffold for the empty m4/m5 module
+folders"), which is now the clearest example in the repo of a comment that
+documents a gap while sounding like a design decision.
+
+The deeper problem was that applicability was **implicit in which sections
+happened to be registered**. That works for exactly one submission type, and
+there was no switch to flip the day a new chemical entity or an FDA filing
+arrives.
+
+### Why applicability is on Project, not Product
+
+This is the distinction a future contributor will get wrong, so it is worth
+stating plainly.
+
+`SubmissionType` sits on `Project` because **the same medicine can be filed
+generically in one market and as a full application in another**. Amlodipine
+is a generic to NAFDAC; the identical product could be the subject of a
+different kind of application elsewhere. Scope is a property of the FILING,
+not of the molecule — the same reasoning that put `Applicant` on Project in
+P15a (who is legally submitting is per-filing; a local agent in Lagos and a
+different agent in Accra, one product).
+
+**The rejected alternative was `Product.submission_type`**, which is tempting
+because "is this a generic?" *feels* like a fact about the medicine. It is
+not. Putting it there would mean a product could not be filed two ways
+without being duplicated in the master data — and duplicated master data is
+precisely what every other design decision in this codebase is arranged to
+prevent. The tell that it is a filing property: it is the region profile,
+keyed by *region*, that knows what the submission type implies.
+
+### The applicability table is read, not retyped
+
+`docs/target-toc.yaml` already carried `applicable`, `condition` and
+`not_applicable_reason` for all 98 leaves. Hand-copying those into
+`region_profiles.py` would have created two truths about what a dossier owes,
+with no way to tell which one a package was built from. So `app/target_toc.py`
+loads the contract into the application and the region profile builds its
+table from it. The target file was promoted from "a document CI checks
+against" to config — which it always was: a declarative, versioned,
+re-confirmable table of regulatory facts.
+
+The second submission type (`NEW_CHEMICAL_ENTITY`) is **derived** from the
+first by promoting exactly the leaves the multisource guideline excuses back
+to REQUIRED. That states the one regulatory fact distinguishing the two, and
+cannot drift when a leaf is added. It is deliberately not a real model of an
+NCE filing — nobody has confirmed the rest against NAFDAC's guidance — and it
+is honest about that, the same call `EU_PROFILE`'s empty requirement lists
+already make. It exists to prove the seam works.
+
+### The bug the derivation had, and how it announced itself
+
+The promotion matched the citation with `== MULTISOURCE_GUIDELINE`. The check
+printed a clean-looking NCE table that still filed six not-applicable
+statements across Module 5. The cause: the YAML spells the citation two ways —
+`"...multisource (generic) pharmaceutical products"` for Modules 2 and 4, and
+`"...multisource — only 5.3.1 applicable"` for Module 5, because the Module 5
+statement genuinely says something more specific. Equality silently excused
+six leaves in a filing that owes them. Now matched as a prefix, with a comment
+saying why. **The symptom to recognise: a derived config table that is right
+for most of its rows and quietly wrong for one module.**
+
+### Three states, not two
+
+`Applicability` is REQUIRED / CONDITIONAL / NOT_APPLICABLE, and the third
+state is the interesting one. CONDITIONAL is a *question* — only the filer
+knows whether their drug substance has a CEP or whether they are claiming a
+biowaiver. Modelling it as a third state is what lets rule **R19** notice that
+nobody has answered.
+
+That distinction runs all the way to the UI, where the control is three
+buttons rather than a checkbox: a default-unchecked box would silently answer
+"no" on the filer's behalf, and "no" is not silence — it is a positive claim
+that files a statement into the dossier. Unanswered, "no" and "yes" are three
+different things and the API keeps them three (`null` retracts; `false`
+asserts).
+
+### The two rules, and why one gates and the other does not
+
+- **R18 (ERROR)** — a section declared not applicable that nonetheless has
+  content. Not an omission: a self-contradiction the package would state out
+  loud, containing both "Module 4 is not applicable" and Module 4 material.
+  An assessor cannot tell which the applicant means, and the charitable
+  reading — that the statement is unchecked boilerplate — damages every other
+  declaration in the filing. The applicant has to decide which is true.
+
+- **R19 (WARNING)** — an unanswered condition. Never a gate: the platform
+  cannot compute whether a biowaiver is being claimed, and refusing to export
+  until every question is answered would make an unrelated filing unshippable
+  over a question that does not apply to it. But silence must not be
+  invisible either — an unanswered 1.2.17 is exactly how a biowaiver claim
+  goes quietly missing from a dossier that otherwise validates clean, and the
+  applicant then learns it from the agency rather than from us.
+
+### One emit path, resisted twice
+
+The statements go through the ordinary section pipeline: one
+`na_statement.docx`, registered as fourteen `SectionSpec`s with
+`is_statement=True`, so assembly, folder placement, the TOC and the eCTD
+backbone pick them up with no special case. Per-project filtering happens in
+`expand_sections`, which is the one place that already knew "what documents
+does THIS project owe".
+
+A separate emit path was the obvious shortcut and would have been a second
+pipeline to keep in sync — the same reasoning that keeps repeated 3.2.S
+sections in the registry rather than in a bespoke builder. The payoff showed
+up immediately and for free: `scripts/check_target_toc.py` credited all
+fourteen leaves with a two-line change, because they were already in
+`SECTIONS`.
+
+### Storing the answers: JSON, and what would change our mind
+
+`Project.condition_answers` is a JSON column keyed by section number. The
+rejected alternative was a `ProjectCondition` child table, which is the more
+typed instinct and would have been the right call if the keys were a fixed
+enum. They are not — they are section numbers owned by config, so the table
+would buy an FK the database cannot enforce plus a migration every time a
+condition is added to the profile.
+
+**What would change our mind:** the day an answer needs an author and a
+timestamp. At that point it stops being a scoping switch and becomes an
+auditable regulatory assertion, and it earns its own table.
+
+### A trap worth remembering: SQLAlchemy defaults fire at flush
+
+`mapped_column(default=...)` runs when the row is INSERTed, not when the
+object is constructed. The first test failed with an empty statement list
+because a freshly built `Project` had `submission_type = None`, so the
+applicability lookup returned an empty table — every section silently
+unmodelled. That is the "we don't know what this dossier owes" state P17
+exists to remove, and it should not be reachable even for the milliseconds
+before a commit. Fixed with a `__init__` that `setdefault`s both P17 fields.
+**Symptom to recognise: a feature that works through the API and produces
+nothing in a unit test that builds the object directly.**
+
+### Four things the full suite caught that unit tests did not
+
+Each is a different way a change of this shape breaks something at a
+distance, and all four are worth recognising again.
+
+1. **`resolve_applicability` crashed for an unmodelled region.** R18/R19 run
+   on every project; `get_region_profile` raises for FDA by design (a builder
+   asked to package an unconfigured region must fail loudly, not guess). But
+   a *rule* must not crash readiness for a region nobody has modelled. It now
+   treats "no profile" and "an empty table" as the same statement — nothing
+   declared, so nothing claimed — which is what EU_PROFILE already says.
+   The symptom was a P06 test about a completely unrelated rule (R13) failing.
+
+2. **The table of contents grew onto a second page.** The test asserting
+   every document is listed read only `pages[0]`, so widening it to every
+   page was the obvious fix — and it still failed, on a different row. The
+   real cause was in the DOCUMENT, not the test: Word splits a long table
+   row across a page break by default, and a split row also interleaves its
+   two columns in extracted PDF text, so half a title lands in the middle of
+   a path. `w:cantSplit` on every data row and `w:tblHeader` on the header
+   fix both problems at once — a reviewer now gets column headings on every
+   page and never a document whose title and path are on different pages.
+   Worth noting how thin the first fix was: it made the symptom move rather
+   than go away, which is usually the sign that the defect is somewhere
+   other than where you are looking.
+
+3. **The seed dossiers were permanently mid-question.** R19 warned about ten
+   unanswered conditions on fixtures that model *finished* filings, which
+   broke the "a clean dossier has no ERROR or WARNING findings" assertions.
+   The fix was to answer them in the seeds — a conventional generic claims
+   none of them — rather than to teach those assertions to ignore R19.
+   Silencing the rule to keep a test green would have thrown away exactly the
+   signal the rule exists to give.
+
+4. **The PDF cache made an error-path test unreachable.** The test asserting
+   a missing `soffice` binary raises cleanly converts a document an earlier
+   test already converted, so the cached answer came back and the failure
+   path never ran. The cache is *correct* there — the bytes are already
+   known — so the fix is `clear_conversion_cache()` in that one test, not a
+   weaker cache. Worth noting as the honest qualification to "a cache here
+   cannot change behaviour": it cannot change a **result**, but it can hide a
+   broken environment.
+
+### The DTD had one more opinion: 5.3.5 repeats per indication
+
+Thirteen of the fourteen statements file under the heading their section
+would occupy. `m5-3-5-reports-of-efficacy-and-safety-studies` refused: the
+DTD declares it starred and repeating **per indication**, with `indication`
+#REQUIRED — the same shape `m3-2-s-drug-substance` has for substances.
+
+A not-applicable statement has no indication to name, and supplying one
+("not applicable", or the product's own indication) would write a fabricated
+regulatory fact into the backbone. So that statement is filed one level up,
+as a leaf directly under `m5-3`, whose content model begins with `leaf*` and
+permits exactly this. It reads better anyway: the statement speaks for the
+whole of 5.3.5 rather than for one indication inside it — the same reasoning
+that gives Module 4 a single "4.0" page. Only the backbone placement moves;
+the CTD folder is unchanged, because only the backbone carries the
+constraint.
+
+**How it announced itself:** `build_index_xml` raising
+`DTD_MISSING_ATTRIBUTE: Element m5-3-5-... does not carry attribute
+indication` — which is the system working. The EU-region eCTD build tests
+could never have caught it, since applicability is only modelled for NAFDAC,
+so the fourteen hand-typed heading paths get a DTD test of their own.
+
+### A scope call: which conditional "no" actually files a statement
+
+The P17 plan says answering "no" to a conditional section produces its
+not-applicable statement, and lists seven — five of them in Module 1 (1.2.13
+previous MA, 1.2.15 CEP, 1.2.16 APIMF letter of access, 1.2.17 and 1.2.18
+biowaivers). What is actually built emits a statement only for the leaves the
+target TOC declares `production: na_statement` — which covers 3.2.P.4.6,
+3.2.A and 5.3.1.3, but not the Module 1 five.
+
+**Why:** the target TOC declares 1.2.15 as `uploaded`, not `na_statement`.
+Emitting a statement there would mean this code silently disagreeing with the
+contract about how that leaf comes into existence — the exact two-truths
+problem the rest of this phase was arranged to avoid. And Module 1 folder
+placement comes from the region profile's `module1_slots`, not
+`MODULE_2_5_FOLDERS`, so those statements have nowhere to go; the same plan's
+folder-placement task lists only the `na_statement` leaves, which is
+consistent with the reading taken here.
+
+The answers themselves ARE captured, stored, validated by R19 and shown on
+the section list — only the leaf is not emitted. **To finish it properly:**
+change those five entries in `docs/target-toc.yaml` to `na_statement`, give
+Module 1 statements a slot in the region profile, and they will flow through
+the existing pipeline with no new code. Deliberately left as a visible gap
+rather than resolved by quietly contradicting the contract.
+
+### The cost, and the fix it forced
+
+Every CTD/eCTD build now converts fourteen more DOCX leaves through
+LibreOffice — about a second each, on every build, in a test suite that
+rebuilds constantly. The suite went from tolerable to roughly an hour, which
+is the point at which nobody runs it locally and CI becomes a lottery.
+
+The fix was already sitting there in P07's own contract: `convert_docx_to_pdf`
+guarantees that identical input bytes produce identical output bytes (that is
+why the `/CreationDate` and `/ID` are pinned — P09's checksums depend on it,
+and a test asserts a rebuilt package is byte-identical). A function with that
+contract is trivially cacheable: a bounded `lru_cache` on (docx bytes,
+bookmark title) cannot change a single result, it can only skip work whose
+answer is already known.
+
+The general lesson is worth keeping: **the determinism the regulator forced
+on us turned out to be the property that made the optimisation safe.** The
+checksum requirement is usually experienced as a constraint; here it paid
+back directly.
+
+---
+
 ## P16 — The target TOC as the contract (2026-09-04)
 
 **Starting coverage: 9/98 leaves.** Every phase from here is measured as a
