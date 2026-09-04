@@ -21,6 +21,7 @@ from app.models import (
     Declaration,
     DeclarationType,
 )
+from app.seed import same_owner_as
 from app.seed.examox import build_examox
 from app.templating.declarations import render_declaration
 from app.templating.render import render_section
@@ -64,9 +65,11 @@ def test_applicant_is_reusable_across_projects():
     Base.metadata.create_all(engine)
     session = Session(engine, expire_on_commit=False)
 
-    applicant = Applicant(company_name="Shared Applicant Ltd")
     p1 = build_examox(buggy=False)
     p2 = build_examox(buggy=False)
+    # P15a: an Applicant carries its own owner, so a bare one no longer
+    # inserts -- it belongs to whoever owns the product it is filed with.
+    applicant = Applicant(company_name="Shared Applicant Ltd", **same_owner_as(p1.product))
     p1.applicant = applicant
     p2.applicant = applicant
     session.add_all([p1, p2])

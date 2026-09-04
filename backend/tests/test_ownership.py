@@ -30,6 +30,7 @@ import pytest
 PROJECT_NOT_FOUND = "Project not found"
 PRODUCT_NOT_FOUND = "Product not found"
 INGREDIENT_NOT_FOUND = "ActiveIngredient not found"
+APPLICANT_NOT_FOUND = "Applicant not found"
 
 # Every child collection the product router factory builds. Listing them
 # here (rather than probing one and trusting the factory) is the point:
@@ -43,6 +44,7 @@ PRODUCT_CHILD_COLLECTIONS = [
     "stability",
     "clinical",
     "batch-formula",
+    "certificates",
 ]
 
 
@@ -88,16 +90,37 @@ async def _seed_victim(auth_client) -> dict:
         )
     ).json()
 
+    applicant = (
+        await auth_client.post(
+            "/applicants",
+            json={"company_name": "Victim Pharma Ltd", "country": "Nigeria"},
+        )
+    ).json()
+
     project = (
         await auth_client.post(
             "/projects",
-            json={"name": "VICTIMOX new", "region": "NAFDAC", "product_id": product["id"]},
+            json={
+                "name": "VICTIMOX new",
+                "region": "NAFDAC",
+                "product_id": product["id"],
+                "applicant_id": applicant["id"],
+            },
+        )
+    ).json()
+
+    declaration = (
+        await auth_client.post(
+            f"/projects/{project['id']}/declarations",
+            json={"declaration_type": "power-of-attorney", "signed": True},
         )
     ).json()
 
     sequence = (await auth_client.post(f"/projects/{project['id']}/sequences", json={})).json()
 
     return {
+        "applicant_id": applicant["id"],
+        "declaration_id": declaration["id"],
         "product_id": product["id"],
         "manufacturer_id": manufacturer["id"],
         "ingredient_id": ingredient["id"],
@@ -302,6 +325,129 @@ async def test_a_stranger_cannot_reach_a_specification_row(intruder_client, vict
         body,
     )
     _assert_looks_unowned(response, INGREDIENT_NOT_FOUND)
+
+
+# ---- Module 1: an applicant is owned, its declarations are not ---------------
+
+
+@pytest.mark.parametrize(
+    "method,body",
+    [("GET", None), ("PATCH", {"company_name": "renamed"}), ("DELETE", None)],
+)
+async def test_a_stranger_cannot_reach_your_applicant(intruder_client, victim, method, body):
+    """Applicant is the second owned root (P15a) -- it is reached directly
+    rather than through a Product, so it carries its own owner_id and its
+    router does its own filtering."""
+    response = await _send(intruder_client, method, f"/applicants/{victim['applicant_id']}", body)
+    _assert_looks_unowned(response, APPLICANT_NOT_FOUND)
+
+
+async def test_a_stranger_sees_none_of_your_applicants(intruder_client, victim):
+    listing = await intruder_client.get("/applicants")
+    assert listing.status_code == 200
+    assert listing.json() == []
+
+
+async def test_a_stranger_cannot_name_your_applicant_on_their_own_project(
+    intruder_client, victim, auth_client
+):
+    """The applicant equivalent of filing against someone else's product:
+    the intruder owns the project, so the project-level gate would let this
+    through -- only the payload check stops it, and a company's contact
+    details would otherwise leak through their own project's reads."""
+    their_product = (
+        await intruder_client.post(
+            "/products",
+            json={"brand_name": "THEIRS", "generic_name": "Testolol", "country": "Nigeria"},
+        )
+    ).json()
+
+    response = await intruder_client.post(
+        "/projects",
+        json={
+            "name": "borrowed applicant",
+            "region": "NAFDAC",
+            "product_id": their_product["id"],
+            "applicant_id": victim["applicant_id"],
+        },
+    )
+    _assert_looks_unowned(response, APPLICANT_NOT_FOUND)
+
+
+async def test_a_stranger_cannot_repoint_their_project_at_your_applicant(intruder_client, victim):
+    """Same hole through PATCH rather than POST -- re-pointable FKs have to
+    be re-checked on update, not only at creation."""
+    their_product = (
+        await intruder_client.post(
+            "/products",
+            json={"brand_name": "THEIRS2", "generic_name": "Testolol", "country": "Nigeria"},
+        )
+    ).json()
+    their_project = (
+        await intruder_client.post(
+            "/projects",
+            json={"name": "theirs", "region": "NAFDAC", "product_id": their_product["id"]},
+        )
+    ).json()
+
+    response = await intruder_client.patch(
+        f"/projects/{their_project['id']}",
+        json={"applicant_id": victim["applicant_id"]},
+    )
+    _assert_looks_unowned(response, APPLICANT_NOT_FOUND)
+
+
+async def test_a_stranger_cannot_repoint_their_project_at_your_product(intruder_client, victim):
+    their_product = (
+        await intruder_client.post(
+            "/products",
+            json={"brand_name": "THEIRS3", "generic_name": "Testolol", "country": "Nigeria"},
+        )
+    ).json()
+    their_project = (
+        await intruder_client.post(
+            "/projects",
+            json={"name": "theirs", "region": "NAFDAC", "product_id": their_product["id"]},
+        )
+    ).json()
+
+    response = await intruder_client.patch(
+        f"/projects/{their_project['id']}", json={"product_id": victim["product_id"]}
+    )
+    _assert_looks_unowned(response, PRODUCT_NOT_FOUND)
+
+
+# ---- declarations: the first collection whose parent is a Project ------------
+
+
+async def test_a_stranger_cannot_list_your_declarations(intruder_client, victim):
+    """Parent is Project, not Product, so ownership is reached by the
+    factory's owner_via hop (Project -> Product -> owner)."""
+    response = await intruder_client.get(f"/projects/{victim['project_id']}/declarations")
+    _assert_looks_unowned(response, PROJECT_NOT_FOUND)
+
+
+async def test_a_stranger_cannot_add_a_declaration_to_your_project(intruder_client, victim):
+    response = await intruder_client.post(
+        f"/projects/{victim['project_id']}/declarations",
+        json={"declaration_type": "declaration-of-authenticity"},
+    )
+    _assert_looks_unowned(response, PROJECT_NOT_FOUND)
+
+
+@pytest.mark.parametrize(
+    "method,body", [("GET", None), ("PATCH", {"signed": False}), ("DELETE", None)]
+)
+async def test_a_stranger_cannot_reach_one_of_your_declarations(
+    intruder_client, victim, method, body
+):
+    response = await _send(
+        intruder_client,
+        method,
+        f"/projects/{victim['project_id']}/declarations/{victim['declaration_id']}",
+        body,
+    )
+    _assert_looks_unowned(response, PROJECT_NOT_FOUND)
 
 
 # ---- the hole a project-level check alone would leave ------------------------

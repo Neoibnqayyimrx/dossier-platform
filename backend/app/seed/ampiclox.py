@@ -21,7 +21,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
-from app.seed import attach_owner
+from app.seed import attach_owner, same_owner_as
 from app.models import (
     Project,
     Product,
@@ -101,6 +101,7 @@ def build_ampiclox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Pro
     # had ever been through P07 assembly or a P08 CTD build. These facts are
     # unrelated to the planted R01 defect and are present in both variants.
     project.applicant = Applicant(
+        **same_owner_as(product),
         company_name="Exagon Pharmaceuticals Ltd",
         address="Cadastral Zone, Gwagwalada, Abuja",
         country="Nigeria",

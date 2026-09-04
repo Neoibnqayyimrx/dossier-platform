@@ -12,6 +12,12 @@ same applicant (often a local distributor filing on behalf of a foreign
 manufacturer) reasonably files several products/renewals over time --
 Project.applicant_id is a many-to-one FK, exactly Product's own precedent.
 
+WHY owner_id here as well as on Product (P15a): Applicant is the second
+piece of master data a user creates directly -- it is reached through
+/applicants, not through a Product -- so it cannot borrow Product's owner
+the way certificates and declarations do. Leaving it unowned would make it
+a shared, editable, global table: the same mistake /kb/ingest made.
+
 WHY nullable on Project rather than NOT NULL: a project can exist before
 its applicant details are captured (matches shelf_life_months, certificates,
 etc. -- "the row can be incomplete" is a P06 completeness concern, R14,
@@ -20,19 +26,24 @@ not a schema-level constraint).
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 
 if TYPE_CHECKING:
     from app.models.project import Project
+    from app.models.user import User
 
 
 class Applicant(Base):
     __tablename__ = "applicant"
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"))
+    owner: Mapped["User"] = relationship(back_populates="applicants")
 
     company_name: Mapped[str] = mapped_column(String(200))
     address: Mapped[str | None] = mapped_column(String(300), nullable=True)

@@ -28,3 +28,18 @@ def attach_owner(product: Product, owner_id: uuid.UUID | None) -> None:
         email=f"seed-{uuid.uuid4().hex[:8]}@example.internal",
         hashed_password="unusable-seed-password-hash",
     )
+
+
+def same_owner_as(product: Product) -> dict:
+    """Constructor kwargs giving another owned root -- in practice the
+    project's Applicant (P15a) -- the same owner as `product`.
+
+    WHY it returns kwargs instead of setting the attribute: which one to
+    set depends on how the product got its owner. A seed with a real user
+    holds an id and nothing else, while one built for a model test holds a
+    transient User object that has no id until flush. Passing `owner_id`
+    in the second case would write None.
+    """
+    if product.owner is not None:
+        return {"owner": product.owner}
+    return {"owner_id": product.owner_id}

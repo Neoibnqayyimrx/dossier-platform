@@ -18,6 +18,7 @@ from app.models.base import Base
 from app.models.enums import UserRole
 
 if TYPE_CHECKING:
+    from app.models.applicant import Applicant
     from app.models.product import Product
 
 
@@ -30,3 +31,6 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(SAEnum(UserRole), default=UserRole.USER)
 
     products: Mapped[list["Product"]] = relationship(back_populates="owner")
+    # The second owned root (P15a): an Applicant is created directly, not
+    # through a Product, so it carries its own owner (see its WHY).
+    applicants: Mapped[list["Applicant"]] = relationship(back_populates="owner")

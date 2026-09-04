@@ -36,9 +36,28 @@ class RegionProfile:
     region: Region
     module1_slots: list[Module1Slot]
 
+    # WHY these are separate from the slots' `certificate_types` above:
+    # a slot lists what it ACCEPTS (any certificate of these types is
+    # filed here), while these list what the region REQUIRES before the
+    # dossier may be exported. A NAFDAC filing accepts a CEP and a CoA
+    # but demands a CPP; the two lists answer different questions.
+    #
+    # WHY here rather than as constants in app.validation.rules (P15a):
+    # they were in both places -- the rules held the requirement and the
+    # UI would have needed its own third copy to know which Module 1
+    # fields to ask for. Config, one copy, served to the frontend by
+    # app.api.routers.regions (AGENTS.md §5 "config over hard-coding").
+    required_certificate_types: tuple[CertificateType, ...] = ()
+    required_declaration_types: tuple[DeclarationType, ...] = ()
+
 
 NAFDAC_PROFILE = RegionProfile(
     region=Region.NAFDAC,
+    required_certificate_types=(CertificateType.CPP,),
+    required_declaration_types=(
+        DeclarationType.POWER_OF_ATTORNEY,
+        DeclarationType.DECLARATION_OF_AUTHENTICITY,
+    ),
     module1_slots=[
         Module1Slot(
             slot_id="cover-letter",
@@ -93,6 +112,12 @@ NAFDAC_PROFILE = RegionProfile(
 # actually needs to know eu-regional.dtd's shape.
 EU_PROFILE = RegionProfile(
     region=Region.EU,
+    # Deliberately empty, not "none required": the EU has its own Module 1
+    # requirements, and they have not been confirmed against the current
+    # EMA guidance (AGENTS.md's standing caution about regulator-specific
+    # output). Empty preserves exactly today's behaviour -- R13/R16 raised
+    # nothing for an EU project before this refactor either -- rather than
+    # inventing a requirement list nobody has checked.
     module1_slots=[
         Module1Slot(
             slot_id="cover-letter",

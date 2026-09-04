@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.errors import register_error_handlers
 from app.api.routers.admin import router as admin_router
+from app.api.routers.applicants import router as applicants_router
 from app.api.routers.artifacts import router as artifacts_router
 from app.api.routers.auth import router as auth_router
 from app.api.routers.ctd import router as ctd_router
@@ -13,6 +14,7 @@ from app.api.routers.narrative import router as narrative_router
 from app.api.routers.nested import NESTED_ROUTERS
 from app.api.routers.products import router as products_router
 from app.api.routers.projects import router as projects_router
+from app.api.routers.regions import router as regions_router
 from app.api.routers.sections import router as sections_router
 from app.api.routers.validation import router as validation_router
 from app.core.config import get_settings
@@ -38,6 +40,7 @@ register_error_handlers(app)
 
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(applicants_router)
 app.include_router(products_router)
 app.include_router(projects_router)
 app.include_router(kb_router)
@@ -46,6 +49,7 @@ app.include_router(validation_router)
 app.include_router(ctd_router)
 app.include_router(ectd_router)
 app.include_router(enums_router)
+app.include_router(regions_router)
 app.include_router(sections_router)
 app.include_router(artifacts_router)
 for nested_router in NESTED_ROUTERS:

@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
-from app.seed import attach_owner
+from app.seed import attach_owner, same_owner_as
 from app.models import (
     Project,
     Product,
@@ -89,6 +89,7 @@ def build_lamox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Projec
     # buggy/corrected narrative variant, since these are unrelated
     # completeness facts about the real filing.
     project.applicant = Applicant(
+        **same_owner_as(product),
         company_name="Local Pharma Manufacturing Ltd",
         country="Nigeria",
         contact_name="Chidi Okafor",

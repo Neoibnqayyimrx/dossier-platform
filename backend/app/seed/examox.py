@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 
-from app.seed import attach_owner
+from app.seed import attach_owner, same_owner_as
 from app.models import (
     Project,
     Product,
@@ -93,6 +93,7 @@ def build_examox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Proje
     # real product/filing, present regardless of the buggy/corrected
     # narrative variant, same treatment as the CPP certificate below.
     project.applicant = Applicant(
+        **same_owner_as(product),
         company_name="Exagon Pharmaceuticals Ltd",
         address="Cadastral Zone, Gwagwalada, Abuja",
         country="Nigeria",

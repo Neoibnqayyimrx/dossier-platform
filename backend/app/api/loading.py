@@ -38,6 +38,10 @@ PROJECT_CHILD_OPTIONS = (
     selectinload(Project.product).selectinload(Product.clinical),
     selectinload(Project.product).selectinload(Product.batch_formula),
     selectinload(Project.sequences),
+    # P15a: ProjectRead nests these two, so every project read has to load
+    # them -- not just the readiness path that already did below.
+    selectinload(Project.applicant),
+    selectinload(Project.declarations),
 )
 
 # P13: R07 reads each API's specification ROWS now (not a free-text field),
@@ -57,7 +61,4 @@ READINESS_LOAD_OPTIONS = PROJECT_CHILD_OPTIONS + (
     .selectinload(BatchFormulaLine.active_ingredient),
     selectinload(Project.product).selectinload(Product.certificates),
     selectinload(Project.sections),
-    # P08: R14/R16 read project.applicant, R15/R16 read project.declarations.
-    selectinload(Project.applicant),
-    selectinload(Project.declarations),
 )

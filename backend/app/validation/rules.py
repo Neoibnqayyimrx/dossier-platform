@@ -13,10 +13,9 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from app.ctd.region_profiles import REGION_PROFILES
 from app.validation.engine import Finding, Severity, rule
 from app.models import (
-    CertificateType,
-    DeclarationType,
     DECLARATIONS_REQUIRING_NOTARIZATION,
     DosageForm,
     GMPStatus,
@@ -403,35 +402,46 @@ def pack_size_matches_packaging(project) -> list[Finding]:
     ]
 
 
-@rule("R13", regions=[Region.NAFDAC])
-def nafdac_cpp_certificate_required(project) -> list[Finding]:
-    """A NAFDAC filing requires a Certificate of Pharmaceutical Product
-    (CPP) that is actually on file and unexpired -- region-scoped, so
-    this never runs at all for an FDA/EU project (see run_all's
-    filtering in engine.py), unlike R01-R12 which apply everywhere."""
-    product = project.product
-    cpps = [c for c in product.certificates if c.certificate_type == CertificateType.CPP]
-    if not cpps:
-        return [
-            Finding(
-                "R13",
-                Severity.ERROR,
-                "completeness",
-                "No Certificate of Pharmaceutical Product (CPP) on file -- "
-                "required for a NAFDAC filing.",
+@rule("R13")
+def required_certificates_present(project) -> list[Finding]:
+    """Every certificate the project's region requires must be on file AND
+    unexpired. For NAFDAC that is the Certificate of Pharmaceutical Product
+    (CPP).
+
+    WHY the requirement is read from the region profile rather than
+    hard-coded here (P15a): it was previously stated in this rule and
+    would have needed a second copy in the frontend to know which Module 1
+    fields to ask for. A region whose profile declares no required
+    certificates raises nothing, which is exactly what this rule did for
+    EU projects when it was region-scoped instead."""
+    profile = REGION_PROFILES.get(project.region)
+    if profile is None:
+        return []
+
+    out: list[Finding] = []
+    for required in profile.required_certificate_types:
+        held = [c for c in project.product.certificates if c.certificate_type == required]
+        if not held:
+            out.append(
+                Finding(
+                    "R13",
+                    Severity.ERROR,
+                    "completeness",
+                    f"No {required.value} certificate on file -- required for a "
+                    f"{project.region.value} filing.",
+                )
             )
-        ]
-    if not any(c.expiry_date is not None and c.expiry_date >= date.today() for c in cpps):
-        return [
-            Finding(
-                "R13",
-                Severity.ERROR,
-                "completeness",
-                "The Certificate of Pharmaceutical Product (CPP) on file is "
-                "expired or has no expiry date recorded.",
+        elif not any(c.expiry_date is not None and c.expiry_date >= date.today() for c in held):
+            out.append(
+                Finding(
+                    "R13",
+                    Severity.ERROR,
+                    "completeness",
+                    f"The {required.value} certificate on file is expired or has "
+                    f"no expiry date recorded.",
+                )
             )
-        ]
-    return []
+    return out
 
 
 @rule("R14", regions=[Region.NAFDAC])
@@ -489,21 +499,19 @@ def declarations_signed(project) -> list[Finding]:
     return out
 
 
-_NAFDAC_REQUIRED_DECLARATIONS = (
-    DeclarationType.POWER_OF_ATTORNEY,
-    DeclarationType.DECLARATION_OF_AUTHENTICITY,
-)
+@rule("R16")
+def required_declarations_present(project) -> list[Finding]:
+    """Every declaration the region requires must be on file at all --
+    distinct from R15, which only checks that whatever declarations ARE
+    attached are signed. A project with zero declarations passes R15
+    vacuously but must fail here.
 
-
-@rule("R16", regions=[Region.NAFDAC])
-def nafdac_required_declarations_present(project) -> list[Finding]:
-    """A NAFDAC filing specifically requires a Power of Attorney and a
-    Declaration of Authenticity to be on file at all -- distinct from R15,
-    which only checks that whatever declarations ARE attached are signed.
-    A project with zero declarations passes R15 vacuously but must fail
-    here."""
+    Requirements come from the region profile, same as R13's."""
+    profile = REGION_PROFILES.get(project.region)
+    if profile is None:
+        return []
     present = {d.declaration_type for d in project.declarations}
-    missing = [t for t in _NAFDAC_REQUIRED_DECLARATIONS if t not in present]
+    missing = [t for t in profile.required_declaration_types if t not in present]
     if missing:
         names = ", ".join(t.value for t in missing)
         return [
@@ -511,7 +519,8 @@ def nafdac_required_declarations_present(project) -> list[Finding]:
                 "R16",
                 Severity.ERROR,
                 "completeness",
-                f"Missing required declaration(s) for a NAFDAC filing: {names}.",
+                f"Missing required declaration(s) for a "
+                f"{project.region.value} filing: {names}.",
             )
         ]
     return []
