@@ -16,13 +16,19 @@
  * decide whether it can be exported, not the form.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { api, ApiError, type ProductChildResource } from "@/lib/api";
-import type { Vocabularies } from "@/lib/types";
+import type { Applicant, Vocabularies } from "@/lib/types";
 import { SpecificationEditor } from "@/components/SpecificationEditor";
-import { CHILD_STEPS, PRODUCT_FIELDS, type ChildStepSpec } from "@/lib/wizard-steps";
+import {
+  CHILD_STEPS,
+  PRODUCT_FIELDS,
+  type ChildStepSpec,
+  type RuntimeVocabulary,
+} from "@/lib/wizard-steps";
+import type { EnumOption } from "@/lib/types";
 import { AuthGuard } from "@/components/AuthGuard";
 import { Field } from "@/components/Field";
 import { Card, ErrorNotice, PageHeading } from "@/components/ui";
@@ -34,6 +40,28 @@ const buttonClass =
   "rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-slate-100 dark:text-slate-900";
 const secondaryButtonClass =
   "rounded-md border border-slate-300 px-4 py-2 text-sm font-medium disabled:opacity-50 dark:border-slate-700";
+
+/** The applicant form shown at the last step when you are not reusing one
+ * you already have. Kept here rather than in wizard-steps.ts because an
+ * Applicant is not a product child -- it is master data of its own. */
+const APPLICANT_FIELDS = [
+  { name: "company_name", label: "Company name", type: "text" as const, required: true },
+  { name: "country", label: "Country", type: "text" as const },
+  { name: "address", label: "Address", type: "text" as const },
+  { name: "contact_name", label: "Contact name", type: "text" as const },
+  { name: "contact_email", label: "Contact email", type: "text" as const },
+  {
+    name: "authorized_representative_name",
+    label: "Authorised representative",
+    type: "text" as const,
+    help: "The named signatory — for a foreign manufacturer filing through a Nigerian agent, usually the agent's regulatory lead.",
+  },
+  {
+    name: "authorized_representative_title",
+    label: "Representative title",
+    type: "text" as const,
+  },
+];
 
 function Stepper({ current, total }: { current: number; total: number }) {
   return (
@@ -175,6 +203,9 @@ function Wizard() {
   const [productDraft, setProductDraft] = useState<Draft>({});
   const [rows, setRows] = useState<SavedRows>({});
   const [projectDraft, setProjectDraft] = useState<Draft>({ region: "NAFDAC" });
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [applicantId, setApplicantId] = useState<string>("");
+  const [newApplicant, setNewApplicant] = useState<Draft>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -185,9 +216,42 @@ function Wizard() {
       .catch((err) =>
         setError(err instanceof ApiError ? err.message : "Could not load vocabularies"),
       );
+    // Applicants are master data that outlive any one filing, so the last
+    // step offers the ones you already have before asking you to retype
+    // a company you have filed under before.
+    api.listApplicants().then(setApplicants).catch(() => {});
   }, []);
 
   const totalSteps = 1 + CHILD_STEPS.length + 1; // product + children + review
+
+  /**
+   * Two of the wizard's selects cross-reference rows the user created in
+   * an EARLIER step -- an active ingredient names its manufacturer (R17),
+   * a batch-formula line names its active (R04). Those options cannot come
+   * from /enums, because they are this product's own data, so they are
+   * built here from what has been saved so far and merged over the static
+   * vocabularies under names the field specs refer to.
+   */
+  const allVocabularies: Vocabularies | null = useMemo(() => {
+    if (vocabularies === null) return null;
+    // Typed by RuntimeVocabulary, so a key that no field spec refers to
+    // (or a misspelling of one that does) is a compile error rather than
+    // an empty dropdown.
+    const runtime: Record<RuntimeVocabulary, EnumOption[]> = {
+      manufacturer: (rows.manufacturers ?? []).map((row) => ({
+        value: String(row.id),
+        label: `${String(row.name ?? "site")} (${String(row.role ?? "")})`,
+      })),
+      active_ingredient: (rows.apis ?? []).map((row) => ({
+        value: String(row.id),
+        label: String(row.inn_name ?? "active ingredient"),
+      })),
+    };
+    return {
+      ...vocabularies,
+      ...runtime,
+    };
+  }, [vocabularies, rows]);
 
   const updateProduct = useCallback(
     (name: string, value: unknown) =>
@@ -240,10 +304,19 @@ function Wizard() {
     setError(null);
     setBusy(true);
     try {
+      // R14 blocks export without an applicant, so the wizard captures one
+      // here rather than leaving it to be discovered on the validation tab.
+      let chosenApplicantId: string | null = applicantId || null;
+      if (chosenApplicantId === null && newApplicant.company_name) {
+        const created = await api.createApplicant(newApplicant);
+        chosenApplicantId = created.id;
+      }
+
       const project = await api.createProject({
         name: String(projectDraft.name ?? ""),
         region: String(projectDraft.region ?? "NAFDAC"),
         product_id: productId,
+        applicant_id: chosenApplicantId,
       });
       router.push(`/projects/${project.id}`);
     } catch (err) {
@@ -254,7 +327,7 @@ function Wizard() {
   }
 
   if (error && vocabularies === null) return <ErrorNotice message={error} />;
-  if (vocabularies === null)
+  if (vocabularies === null || allVocabularies === null)
     return <p className="text-sm text-slate-500">Loading…</p>;
 
   const isProductStep = stepIndex === 0;
@@ -297,7 +370,7 @@ function Wizard() {
           <ChildStep
             step={childStep}
             productId={productId}
-            vocabularies={vocabularies}
+            vocabularies={allVocabularies}
             rows={rows[childStep.id] ?? []}
             onSaved={handleSaved}
             onDeleted={handleDeleted}
@@ -336,6 +409,55 @@ function Wizard() {
                 setProjectDraft((previous) => ({ ...previous, [name]: value }))
               }
             />
+
+            <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
+              <h3 className="mb-1 text-sm font-medium">Applicant</h3>
+              <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                The legal entity submitting this filing — often a local agent
+                acting for a foreign manufacturer. Required before export
+                (rule R14), and reusable across your other filings.
+              </p>
+
+              {applicants.length > 0 && (
+                <div className="mb-3">
+                  <label
+                    htmlFor="applicant-select"
+                    className="mb-1 block text-sm font-medium"
+                  >
+                    Use an existing applicant
+                  </label>
+                  <select
+                    id="applicant-select"
+                    value={applicantId}
+                    onChange={(e) => setApplicantId(e.target.value)}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                  >
+                    <option value="">— create a new one below —</option>
+                    {applicants.map((applicant) => (
+                      <option key={applicant.id} value={applicant.id}>
+                        {applicant.company_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {applicantId === "" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {APPLICANT_FIELDS.map((spec) => (
+                    <Field
+                      key={spec.name}
+                      spec={spec}
+                      value={newApplicant[spec.name]}
+                      vocabularies={vocabularies}
+                      onChange={(name, value) =>
+                        setNewApplicant((previous) => ({ ...previous, [name]: value }))
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
             <button type="submit" disabled={busy} className={buttonClass}>
               {busy ? "Creating…" : "Create project"}
             </button>

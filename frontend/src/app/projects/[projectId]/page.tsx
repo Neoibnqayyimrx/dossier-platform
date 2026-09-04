@@ -7,14 +7,22 @@ import type {
   Project,
   ReadinessResponse,
   SectionSpec,
+  ValidationOverride,
+  Vocabularies,
 } from "@/lib/types";
 import { AuthGuard } from "@/components/AuthGuard";
 import { BuildPanel } from "@/components/BuildPanel";
+import { Module1Panel } from "@/components/Module1Panel";
+import { OverridePanel } from "@/components/OverridePanel";
 import { NarrativeSlot } from "@/components/NarrativeSlot";
 import { ValidationReport } from "@/components/ValidationReport";
 import { Badge, Card, ErrorNotice, PageHeading } from "@/components/ui";
 
-const TABS = ["Overview", "Narratives", "Validation", "Build"] as const;
+// Module 1 sits between the data and the narrative work deliberately: it
+// is the administrative half of a filing (who is applying, what they have
+// signed), and on a NAFDAC dossier it is the most common reason an
+// otherwise complete package cannot be exported.
+const TABS = ["Overview", "Module 1", "Narratives", "Validation", "Build"] as const;
 type Tab = (typeof TABS)[number];
 
 function Facts({ project }: { project: Project }) {
@@ -26,6 +34,7 @@ function Facts({ project }: { project: Project }) {
     ["Dosage form", p.dosage_form ?? "—"],
     ["Shelf life", p.shelf_life_months ? `${p.shelf_life_months} months` : "—"],
     ["Storage", p.storage_condition ?? "—"],
+    ["Applicant", project.applicant?.company_name ?? "— not named yet"],
     ["Manufacturers", String(p.manufacturers.length)],
     ["Active ingredients", String(p.apis.length)],
     ["Excipients", String(p.excipients.length)],
@@ -99,23 +108,42 @@ function ProjectDetail({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
   const [sections, setSections] = useState<SectionSpec[]>([]);
+  const [vocabularies, setVocabularies] = useState<Vocabularies | null>(null);
+  const [overrides, setOverrides] = useState<ValidationOverride[]>([]);
   const [tab, setTab] = useState<Tab>("Overview");
   const [error, setError] = useState<string | null>(null);
 
   const refreshReadiness = useCallback(() => {
     api.getReadiness(projectId).then(setReadiness).catch(() => {});
+    // Overrides and readiness move together: recording or withdrawing one
+    // changes the export gate, so refreshing either alone would leave the
+    // page showing a verdict that no longer matches its own reasons.
+    api.listOverrides(projectId).then(setOverrides).catch(() => {});
   }, [projectId]);
+
+  // Module 1 edits change both the project (its applicant, its
+  // declarations) and what the rules say about it, so the panel's
+  // onChanged has to refresh both -- otherwise you sign a declaration and
+  // the export gate keeps reporting the finding you just cleared.
+  const refreshProject = useCallback(() => {
+    api.getProject(projectId).then(setProject).catch(() => {});
+    refreshReadiness();
+  }, [projectId, refreshReadiness]);
 
   useEffect(() => {
     Promise.all([
       api.getProject(projectId),
       api.getReadiness(projectId),
       api.getSections(),
+      api.getEnums(),
+      api.listOverrides(projectId),
     ])
-      .then(([projectResult, readinessResult, sectionsResult]) => {
+      .then(([projectResult, readinessResult, sectionsResult, vocabularyResult, overrideResult]) => {
         setProject(projectResult);
         setReadiness(readinessResult);
         setSections(sectionsResult);
+        setVocabularies(vocabularyResult);
+        setOverrides(overrideResult);
       })
       .catch((err) =>
         setError(
@@ -169,6 +197,14 @@ function ProjectDetail({ projectId }: { projectId: string }) {
         </div>
       )}
 
+      {tab === "Module 1" && vocabularies !== null && (
+        <Module1Panel
+          project={project}
+          vocabularies={vocabularies}
+          onChanged={refreshProject}
+        />
+      )}
+
       {tab === "Narratives" && (
         <Narratives
           projectId={projectId}
@@ -178,13 +214,21 @@ function ProjectDetail({ projectId }: { projectId: string }) {
       )}
 
       {tab === "Validation" && (
-        <ValidationReport
-          findings={readiness.findings}
-          isExportable={readiness.is_exportable}
-          overriddenRuleIds={readiness.overridden_rule_ids}
-          title="Deterministic data rules"
-          emptyMessage="No findings — every data rule passed."
-        />
+        <div className="space-y-4">
+          <ValidationReport
+            findings={readiness.findings}
+            isExportable={readiness.is_exportable}
+            overriddenRuleIds={readiness.overridden_rule_ids}
+            title="Deterministic data rules"
+            emptyMessage="No findings — every data rule passed."
+          />
+          <OverridePanel
+            projectId={projectId}
+            findings={readiness.findings}
+            overrides={overrides}
+            onChanged={refreshReadiness}
+          />
+        </div>
       )}
 
       {tab === "Build" && (

@@ -13,18 +13,22 @@
  */
 
 import type {
+  Applicant,
   AuthToken,
   CtdBuildResponse,
   EctdBuildResponse,
   EctdValidationResponse,
+  Declaration,
   Narrative,
   Product,
   Project,
+  RegionProfile,
   ReadinessResponse,
   SectionSpec,
   Sequence,
   SpecificationTest,
   User,
+  ValidationOverride,
   UserRole,
   Vocabularies,
 } from "@/lib/types";
@@ -148,6 +152,82 @@ export const api = {
     });
   },
 
+  /** Which Module 1 documents this region demands. Served by the backend
+   * so the UI can never ask for a different set than R13/R16 enforce
+   * (see app/api/routers/regions.py). */
+  listRegionProfiles() {
+    return request<RegionProfile[]>("/regions");
+  },
+
+  // ---- Module 1 (P15) ----------------------------------------------------
+
+  listApplicants() {
+    return request<Applicant[]>("/applicants");
+  },
+
+  createApplicant(payload: Record<string, unknown>) {
+    return request<Applicant>("/applicants", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  createDeclaration(projectId: string, payload: Record<string, unknown>) {
+    return request<Declaration>(`/projects/${projectId}/declarations`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  updateDeclaration(
+    projectId: string,
+    declarationId: string,
+    payload: Record<string, unknown>,
+  ) {
+    return request<Declaration>(
+      `/projects/${projectId}/declarations/${declarationId}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
+    );
+  },
+
+  deleteDeclaration(projectId: string, declarationId: string) {
+    return request<void>(`/projects/${projectId}/declarations/${declarationId}`, {
+      method: "DELETE",
+    });
+  },
+
+  updateProject(projectId: string, payload: Record<string, unknown>) {
+    return request<Project>(`/projects/${projectId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  // ---- validation overrides (P15c) ---------------------------------------
+
+  listOverrides(projectId: string) {
+    return request<ValidationOverride[]>(
+      `/projects/${projectId}/validation-overrides`,
+    );
+  },
+
+  createOverride(projectId: string, ruleId: string, reason: string) {
+    return request<ValidationOverride>(
+      `/projects/${projectId}/validation-overrides`,
+      {
+        method: "POST",
+        body: JSON.stringify({ rule_id: ruleId, reason }),
+      },
+    );
+  },
+
+  withdrawOverride(projectId: string, overrideId: string) {
+    return request<ValidationOverride>(
+      `/projects/${projectId}/validation-overrides/${overrideId}:withdraw`,
+      { method: "POST" },
+    );
+  },
+
   listProjects() {
     return request<Project[]>("/projects");
   },
@@ -243,6 +323,10 @@ export const api = {
     name: string;
     region: string;
     product_id: string;
+    /** Optional at creation: a project can exist before anyone has said
+     * who is filing. Rule R14 is what makes it required before export,
+     * not the schema. */
+    applicant_id?: string | null;
   }) {
     return request<Project>("/projects", {
       method: "POST",
@@ -375,4 +459,6 @@ export type ProductChildResource =
   | "excipients"
   | "packaging"
   | "stability"
-  | "clinical";
+  | "clinical"
+  | "batch-formula"
+  | "certificates";

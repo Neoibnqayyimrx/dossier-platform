@@ -22,7 +22,7 @@
 import { useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
-import type { EctdBuildResponse, Region } from "@/lib/types";
+import type { EctdBuildResponse, OverrideSummary, Region } from "@/lib/types";
 import { Badge, Card, ErrorNotice } from "@/components/ui";
 
 const buttonClass =
@@ -41,6 +41,10 @@ export function BuildPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [ctdKey, setCtdKey] = useState<string | null>(null);
   const [ectd, setEctd] = useState<EctdBuildResponse | null>(null);
+  // What the build was allowed to ignore. A package assembled over a
+  // waived ERROR is byte-for-byte as convincing as one that passed
+  // cleanly, so the only place that distinction can surface is here.
+  const [waived, setWaived] = useState<OverrideSummary[]>([]);
 
   // NAFDAC files a CTD; FDA/EU file an eCTD sequence. See the module WHY.
   const buildsEctd = region !== "NAFDAC";
@@ -68,6 +72,27 @@ export function BuildPanel({
 
       {error && <ErrorNotice message={error} />}
 
+      {waived.length > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+          <p className="font-medium">
+            This package was built over {waived.length} waived{" "}
+            {waived.length === 1 ? "check" : "checks"}.
+          </p>
+          <ul className="mt-1 space-y-0.5 text-xs text-slate-700 dark:text-slate-300">
+            {waived.map((override) => (
+              <li key={override.rule_id}>
+                <span className="font-mono">{override.rule_id}</span> — {override.reason}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+            The record stays on the Validation tab. It is not written into
+            the package — a deviation record is your quality documentation,
+            not submission content.
+          </p>
+        </div>
+      )}
+
       <p className="text-sm text-slate-600 dark:text-slate-400">
         {buildsEctd
           ? "This region expects an eCTD: a sequenced package with an XML backbone, per-leaf checksums and lifecycle operations."
@@ -83,6 +108,7 @@ export function BuildPanel({
               run("ctd", async () => {
                 const result = await api.buildCtd(projectId);
                 setCtdKey(result.storage_key);
+                setWaived(result.overrides);
               })
             }
             className={buttonClass}
@@ -117,7 +143,9 @@ export function BuildPanel({
                   // the backend (0000, 0001, ...) -- the UI never invents
                   // that number.
                   const sequence = await api.createSequence(projectId);
-                  setEctd(await api.buildEctd(projectId, sequence.id));
+                  const result = await api.buildEctd(projectId, sequence.id);
+                  setEctd(result);
+                  setWaived(result.overrides);
                 })
               }
               className={buttonClass}

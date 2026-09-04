@@ -78,8 +78,85 @@ export interface Project {
   region: Region;
   product: Product;
   sequences: Sequence[];
+  /** Module 1 (P15a): null until someone says who is legally filing —
+   * rule R14 blocks export while it is. */
+  applicant: Applicant | null;
+  declarations: Declaration[];
   created_at: string;
   updated_at: string;
+}
+
+/** Matches backend/app/schemas/applicant.py. Master data, owned like a
+ * product: an agent filing a dozen products is one legal entity. */
+export interface Applicant {
+  id: string;
+  company_name: string;
+  address: string | null;
+  country: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  authorized_representative_name: string | null;
+  authorized_representative_title: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Matches backend/app/schemas/certificate.py. Every field but the type
+ * is optional because the ROW exists before the document does — "we need
+ * a CPP, still pending" is a state the rules report on. */
+export interface Certificate {
+  id: string;
+  product_id: string;
+  certificate_type: string;
+  issuing_authority: string | null;
+  certificate_number: string | null;
+  issue_date: string | null;
+  expiry_date: string | null;
+  manufacturer_id: string | null;
+}
+
+/** Matches backend/app/schemas/declaration.py. The signed/notarized flags
+ * record something the platform cannot observe for itself — a human put
+ * a pen on paper — which is why they are writable and why R15 blocks on
+ * them. */
+export interface Declaration {
+  id: string;
+  project_id: string;
+  declaration_type: string;
+  signed: boolean;
+  signed_date: string | null;
+  notarized: boolean;
+  notarization_date: string | null;
+}
+
+/**
+ * Matches backend/app/api/routers/regions.py.
+ *
+ * An EMPTY required list means "this region's Module 1 requirements are
+ * not modelled yet", NOT "nothing is required" — say so in the UI rather
+ * than implying a clean bill of health.
+ */
+export interface RegionProfile {
+  region: Region;
+  required_certificate_types: string[];
+  required_declaration_types: string[];
+  module1_slots: { slot_id: string; title: string }[];
+}
+
+/** Matches backend/app/schemas/validation.py::ValidationOverrideRead. */
+export interface ValidationOverride {
+  id: string;
+  project_id: string;
+  rule_id: string;
+  reason: string;
+  created_by_id: string;
+  created_at: string;
+  /** Null while the override stands. A withdrawn one keeps its original
+   * reason — the row is the audit trail, so retracting adds a fact rather
+   * than deleting one. */
+  withdrawn_at: string | null;
+  withdrawn_by_id: string | null;
 }
 
 export interface AuthToken {
@@ -139,15 +216,26 @@ export interface SectionSpec {
   narrative_slots: string[];
 }
 
+/** Matches backend/app/schemas/ctd.py::OverrideSummaryRead. */
+export interface OverrideSummary {
+  rule_id: string;
+  reason: string;
+}
+
 export interface CtdBuildResponse {
   storage_key: string;
   files: { path: string; md5: string }[];
+  /** Deterministic checks this build was allowed to ignore. A package
+   * assembled over a waived error looks identical to a clean one, so the
+   * build has to say so. */
+  overrides: OverrideSummary[];
 }
 
 export interface EctdBuildResponse {
   storage_key: string;
   sequence_number: string;
   operations: Record<string, string>;
+  overrides: OverrideSummary[];
 }
 
 export interface EctdValidationResponse {

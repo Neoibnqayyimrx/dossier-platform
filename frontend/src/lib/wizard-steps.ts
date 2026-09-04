@@ -15,11 +15,29 @@
 
 import type { ProductChildResource } from "@/lib/api";
 
+/**
+ * The two vocabularies the wizard builds at RUNTIME from rows you have
+ * already saved, rather than fetching from /enums: an active ingredient
+ * names its manufacturer, a batch-formula line names its active. Declared
+ * here so the field specs and the wizard that fills them cannot drift on
+ * a spelling -- a typo in either place is a select that silently offers
+ * nothing.
+ */
+export const RUNTIME_VOCABULARIES = ["manufacturer", "active_ingredient"] as const;
+
+export type RuntimeVocabulary = (typeof RUNTIME_VOCABULARIES)[number];
+
 export interface FieldSpec {
   name: string;
   label: string;
-  type: "text" | "number" | "select" | "checkbox" | "textarea";
-  /** Key into the vocabularies from GET /enums; required for selects. */
+  type: "text" | "number" | "select" | "checkbox" | "textarea" | "date";
+  /**
+   * Key into the vocabularies map. Usually a controlled vocabulary from
+   * GET /enums, but two are built at runtime from what you have already
+   * entered in an earlier step -- "manufacturer" and "active_ingredient"
+   * (see the wizard's dynamic vocabularies). A cross-reference between two
+   * rows you just created cannot come from a static enum.
+   */
   vocabulary?: string;
   required?: boolean;
   help?: string;
@@ -142,6 +160,13 @@ export const CHILD_STEPS: ChildStepSpec[] = [
         type: "select",
         vocabulary: "compendial_status",
       },
+      {
+        name: "manufacturer_id",
+        label: "Made by",
+        type: "select",
+        vocabulary: "manufacturer",
+        help: "Required (rule R17): the eCTD backbone cannot name a drug substance without its manufacturer. Pick the API site, not the finished-product one (rule R09).",
+      },
     ],
   },
   {
@@ -195,6 +220,44 @@ export const CHILD_STEPS: ChildStepSpec[] = [
     ],
   },
   {
+    id: "batch-formula",
+    title: "Batch formula",
+    addLabel: "Add formula line",
+    blurb:
+      "One line per component of the manufacturing batch. Active lines are reconciled against the declared strength and salt factor (rule R04) — this is the arithmetic a reviewer redoes by hand.",
+    summarise: (row) =>
+      `${row.component} — ${row.qty_per_unit_mg} mg/unit`,
+    fields: [
+      { name: "component", label: "Component", type: "text", required: true },
+      { name: "spec", label: "Specification", type: "text", required: true, placeholder: "BP" },
+      {
+        name: "qty_per_unit_mg",
+        label: "Quantity per unit (mg)",
+        type: "number",
+        required: true,
+      },
+      {
+        name: "batch_size_units",
+        label: "Batch size (units)",
+        type: "number",
+        required: true,
+      },
+      {
+        name: "declared_batch_qty_kg",
+        label: "Declared batch quantity (kg)",
+        type: "number",
+      },
+      { name: "is_active", label: "This line is an active ingredient", type: "checkbox" },
+      {
+        name: "active_ingredient_id",
+        label: "Which active",
+        type: "select",
+        vocabulary: "active_ingredient",
+        help: "Only for an active line — it is what lets rule R04 check the salt-to-base arithmetic.",
+      },
+    ],
+  },
+  {
     id: "stability",
     title: "Stability studies",
     addLabel: "Add stability study",
@@ -229,6 +292,73 @@ export const CHILD_STEPS: ChildStepSpec[] = [
         type: "textarea",
         required: true,
         placeholder: "Within specification through 24 months.",
+      },
+    ],
+  },
+  {
+    id: "clinical",
+    title: "Clinical",
+    addLabel: "Add clinical entry",
+    blurb:
+      "A generic filing has to show bioequivalence against the reference product (rule R06). Literature and clinical studies go here too.",
+    summarise: (row) =>
+      [row.kind, row.reference_product].filter(Boolean).join(" — "),
+    fields: [
+      {
+        name: "kind",
+        label: "Kind",
+        type: "select",
+        vocabulary: "clinical_kind",
+        required: true,
+      },
+      {
+        name: "reference_product",
+        label: "Reference product",
+        type: "text",
+        placeholder: "Amoxil 500 mg capsules",
+      },
+      {
+        name: "summary",
+        label: "Summary",
+        type: "textarea",
+        required: true,
+        placeholder: "Single-dose crossover study; 90% CI within 80–125%.",
+      },
+    ],
+  },
+  {
+    id: "certificates",
+    title: "Certificates",
+    addLabel: "Add certificate",
+    blurb:
+      "Proof issued by someone else — a regulator, EDQM, a lab. The platform never generates these; recording one here reserves its place in the package and lets the rules tell you when it is missing or expired. A NAFDAC filing needs a CPP (rule R13).",
+    summarise: (row) =>
+      [row.certificate_type, row.certificate_number, row.expiry_date && `expires ${row.expiry_date}`]
+        .filter(Boolean)
+        .join(" — "),
+    fields: [
+      {
+        name: "certificate_type",
+        label: "Type",
+        type: "select",
+        vocabulary: "certificate_type",
+        required: true,
+      },
+      { name: "issuing_authority", label: "Issuing authority", type: "text" },
+      { name: "certificate_number", label: "Certificate number", type: "text" },
+      { name: "issue_date", label: "Issue date", type: "date" },
+      {
+        name: "expiry_date",
+        label: "Expiry date",
+        type: "date",
+        help: "Rule R13 checks the date, not just the row — an expired certificate still blocks export.",
+      },
+      {
+        name: "manufacturer_id",
+        label: "Site (GMP certificates only)",
+        type: "select",
+        vocabulary: "manufacturer",
+        help: "A GMP certificate is site-specific; a CPP or CEP is about the product generally — leave this empty for those.",
       },
     ],
   },
