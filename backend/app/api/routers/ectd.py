@@ -18,23 +18,24 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, require_project_owner
+from app.api.overrides import active_overrides
 from app.api.loading import READINESS_LOAD_OPTIONS
 from app.assembly.assemble import AssemblyBlockedError
 from app.ectd.build import build_ectd_sequence
 from app.ectd.report import SequenceNotBuiltError, validate_ectd_sequence
-from app.models import Project, Sequence, ValidationOverride
-from app.schemas.ectd import EctdBuildResponse, EctdValidationResponse, FindingRead
+from app.models import Project, Sequence
+from app.schemas.ectd import (
+    EctdBuildResponse,
+    EctdValidationResponse,
+    FindingRead,
+    OverrideSummaryRead,
+)
 
 router = APIRouter(
     prefix="/projects/{project_id}",
     tags=["ectd"],
     dependencies=[Depends(require_project_owner)],
 )
-
-
-async def _overridden_rule_ids(db: AsyncSession, project_id: uuid.UUID) -> frozenset[str]:
-    stmt = select(ValidationOverride.rule_id).where(ValidationOverride.project_id == project_id)
-    return frozenset((await db.scalars(stmt)).all())
 
 
 async def _get_project_and_sequence(
@@ -59,7 +60,8 @@ async def build_ectd(
     project_id: uuid.UUID, sequence_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> EctdBuildResponse:
     project, sequence = await _get_project_and_sequence(db, project_id, sequence_id)
-    overridden = await _overridden_rule_ids(db, project_id)
+    overrides = await active_overrides(db, project_id)
+    overridden = frozenset(o.rule_id for o in overrides)
 
     try:
         result = await build_ectd_sequence(db, project, sequence, overridden_rule_ids=overridden)
@@ -74,6 +76,7 @@ async def build_ectd(
         storage_key=result.storage_key,
         sequence_number=result.sequence_number,
         operations=result.operations,
+        overrides=[OverrideSummaryRead(rule_id=o.rule_id, reason=o.reason) for o in overrides],
     )
 
 

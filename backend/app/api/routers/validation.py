@@ -6,12 +6,14 @@ human override with a logged reason exists)."""
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, require_project_owner
+from app.api.overrides import active_override_rule_ids
 from app.api.loading import READINESS_LOAD_OPTIONS
 from app.models import Project, User, ValidationOverride
 from app.schemas.validation import (
@@ -38,15 +40,14 @@ async def _get_project_or_404(project_id: uuid.UUID, db: AsyncSession) -> Projec
     return project
 
 
-async def _overridden_rule_ids(db: AsyncSession, project_id: uuid.UUID) -> frozenset[str]:
-    stmt = select(ValidationOverride.rule_id).where(ValidationOverride.project_id == project_id)
-    return frozenset((await db.scalars(stmt)).all())
-
-
 def _to_override_read(override: ValidationOverride) -> ValidationOverrideRead:
     return ValidationOverrideRead(
         id=str(override.id),
         project_id=str(override.project_id),
+        withdrawn_at=override.withdrawn_at,
+        withdrawn_by_id=(
+            str(override.withdrawn_by_id) if override.withdrawn_by_id is not None else None
+        ),
         rule_id=override.rule_id,
         reason=override.reason,
         created_by_id=str(override.created_by_id),
@@ -58,7 +59,7 @@ async def get_readiness(
     project_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> ReadinessResponse:
     project = await _get_project_or_404(project_id, db)
-    overridden = await _overridden_rule_ids(db, project_id)
+    overridden = await active_override_rule_ids(db, project_id)
     report = run_all(project)
     return ReadinessResponse(
         is_exportable=report.is_exportable(overridden),
@@ -78,9 +79,6 @@ async def create_override(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ValidationOverrideRead:
-    if await db.scalar(select(Project.id).where(Project.id == project_id)) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-
     override = ValidationOverride(
         project_id=project_id,
         rule_id=payload.rule_id,
@@ -89,6 +87,42 @@ async def create_override(
     )
     db.add(override)
     await db.commit()
+    return _to_override_read(override)
+
+
+@router.post(
+    "/validation-overrides/{override_id}:withdraw",
+    response_model=ValidationOverrideRead,
+)
+async def withdraw_override(
+    project_id: uuid.UUID,
+    override_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ValidationOverrideRead:
+    """Retract an override without erasing it.
+
+    WHY not DELETE: the row IS the audit trail. An override that can only
+    be created and never taken back makes people avoid recording the
+    honest one, and deleting it would destroy the record that a human
+    once decided this -- and their reason. Withdrawal is therefore a new
+    fact written on the same row; the rule starts blocking export again
+    the moment it lands (see active_override_rule_ids).
+    """
+    stmt = select(ValidationOverride).where(
+        ValidationOverride.id == override_id,
+        ValidationOverride.project_id == project_id,
+    )
+    override = await db.scalar(stmt)
+    if override is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Override not found")
+    if override.withdrawn_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "That override was already withdrawn")
+
+    override.withdrawn_at = datetime.now(timezone.utc)
+    override.withdrawn_by_id = user.id
+    await db.commit()
+    await db.refresh(override)
     return _to_override_read(override)
 
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from datetime import datetime
+
+from pydantic import BaseModel, Field
 
 from app.validation.engine import Severity
 
@@ -26,7 +28,13 @@ class ReadinessResponse(BaseModel):
 
 class ValidationOverrideCreate(BaseModel):
     rule_id: str
-    reason: str
+    # WHY a minimum length (P15c): this reason is the entire control on an
+    # override -- the platform lets a known regulatory error through
+    # because a human justified it. "n/a" is not a justification, and a
+    # free-text field with no floor collects exactly that. Deliberately
+    # modest: long enough to refuse a shrug, short enough not to invite
+    # padding.
+    reason: str = Field(min_length=20)
 
 
 class ValidationOverrideRead(BaseModel):
@@ -35,3 +43,7 @@ class ValidationOverrideRead(BaseModel):
     rule_id: str
     reason: str
     created_by_id: str
+    # Null while the override still stands. A withdrawn one keeps its
+    # original reason -- see the model's WHY.
+    withdrawn_at: datetime | None = None
+    withdrawn_by_id: str | None = None

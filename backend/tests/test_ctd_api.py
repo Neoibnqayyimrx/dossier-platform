@@ -39,3 +39,52 @@ async def test_build_ctd_409s_when_validation_has_unresolved_errors(auth_client,
 async def test_build_ctd_missing_project_404s(auth_client):
     resp = await auth_client.post("/projects/00000000-0000-0000-0000-000000000000/build/ctd")
     assert resp.status_code == 404
+
+
+async def test_a_clean_build_reports_no_overrides(auth_client, session_factory):
+    project_id = await _seed_project(session_factory, auth_client.user_id, buggy=False)
+    resp = await auth_client.post(f"/projects/{project_id}/build/ctd")
+    assert resp.json()["overrides"] == []
+
+
+async def test_a_build_names_the_checks_that_were_waived(auth_client, session_factory):
+    """P15c: a package assembled over a waived ERROR looks exactly like one
+    that passed cleanly. Until now the override lived only in the database,
+    so whoever downloaded the ZIP had no way to know a deterministic check
+    had been set aside for it."""
+    project_id = await _seed_project(session_factory, auth_client.user_id, buggy=True)
+    readiness = (await auth_client.get(f"/projects/{project_id}/readiness")).json()
+    error_rule_ids = {f["rule_id"] for f in readiness["findings"] if f["severity"] == "ERROR"}
+    for rule_id in error_rule_ids:
+        await auth_client.post(
+            f"/projects/{project_id}/validation-overrides",
+            json={"rule_id": rule_id, "reason": "Accepted by the QA lead for this filing."},
+        )
+
+    resp = await auth_client.post(f"/projects/{project_id}/build/ctd")
+    assert resp.status_code == 201
+    reported = {o["rule_id"] for o in resp.json()["overrides"]}
+    assert reported == error_rule_ids
+    assert all(o["reason"] for o in resp.json()["overrides"])
+
+
+async def test_a_withdrawn_override_no_longer_lets_a_build_through(auth_client, session_factory):
+    project_id = await _seed_project(session_factory, auth_client.user_id, buggy=True)
+    readiness = (await auth_client.get(f"/projects/{project_id}/readiness")).json()
+    error_rule_ids = {f["rule_id"] for f in readiness["findings"] if f["severity"] == "ERROR"}
+    overrides = [
+        (
+            await auth_client.post(
+                f"/projects/{project_id}/validation-overrides",
+                json={"rule_id": rule_id, "reason": "Accepted by the QA lead for this filing."},
+            )
+        ).json()
+        for rule_id in error_rule_ids
+    ]
+    assert (await auth_client.post(f"/projects/{project_id}/build/ctd")).status_code == 201
+
+    await auth_client.post(
+        f"/projects/{project_id}/validation-overrides/{overrides[0]['id']}:withdraw"
+    )
+    blocked = await auth_client.post(f"/projects/{project_id}/build/ctd")
+    assert blocked.status_code == 409

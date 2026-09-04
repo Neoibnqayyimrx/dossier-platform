@@ -91,3 +91,84 @@ async def test_list_overrides_returns_the_logged_reason(auth_client, session_fac
     assert row["rule_id"] == "R01"
     assert row["reason"] == "Known issue, accepted by QA lead."
     assert row["created_by_id"]
+
+
+# ---- P15c: a reason with a floor, and a way back ----------------------------
+
+
+async def test_a_shrug_is_not_a_reason(auth_client, session_factory):
+    """The reason is the ENTIRE control on an override -- the platform lets
+    a known regulatory error through because a human justified it. A
+    free-text field with no floor collects "n/a"."""
+    project_id = await _seed_project(session_factory, auth_client.user_id, buggy=True)
+    resp = await auth_client.post(
+        f"/projects/{project_id}/validation-overrides",
+        json={"rule_id": "R01", "reason": "n/a"},
+    )
+    assert resp.status_code == 422
+    assert "reason" in resp.json()["error"]["message"]
+
+
+async def test_withdrawing_an_override_reinstates_the_block(auth_client, session_factory):
+    project_id = await _seed_project(session_factory, auth_client.user_id, buggy=True)
+    before = (await auth_client.get(f"/projects/{project_id}/readiness")).json()
+    error_rule_ids = {f["rule_id"] for f in before["findings"] if f["severity"] == "ERROR"}
+
+    created = []
+    for rule_id in error_rule_ids:
+        resp = await auth_client.post(
+            f"/projects/{project_id}/validation-overrides",
+            json={"rule_id": rule_id, "reason": "QA reviewed and accepted the risk."},
+        )
+        created.append(resp.json())
+    assert (await auth_client.get(f"/projects/{project_id}/readiness")).json()["is_exportable"]
+
+    withdrawn = await auth_client.post(
+        f"/projects/{project_id}/validation-overrides/{created[0]['id']}:withdraw"
+    )
+    assert withdrawn.status_code == 200
+    assert withdrawn.json()["withdrawn_at"] is not None
+    assert withdrawn.json()["withdrawn_by_id"] is not None
+    # The original decision survives its own withdrawal -- that is the
+    # point of not deleting the row.
+    assert withdrawn.json()["reason"] == "QA reviewed and accepted the risk."
+
+    after = (await auth_client.get(f"/projects/{project_id}/readiness")).json()
+    assert after["is_exportable"] is False
+    assert created[0]["rule_id"] not in after["overridden_rule_ids"]
+
+
+async def test_withdrawing_twice_is_a_conflict(auth_client, session_factory):
+    project_id = await _seed_project(session_factory, auth_client.user_id, buggy=True)
+    override = (
+        await auth_client.post(
+            f"/projects/{project_id}/validation-overrides",
+            json={"rule_id": "R01", "reason": "Known issue, accepted by the QA lead."},
+        )
+    ).json()
+
+    first = await auth_client.post(
+        f"/projects/{project_id}/validation-overrides/{override['id']}:withdraw"
+    )
+    second = await auth_client.post(
+        f"/projects/{project_id}/validation-overrides/{override['id']}:withdraw"
+    )
+    assert first.status_code == 200
+    assert second.status_code == 409
+
+
+async def test_a_withdrawn_override_is_still_listed(auth_client, session_factory):
+    """It has to be: a build that happened while it stood is only
+    explicable if the record of it survives."""
+    project_id = await _seed_project(session_factory, auth_client.user_id, buggy=True)
+    override = (
+        await auth_client.post(
+            f"/projects/{project_id}/validation-overrides",
+            json={"rule_id": "R01", "reason": "Known issue, accepted by the QA lead."},
+        )
+    ).json()
+    await auth_client.post(f"/projects/{project_id}/validation-overrides/{override['id']}:withdraw")
+
+    [row] = (await auth_client.get(f"/projects/{project_id}/validation-overrides")).json()
+    assert row["id"] == override["id"]
+    assert row["withdrawn_at"] is not None
