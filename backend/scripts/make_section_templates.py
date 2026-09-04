@@ -125,6 +125,47 @@ def build_3_2_s_4_1() -> Path:
     return path
 
 
+def build_na_statement() -> Path:
+    """The not-applicable statement — ONE template for all 14 such leaves.
+
+    WHY one template rather than a template per section: every statement
+    says the same three things (which section, that it is not applicable,
+    and under which guideline). The only variables are the section number,
+    its title, and the citation, all of which arrive in the context. A
+    second template would be a second thing to keep in sync for no gain --
+    the same "resist a second emit path" reasoning that keeps these leaves
+    in the ordinary section registry rather than in a bespoke pipeline.
+
+    WHY the citation is a required-looking, conspicuous field rather than
+    optional prose: a statement that a section does not apply is a
+    REGULATORY CLAIM. Unsupported, it reads to an assessor as an omission
+    with a covering note. Cited, it reads as a scoped dossier. That
+    difference is the whole point of the leaf.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+
+    doc.add_paragraph("This section is not applicable to the present application.")
+    doc.add_paragraph("Basis: {{ citation }}")
+
+    scope = doc.add_paragraph()
+    scope.add_run(
+        "Submission type: {{ submission_type }}. Applicant: {{ applicant_name }}. "
+        "Product: {{ product_name }}."
+    ).font.size = Pt(9)
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "This statement is generated from the applicability rules declared for this "
+        "submission type and region. It is filed in place of the section's content so "
+        "that the exclusion is explicit rather than inferred from an empty folder."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "na_statement.docx"
+    doc.save(path)
+    return path
+
+
 if __name__ == "__main__":
-    for built in (build_3_2_s_1(), build_3_2_s_4_1()):
+    for built in (build_3_2_s_1(), build_3_2_s_4_1(), build_na_statement()):
         print(f"wrote {built}")

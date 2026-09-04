@@ -19,6 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.target_toc import na_statement_leaves
+
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
 
 
@@ -52,6 +54,14 @@ class SectionSpec:
     # and `manufacturer` both #REQUIRED. None means the section appears
     # exactly once for the project, which is every section built before P13.
     repeat_per: str | None = None
+    # P17: True when this section's entire content is a statement that the
+    # section does not apply. Such a section is registered like any other --
+    # so assembly, folder placement, the TOC and the eCTD backbone pick it
+    # up with no special case -- but it is EMITTED only for projects whose
+    # applicability says so (see app/templating/instances.py). Every other
+    # section is emitted for every project, which is exactly the assumption
+    # P17 removed.
+    is_statement: bool = False
 
     @property
     def template_path(self) -> Path:
@@ -120,6 +130,37 @@ SECTIONS: dict[str, SectionSpec] = {
         structure_images_slot="structures",
     ),
 }
+
+# The not-applicable statements, registered from the target TOC rather than
+# typed out fourteen times (P17).
+#
+# WHY generated into the same dict instead of kept in a parallel one: every
+# consumer of SECTIONS -- assembly, the /sections endpoint, the eCTD
+# backbone -- would otherwise need to learn about a second registry, and the
+# first one to forget would silently drop the statements from its output.
+# One registry, one iteration, and a statement leaf is just a section whose
+# template happens to be short.
+#
+# They are appended AFTER the hand-written entries, which is fine because
+# nothing depends on this dict's order: CTD folder placement comes from
+# app.ctd.structure and eCTD sibling order from index_xml's _CHILD_ORDER,
+# both of which encode the real declared order rather than trusting this
+# one (see index_xml's module docstring on exactly that trap).
+NA_STATEMENT_TEMPLATE = "na_statement.docx"
+
+for _leaf in na_statement_leaves():
+    SECTIONS[_leaf.number] = SectionSpec(
+        number=_leaf.number,
+        title=_leaf.title,
+        template_filename=NA_STATEMENT_TEMPLATE,
+        # No narrative slots, deliberately. A statement of inapplicability is
+        # a regulatory claim whose wording comes from the guideline, not from
+        # a model -- this is the clearest case in the whole platform of the
+        # determinism boundary (AGENTS.md §5).
+        narrative_slots=[],
+        grounding_query=None,
+        is_statement=True,
+    )
 
 
 def get_section(number: str) -> SectionSpec:

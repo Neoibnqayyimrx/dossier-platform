@@ -87,6 +87,27 @@ def build_examox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Proje
     )
     attach_owner(product, owner_id)
     project = Project(name="EXAMOX renewal", region=Region.NAFDAC, product=product)
+    # P17: the scoping questions this filing answers. A conventional generic
+    # claims none of them -- no prior marketing authorization, no CEP or
+    # APIMF for the drug substance, no biowaiver in place of an in vivo
+    # study, no in-house excipient methods, no novel excipient, no
+    # appendices, no BA-only study, no IVIVC. Recorded rather than left
+    # blank because a COMPLETE dossier has answered them: rule R19 warns
+    # about silence precisely because an unanswered biowaiver question is
+    # how a claim goes missing, and a fixture that models a finished filing
+    # should not be permanently mid-question.
+    project.condition_answers = {
+        "1.2.13": False,
+        "1.2.15": False,
+        "1.2.16": False,
+        "1.2.17": False,
+        "1.2.18": False,
+        "3.2.P.4.3": False,
+        "3.2.P.4.6": False,
+        "3.2.A": False,
+        "5.3.1.1": False,
+        "5.3.1.3": False,
+    }
 
     # Module 1 (P08): who is filing, and this filing's signed/notarized
     # administrative declarations -- unrelated completeness facts about the

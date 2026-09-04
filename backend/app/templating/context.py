@@ -15,6 +15,7 @@ which would raise a Jinja Undefined error instead of rendering a placeholder.
 
 from __future__ import annotations
 
+from app.ctd.region_profiles import resolve_applicability
 from app.models.project import Project
 from app.templating.registry import get_section
 
@@ -33,6 +34,35 @@ def build_context(
         slot: narrative.get(slot) if narrative else None for slot in section.narrative_slots
     }
     product = project.product
+
+    if section.is_statement:
+        # P17. WHY this branch is FIRST and keyed on the spec rather than on
+        # a list of section numbers: there are fourteen of these and there
+        # will be more, and a `section_number in (...)` tuple here would be a
+        # third place the set of statements is written down (after the target
+        # TOC and the registry). Ask the spec what kind of section it is.
+        resolved = resolve_applicability(project).get(section_number)
+        return {
+            "section_number": section_number,
+            "section_title": section.title,
+            # The citation is the load-bearing sentence. If the applicability
+            # table has none, say so LOUDLY in the document rather than
+            # printing a bare "not applicable" -- an uncited exclusion is the
+            # thing an assessor queries, so it should be impossible to file
+            # one by accident. Rendering the marker also means the leaf still
+            # builds, so the gap shows up in the package under review rather
+            # than as a crash at build time.
+            "citation": (
+                resolved.section.citation
+                if resolved is not None and resolved.section.citation
+                else "[[NO GUIDELINE CITED -- applicability table incomplete]]"
+            ),
+            "submission_type": project.submission_type.value,
+            "applicant_name": (
+                project.applicant.company_name if project.applicant else "[[NOT YET ON FILE]]"
+            ),
+            "product_name": product.brand_name,
+        }
 
     if section_number == "1.0":
         return {

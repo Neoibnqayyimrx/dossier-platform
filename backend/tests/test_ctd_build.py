@@ -132,7 +132,14 @@ async def test_toc_lists_every_placed_document(db_factory):
         result = await build_ctd_package(db, project, storage=storage)
         zip_bytes = storage.get(result.storage_key)
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            toc_text = PdfReader(io.BytesIO(zf.read("toc.pdf"))).pages[0].extract_text()
+            # EVERY page, not just the first. P17 added fourteen
+            # not-applicable statement leaves, which pushed the table onto a
+            # second page -- and a one-page read then reported the last
+            # entries as missing from a TOC that listed them correctly. The
+            # claim being made here is "listed in the table of contents",
+            # which was never a claim about page one.
+            reader = PdfReader(io.BytesIO(zf.read("toc.pdf")))
+            toc_text = "".join(page.extract_text() for page in reader.pages)
         # A long path can wrap across lines within its table cell -- PDF
         # text extraction then reports it with embedded line breaks. No
         # extra characters are introduced by wrapping, so stripping

@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from app.ctd.region_profiles import REGION_PROFILES
+from app.ctd.region_profiles import REGION_PROFILES, Applicability, resolve_applicability
 from app.validation.engine import Finding, Severity, rule
 from app.models import (
     DECLARATIONS_REQUIRING_NOTARIZATION,
@@ -550,3 +550,76 @@ def drug_substance_manufacturer_named(project) -> list[Finding]:
                 )
             )
     return out
+
+
+@rule("R18")
+def not_applicable_section_has_no_content(project) -> list[Finding]:
+    """A section declared NOT APPLICABLE must not also carry content (P17).
+
+    This is a contradiction the dossier itself would state out loud: the
+    package would contain both a page saying "Module 4 is not applicable per
+    the multisource guideline" and Module 4 material. An assessor reading
+    both cannot tell which one the applicant means, and the charitable
+    reading -- that the statement is boilerplate nobody checked -- damages
+    every other declaration in the filing.
+
+    ERROR rather than WARNING for that reason: it is not an omission, it is
+    a self-contradiction, and the applicant has to decide which of the two
+    is true before this can be exported.
+    """
+    applicability = resolve_applicability(project)
+    out: list[Finding] = []
+    for section in project.sections:
+        resolved = applicability.get(section.number)
+        if resolved is None or not resolved.owes_statement:
+            continue
+        if not (section.narrative_text or "").strip():
+            continue
+        basis = (
+            f"declared not applicable ({resolved.section.citation})"
+            if resolved.section.status is Applicability.NOT_APPLICABLE
+            else f"answered 'no' to the condition: {resolved.section.condition}"
+        )
+        out.append(
+            Finding(
+                "R18",
+                Severity.ERROR,
+                "applicability",
+                f"Section {section.number} is {basis}, but content is on file for it. "
+                f"A dossier cannot both exclude a section and fill it -- remove the "
+                f"content, or change the section's applicability.",
+                section=section.number,
+            )
+        )
+    return out
+
+
+@rule("R19")
+def conditional_sections_are_answered(project) -> list[Finding]:
+    """Every CONDITIONAL section needs a yes/no from the filer (P17).
+
+    WARNING, not ERROR, and the distinction is the whole point. Only the
+    applicant knows whether their drug substance is covered by a CEP or
+    whether they are claiming a biowaiver; the platform cannot compute it,
+    and refusing to export until every question is answered would make an
+    unrelated filing unshippable over a question that genuinely does not
+    apply. But silence must not be invisible either -- an unanswered 1.2.17
+    is exactly how a biowaiver claim goes quietly missing from a dossier
+    that otherwise validates clean, and the applicant discovers it from the
+    agency rather than from us.
+
+    So: surfaced on every readiness check, never a gate.
+    """
+    return [
+        Finding(
+            "R19",
+            Severity.WARNING,
+            "applicability",
+            f"Section {resolved.number} ({resolved.section.title}) is conditional and "
+            f"unanswered: {resolved.section.condition}. Answer it -- 'no' files a "
+            f"not-applicable statement, 'yes' means the section owes content.",
+            section=resolved.number,
+        )
+        for resolved in resolve_applicability(project).values()
+        if resolved.is_unanswered_condition
+    ]

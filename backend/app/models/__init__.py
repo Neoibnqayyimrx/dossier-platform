@@ -30,6 +30,7 @@ from app.models.enums import (
     Region,
     RegistrationType,
     StabilityStudyType,
+    SubmissionType,
 )
 from app.models.product import Product
 from app.models.manufacturer import Manufacturer
@@ -72,6 +73,7 @@ __all__ = [
     "Region",
     "RegistrationType",
     "StabilityStudyType",
+    "SubmissionType",
     # entities
     "Product",
     "Manufacturer",

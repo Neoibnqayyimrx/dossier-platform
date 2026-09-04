@@ -26,6 +26,25 @@ class Region(str, enum.Enum):
     EU = "EU"
 
 
+class SubmissionType(str, enum.Enum):
+    """What KIND of application this filing is — which decides how much of
+    the CTD it owes (P17).
+
+    WHY this exists as a controlled vocabulary rather than being inferred:
+    a multisource (generic) dossier does not repeat the originator's animal
+    studies, so Module 4 and Modules 2.4-2.7 are *declared* not applicable
+    and owe a statement citing the guideline. A new chemical entity owes
+    those same modules in full. Until this enum existed, the difference was
+    expressed only by which sections happened to be registered, which is a
+    difference the platform could not be told about.
+
+    It belongs on Project, not Product — see the P17 build-log entry.
+    """
+
+    MULTISOURCE_GENERIC = "multisource-generic"
+    NEW_CHEMICAL_ENTITY = "new-chemical-entity"
+
+
 class RegistrationType(str, enum.Enum):
     NEW = "new"
     RENEWAL = "renewal"

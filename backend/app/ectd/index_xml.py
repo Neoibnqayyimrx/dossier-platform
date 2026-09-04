@@ -55,6 +55,77 @@ ICH_HEADING_PATH: dict[str, tuple[str, ...]] = {
         "m3-2-p-8-stability",
         "m3-2-p-8-1-stability-summary-and-conclusion",
     ),
+    # P17: the not-applicable statements. Each is filed under the heading
+    # the section itself would occupy -- the eCTD equivalent of putting the
+    # statement in the empty folder. Element names are taken verbatim from
+    # ich-ectd-3-2.dtd; a typo here fails DTD validation loudly, which is
+    # the behaviour we want.
+    "2.4": ("m2-common-technical-document-summaries", "m2-4-nonclinical-overview"),
+    "2.5": ("m2-common-technical-document-summaries", "m2-5-clinical-overview"),
+    "2.6": (
+        "m2-common-technical-document-summaries",
+        "m2-6-nonclinical-written-and-tabulated-summaries",
+    ),
+    "2.7": ("m2-common-technical-document-summaries", "m2-7-clinical-summary"),
+    "3.2.P.4.6": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-4-control-of-excipients",
+        "m3-2-p-4-6-novel-excipients",
+    ),
+    "3.2.A": ("m3-quality", "m3-2-body-of-data", "m3-2-a-appendices"),
+    # The module-level statement hangs directly off m4, since it speaks for
+    # the whole module rather than for 4.2 or 4.3 (see the "4.0" note in
+    # app.ctd.structure).
+    "4.0": ("m4-nonclinical-study-reports",),
+    "5.3.1.3": (
+        "m5-clinical-study-reports",
+        "m5-3-clinical-study-reports",
+        "m5-3-1-reports-of-biopharmaceutic-studies",
+        "m5-3-1-3-in-vitro-in-vivo-correlation-study-reports",
+    ),
+    "5.3.2": (
+        "m5-clinical-study-reports",
+        "m5-3-clinical-study-reports",
+        "m5-3-2-reports-of-studies-pertinent-to-pharmacokinetics-using-human-biomaterials",
+    ),
+    "5.3.3": (
+        "m5-clinical-study-reports",
+        "m5-3-clinical-study-reports",
+        "m5-3-3-reports-of-human-pharmacokinetics-pk-studies",
+    ),
+    "5.3.4": (
+        "m5-clinical-study-reports",
+        "m5-3-clinical-study-reports",
+        "m5-3-4-reports-of-human-pharmacodynamics-pd-studies",
+    ),
+    # 5.3.5 is the exception, and it is an instructive one. The DTD declares
+    # `m5-3-5-reports-of-efficacy-and-safety-studies*` -- starred, repeating
+    # PER INDICATION, with `indication` #REQUIRED -- exactly the shape
+    # `m3-2-s-drug-substance` has for substances. A not-applicable statement
+    # has no indication to name, and inventing one ("not applicable") would
+    # put a fabricated regulatory fact into the backbone, which is precisely
+    # the class of thing this platform refuses to do.
+    #
+    # So the statement is filed one level up, as a leaf directly under
+    # m5-3, whose content model begins with `leaf*` and permits exactly
+    # this. It reads correctly too: the statement speaks for the whole of
+    # 5.3.5, not for one indication within it -- the same reasoning that
+    # gives Module 4 a single "4.0" statement. Its CTD folder is unchanged;
+    # only the backbone placement differs, because only the backbone has
+    # this constraint.
+    "5.3.5": ("m5-clinical-study-reports", "m5-3-clinical-study-reports"),
+    "5.3.6": (
+        "m5-clinical-study-reports",
+        "m5-3-clinical-study-reports",
+        "m5-3-6-reports-of-postmarketing-experience",
+    ),
+    "5.3.7": (
+        "m5-clinical-study-reports",
+        "m5-3-clinical-study-reports",
+        "m5-3-7-case-report-forms-and-individual-patient-listings",
+    ),
 }
 
 # Sections repeated per drug substance: the heading chain BELOW the
@@ -106,6 +177,37 @@ _CHILD_ORDER: dict[str, tuple[str, ...]] = {
         "m3-2-p-8-1-stability-summary-and-conclusion",
         "m3-2-p-8-2-post-approval-stability-protocol-and-stability-commitment",
         "m3-2-p-8-3-stability-data",
+    ),
+    # P17: Module 5 gains six not-applicable statements at once, which makes
+    # m5-3 the first parent whose children arrive in an order that has
+    # nothing to do with the DTD's -- exactly the trap this table exists for.
+    "m5-clinical-study-reports": (
+        "m5-2-tabular-listing-of-all-clinical-studies",
+        "m5-3-clinical-study-reports",
+        "m5-4-literature-references",
+    ),
+    "m5-3-clinical-study-reports": (
+        "m5-3-1-reports-of-biopharmaceutic-studies",
+        "m5-3-2-reports-of-studies-pertinent-to-pharmacokinetics-using-human-biomaterials",
+        "m5-3-3-reports-of-human-pharmacokinetics-pk-studies",
+        "m5-3-4-reports-of-human-pharmacodynamics-pd-studies",
+        "m5-3-5-reports-of-efficacy-and-safety-studies",
+        "m5-3-6-reports-of-postmarketing-experience",
+        "m5-3-7-case-report-forms-and-individual-patient-listings",
+    ),
+    "m5-3-1-reports-of-biopharmaceutic-studies": (
+        "m5-3-1-1-bioavailability-study-reports",
+        "m5-3-1-2-comparative-ba-and-bioequivalence-study-reports",
+        "m5-3-1-3-in-vitro-in-vivo-correlation-study-reports",
+        "m5-3-1-4-reports-of-bioanalytical-and-analytical-methods-for-human-studies",
+    ),
+    "m3-2-p-4-control-of-excipients": (
+        "m3-2-p-4-1-specifications",
+        "m3-2-p-4-2-analytical-procedures",
+        "m3-2-p-4-3-validation-of-analytical-procedures",
+        "m3-2-p-4-4-justification-of-specifications",
+        "m3-2-p-4-5-excipients-of-human-or-animal-origin",
+        "m3-2-p-4-6-novel-excipients",
     ),
 }
 

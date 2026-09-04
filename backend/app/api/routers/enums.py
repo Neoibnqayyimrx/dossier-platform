@@ -37,6 +37,7 @@ from app.models.enums import (
     Region,
     RegistrationType,
     StabilityStudyType,
+    SubmissionType,
 )
 
 router = APIRouter(prefix="/enums", tags=["enums"])
@@ -46,6 +47,7 @@ router = APIRouter(prefix="/enums", tags=["enums"])
 # machinery, never a user's choice.
 _VOCABULARIES: dict[str, type[Enum]] = {
     "region": Region,
+    "submission_type": SubmissionType,
     "registration_type": RegistrationType,
     "dosage_form": DosageForm,
     "legal_status": LegalStatus,

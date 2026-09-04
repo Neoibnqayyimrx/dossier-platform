@@ -93,6 +93,27 @@ def build_ampiclox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Pro
     )
     attach_owner(product, owner_id)
     project = Project(name="AMPICLOX new registration", region=Region.NAFDAC, product=product)
+    # P17: the scoping questions this filing answers. A conventional generic
+    # claims none of them -- no prior marketing authorization, no CEP or
+    # APIMF for the drug substance, no biowaiver in place of an in vivo
+    # study, no in-house excipient methods, no novel excipient, no
+    # appendices, no BA-only study, no IVIVC. Recorded rather than left
+    # blank because a COMPLETE dossier has answered them: rule R19 warns
+    # about silence precisely because an unanswered biowaiver question is
+    # how a claim goes missing, and a fixture that models a finished filing
+    # should not be permanently mid-question.
+    project.condition_answers = {
+        "1.2.13": False,
+        "1.2.15": False,
+        "1.2.16": False,
+        "1.2.17": False,
+        "1.2.18": False,
+        "3.2.P.4.3": False,
+        "3.2.P.4.6": False,
+        "3.2.A": False,
+        "5.3.1.1": False,
+        "5.3.1.3": False,
+    }
 
     # Administrative completeness, mirroring EXAMOX. WHY this fixture needs
     # it at all: without an applicant, declarations, a CPP and a GMP status,

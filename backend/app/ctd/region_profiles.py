@@ -1,4 +1,10 @@
-"""Region profile config for Module 1 (P08).
+"""Region profile config: Module 1 (P08) and applicability (P17).
+
+Two kinds of regulatory rule live here, for the same reason: both change
+when an agency changes its guideline, and both must be re-confirmable
+against that guideline by someone reading one file rather than by reading
+the builder. Module 1 says WHICH DOCUMENTS a region wants; the applicability
+table says WHICH SECTIONS a submission type owes at all.
 
 WHY this is config, not code branching in the builder: Module 1 is the one
 part of a CTD that genuinely varies by region (nafdac-vs-fda-ema-scope.md).
@@ -16,9 +22,15 @@ in `build.py`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import enum
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from app.models.enums import CertificateType, DeclarationType, Region
+from app.models.enums import CertificateType, DeclarationType, Region, SubmissionType
+from app.target_toc import TargetLeaf, load_target_leaves
+
+if TYPE_CHECKING:
+    from app.models.project import Project
 
 
 @dataclass(frozen=True)
@@ -29,6 +41,86 @@ class Module1Slot:
     section_number: str | None = None
     certificate_types: tuple[CertificateType, ...] = ()
     declaration_types: tuple[DeclarationType, ...] = ()
+
+
+class Applicability(str, enum.Enum):
+    """What a submission type says about one section (P17).
+
+    Three states, not two, and the third is the interesting one. REQUIRED
+    and NOT_APPLICABLE are both settled answers; CONDITIONAL is a QUESTION
+    the platform has to put to the filer, because only they know whether
+    their drug substance has a CEP or whether they are claiming a biowaiver.
+    Modelling it as a third state is what lets rule R19 notice that nobody
+    has answered -- the failure mode where a biowaiver claim quietly goes
+    missing from a dossier that otherwise validates clean.
+    """
+
+    REQUIRED = "required"
+    CONDITIONAL = "conditional"
+    NOT_APPLICABLE = "not-applicable"
+
+
+@dataclass(frozen=True)
+class SectionApplicability:
+    """One row of the applicability table: what this submission type says
+    about one section number."""
+
+    number: str
+    module: int
+    title: str
+    status: Applicability
+    # How the leaf comes into existence, per the target TOC's
+    # `production_types`. Carried so the project section list can tell
+    # "produced" from "a placeholder standing in for a document nobody has
+    # uploaded yet" without a second lookup.
+    production: str
+    # Set iff status is CONDITIONAL: the yes/no question to put to the filer.
+    condition: str | None = None
+    # Set iff status is NOT_APPLICABLE: the guideline that makes it so. This
+    # string is PRINTED in the statement leaf -- a declaration of
+    # inapplicability with no citation is just an absence with a covering
+    # note, which is what P17 exists to stop.
+    citation: str | None = None
+
+
+@dataclass(frozen=True)
+class ResolvedApplicability:
+    """A section's applicability for ONE project: the declared row above,
+    plus the filer's answer where the row asked a question."""
+
+    section: SectionApplicability
+    # None means unanswered. Only meaningful for a CONDITIONAL section.
+    answer: bool | None = None
+
+    @property
+    def number(self) -> str:
+        return self.section.number
+
+    @property
+    def is_unanswered_condition(self) -> bool:
+        return self.section.status is Applicability.CONDITIONAL and self.answer is None
+
+    @property
+    def owes_statement(self) -> bool:
+        """True when this project must PRINT a not-applicable statement here.
+
+        Two ways to arrive at one, and treating them identically downstream
+        is the point of this whole phase: a section the guideline excludes
+        outright, and a conditional section the filer has answered "no" to.
+        An unanswered condition owes nothing yet -- silence is not a "no",
+        and emitting a statement on the filer's behalf would put a claim in
+        the dossier they never made.
+        """
+        if self.section.status is Applicability.NOT_APPLICABLE:
+            return True
+        return self.section.status is Applicability.CONDITIONAL and self.answer is False
+
+    @property
+    def is_applicable(self) -> bool:
+        """Whether the project actually owes this section's real content."""
+        if self.section.status is Applicability.REQUIRED:
+            return True
+        return self.section.status is Applicability.CONDITIONAL and self.answer is True
 
 
 @dataclass(frozen=True)
@@ -50,9 +142,130 @@ class RegionProfile:
     required_certificate_types: tuple[CertificateType, ...] = ()
     required_declaration_types: tuple[DeclarationType, ...] = ()
 
+    # P17: submission type -> section number -> what this filing says about
+    # that section.
+    #
+    # WHY here, beside module1_slots, rather than in the section registry:
+    # for exactly the reason recorded at the top of this file. Applicability
+    # is a REGULATORY rule ("NAFDAC excuses a multisource filing from Module
+    # 4"), it changes when an agency changes its guideline, and it must be
+    # re-confirmable against that guideline by someone reading one file. The
+    # registry answers a different question -- "what can this platform
+    # render" -- and conflating the two is what made applicability implicit
+    # in which sections happened to be registered.
+    #
+    # Empty for a region whose applicability has not been established (EU
+    # today), which means "not modelled", not "everything is required" --
+    # same convention as the required_* lists above.
+    applicability: dict[SubmissionType, dict[str, SectionApplicability]] = field(
+        default_factory=dict
+    )
+
+    def applicability_for(self, submission_type: SubmissionType) -> dict[str, SectionApplicability]:
+        return self.applicability.get(submission_type, {})
+
+
+# The guideline the source dossier cites three times to scope itself out of
+# Modules 2.4-2.7, Module 4, and everything in 5.3 except 5.3.1.
+#
+# Matched as a PREFIX, not compared for equality: the YAML spells the same
+# citation two ways -- "...multisource (generic) pharmaceutical products"
+# for Modules 2 and 4, and "...multisource -- only 5.3.1 applicable" for
+# Module 5, because the Module 5 statement says something more specific.
+# Equality here silently left all six Module 5 leaves excused in a filing
+# that owes them, which is the failure this comment exists to prevent.
+MULTISOURCE_GUIDELINE_PREFIX = "NAFDAC guidelines for multisource"
+
+
+def _multisource_applicability() -> dict[str, SectionApplicability]:
+    """The NAFDAC multisource table, read from `docs/target-toc.yaml`.
+
+    Read, not retyped: the contract already records `applicable`,
+    `condition` and `not_applicable_reason` for all 98 leaves, and a
+    hand-copied second table would be a second truth about what a dossier
+    owes. See app/target_toc.py for why that file is allowed to be config.
+    """
+    table: dict[str, SectionApplicability] = {}
+    for leaf in load_target_leaves():
+        table[leaf.number] = SectionApplicability(
+            number=leaf.number,
+            module=leaf.module,
+            title=leaf.title,
+            status=_status_of(leaf),
+            production=leaf.production,
+            condition=leaf.condition,
+            citation=leaf.not_applicable_reason,
+        )
+    return table
+
+
+def _status_of(leaf: TargetLeaf) -> Applicability:
+    if leaf.applicable == "conditional":
+        return Applicability.CONDITIONAL
+    return Applicability.REQUIRED if leaf.applicable == "true" else Applicability.NOT_APPLICABLE
+
+
+def _excused_only_because_it_is_generic(section: SectionApplicability) -> bool:
+    """Is this leaf excused BY THE MULTISOURCE GUIDELINE specifically?
+
+    The qualifier matters: a leaf could in future be not applicable for some
+    other reason (a dosage form with no dissolution test, say), and that
+    exclusion would still hold for a new chemical entity. Only exclusions
+    that exist because the product is a generic get promoted.
+    """
+    return section.status is Applicability.NOT_APPLICABLE and (section.citation or "").startswith(
+        MULTISOURCE_GUIDELINE_PREFIX
+    )
+
+
+def _new_chemical_entity_applicability() -> dict[str, SectionApplicability]:
+    """The same section list, scoped for a full (non-generic) application.
+
+    DERIVED from the multisource table by promoting exactly the leaves the
+    multisource guideline excuses -- Modules 2.4-2.7, Module 4, and 5.3.2-
+    5.3.7 -- back to REQUIRED. A new chemical entity has no comparator to be
+    equivalent to, so it owes the nonclinical and clinical evidence in full.
+
+    WHY derive rather than hand-author a second full table: the derivation
+    states the ONE regulatory fact that distinguishes the two submission
+    types, and cannot drift from the multisource table when a leaf is added.
+    A hand-written 98-row twin would drift the first time someone edited one
+    of them.
+
+    WHY this deliberately stops there, rather than modelling an NCE filing
+    properly: nobody has confirmed the rest against NAFDAC's guidance for
+    full applications, and the honest scope of this entry is "prove the seam
+    works, and be obviously incomplete rather than quietly wrong" -- the same
+    call EU_PROFILE's empty requirement lists already make. It exists so the
+    day an NCE or an FDA filing arrives there is a switch to flip.
+    """
+    table: dict[str, SectionApplicability] = {}
+    for number, section in _multisource_applicability().items():
+        if _excused_only_because_it_is_generic(section):
+            # A promoted leaf is REQUIRED and, being applicable, owes real
+            # content rather than a statement -- so its production type is
+            # no longer `na_statement`. Saying so here is what stops the
+            # section list offering a "produced" tick for a statement that
+            # this submission type must not print.
+            section = SectionApplicability(
+                number=section.number,
+                module=section.module,
+                title=section.title,
+                status=Applicability.REQUIRED,
+                production="uploaded",
+                condition=None,
+                citation=None,
+            )
+        table[number] = section
+    return table
+
 
 NAFDAC_PROFILE = RegionProfile(
     region=Region.NAFDAC,
+    applicability={
+        SubmissionType.MULTISOURCE_GENERIC: _multisource_applicability(),
+        SubmissionType.NEW_CHEMICAL_ENTITY: _new_chemical_entity_applicability(),
+    },
     required_certificate_types=(CertificateType.CPP,),
     required_declaration_types=(
         DeclarationType.POWER_OF_ATTORNEY,
@@ -172,3 +385,38 @@ def get_region_profile(region: Region) -> RegionProfile:
     except KeyError:
         configured = ", ".join(r.value for r in REGION_PROFILES)
         raise KeyError(f"No CTD region profile configured for {region!r} yet ({configured} only)")
+
+
+def resolve_applicability(project: "Project") -> dict[str, ResolvedApplicability]:
+    """What THIS project says about every section, in target-TOC order.
+
+    The join between two things that are each meaningless alone: the region
+    profile's declared table (a regulatory rule) and the project's own
+    answers to the conditional questions (a filing decision only the filer
+    can make).
+
+    Everything downstream reads this and nothing re-derives it --
+    `app.templating.instances` to decide which statement leaves to emit,
+    rules R18/R19 to complain, and the project section list to draw the
+    screen. One resolution, three readers, no chance of the built package
+    and the screen describing different dossiers.
+    """
+    try:
+        profile = get_region_profile(project.region)
+    except KeyError:
+        # WHY this swallows what `get_region_profile` deliberately raises:
+        # the raise exists for BUILDERS -- asking an unconfigured region to
+        # produce a package must fail loudly rather than emit a guess. This
+        # function is also called by the validation rules, which run on every
+        # project including one targeting a region nobody has modelled yet
+        # (FDA today). "No profile" and "an empty table" mean the same thing
+        # to a reader of applicability: nothing is declared, so nothing is
+        # claimed -- exactly what EU_PROFILE's empty table already says. An
+        # unmodelled region must not make readiness crash.
+        return {}
+
+    answers = project.condition_answers or {}
+    return {
+        number: ResolvedApplicability(section=section, answer=answers.get(number))
+        for number, section in profile.applicability_for(project.submission_type).items()
+    }

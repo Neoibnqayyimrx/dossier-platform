@@ -26,6 +26,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from app.ctd.region_profiles import resolve_applicability
 from app.templating.registry import SECTIONS, SectionSpec
 
 if TYPE_CHECKING:
@@ -86,8 +87,25 @@ def expand_sections(project: "Project") -> list[SectionInstance]:
     the right place to complain about that -- not a blank PDF that looks
     like an answer.
     """
+    # P17: applicability is now DECLARED, so it is resolved once here and
+    # consulted per section, rather than being implicit in which sections
+    # happen to be registered.
+    applicability = resolve_applicability(project)
+
     instances: list[SectionInstance] = []
     for spec in SECTIONS.values():
+        if spec.is_statement:
+            # A statement leaf exists only for a project that actually owes
+            # the statement: the section is declared not applicable, or it
+            # is conditional and the filer has answered "no". A project that
+            # owes the section's real content, or that has not answered the
+            # question yet, gets nothing here -- R19 is what complains about
+            # the latter, and emitting a statement instead would put an
+            # unmade claim into the dossier.
+            resolved = applicability.get(spec.number)
+            if resolved is not None and resolved.owes_statement:
+                instances.append(SectionInstance(spec=spec))
+            continue
         if spec.repeat_per == REPEAT_PER_DRUG_SUBSTANCE:
             instances.extend(
                 SectionInstance(spec=spec, subject=api) for api in project.product.apis

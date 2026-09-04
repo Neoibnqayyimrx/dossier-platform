@@ -77,6 +77,9 @@ def producible_keys(sections: list[dict]) -> set[str]:
             "`uv run python -m scripts.check_target_toc`."
         ) from exc
 
+    # SECTIONS carries P17's statement leaves too -- they are registered
+    # like any other section, which is precisely the property that makes
+    # them visible here with no special case.
     keys = set(SECTIONS)
 
     # A slot backed by a rendered section carries its own number.
@@ -119,6 +122,16 @@ def resolve_status(entry: dict, producible: set[str]) -> str:
         # A slot for an uploaded leaf produces a placeholder, not the
         # document. Never DONE on a slot alone.
         return "placeholder" if is_producible else "missing"
+    if production == "na_statement":
+        # P17. WHY a statement counts as DONE while an `uploaded` leaf with
+        # a slot does not: they are opposite cases that look alike. A CPP
+        # placeholder is standing in for a document that must arrive from
+        # outside and has not; a not-applicable statement IS the document --
+        # there is nothing further to obtain, and the leaf is finished the
+        # moment the platform can render it with its citation. Refusing to
+        # credit it would leave the cheapest genuinely-complete leaves in
+        # the dossier reading as gaps forever.
+        return "done" if is_producible else "missing"
     if entry.get("blocked_by"):
         return "blocked"
     return "done" if is_producible else "missing"
