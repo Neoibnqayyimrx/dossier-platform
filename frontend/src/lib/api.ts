@@ -25,6 +25,7 @@ import type {
   RegionProfile,
   ReadinessResponse,
   SectionSpec,
+  SectionDocument,
   SectionStatus,
   Sequence,
   SpecificationTest,
@@ -46,10 +47,26 @@ const TOKEN_STORAGE_KEY = "dossier.access_token";
 
 /** Thrown for any non-2xx response, carrying the status so callers can
  * distinguish "not logged in" (401) from a real failure. */
+/** One blocking finding from a refused export (P18). */
+export interface BlockingFinding {
+  rule_id: string;
+  /** The leaf that is holding the build up, when the rule names one. */
+  section: string | null;
+  message: string;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    /**
+     * P18: which leaves refused the export. Present only on the 409 from a
+     * build — everything else leaves it empty, so callers that only read
+     * `message` are unaffected. This is what lets the build screen say
+     * "these four leaves are waiting on a document" instead of printing a
+     * paragraph the user has to translate back into a to-do list.
+     */
+    public readonly blocking: BlockingFinding[] = [],
   ) {
     super(message);
     this.name = "ApiError";
@@ -75,33 +92,58 @@ export function clearStoredToken(): void {
  * `{"detail": ...}`. Try both before falling back to the status text, so a
  * user never sees a bare "500".
  */
-async function extractErrorMessage(response: Response): Promise<string> {
+async function extractError(
+  response: Response,
+): Promise<{ message: string; blocking: BlockingFinding[] }> {
   try {
     const body = await response.json();
-    if (typeof body?.error?.message === "string") return body.error.message;
-    if (typeof body?.detail === "string") return body.detail;
+    const blocking: BlockingFinding[] = Array.isArray(body?.error?.blocking)
+      ? body.error.blocking
+      : [];
+    if (typeof body?.error?.message === "string") {
+      return { message: body.error.message, blocking };
+    }
+    if (typeof body?.detail === "string") {
+      return { message: body.detail, blocking };
+    }
     if (Array.isArray(body?.detail)) {
-      return body.detail
-        .map((d: { msg?: string }) => d.msg ?? "invalid input")
-        .join("; ");
+      return {
+        message: body.detail
+          .map((d: { msg?: string }) => d.msg ?? "invalid input")
+          .join("; "),
+        blocking,
+      };
     }
   } catch {
     // Response had no JSON body -- fall through to the status text.
   }
-  return response.statusText || `Request failed (${response.status})`;
+  return {
+    message: response.statusText || `Request failed (${response.status})`,
+    blocking: [],
+  };
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getStoredToken();
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  if (init.body && !headers.has("Content-Type")) {
+  // P18: FormData must NOT get a Content-Type here. The browser sets its
+  // own `multipart/form-data; boundary=...`, and the boundary is generated
+  // per request — stamping "application/json" on a file upload produces a
+  // body the server cannot parse, with a 422 that blames the file rather
+  // than the header.
+  if (
+    init.body &&
+    !headers.has("Content-Type") &&
+    !(init.body instanceof FormData)
+  ) {
     headers.set("Content-Type", "application/json");
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
   if (!response.ok) {
-    throw new ApiError(response.status, await extractErrorMessage(response));
+    const failure = await extractError(response);
+    throw new ApiError(response.status, failure.message, failure.blocking);
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -121,7 +163,8 @@ export const api = {
       body,
     });
     if (!response.ok) {
-      throw new ApiError(response.status, await extractErrorMessage(response));
+      const failure = await extractError(response);
+    throw new ApiError(response.status, failure.message, failure.blocking);
     }
     return (await response.json()) as AuthToken;
   },
@@ -344,6 +387,47 @@ export const api = {
     return request<SectionSpec[]>("/sections");
   },
 
+  // ---- uploaded documents (P18) ----------------------------------------
+
+  listDocuments(projectId: string) {
+    return request<SectionDocument[]>(`/projects/${projectId}/documents`);
+  },
+
+  /**
+   * Attach (or replace) the file at one leaf.
+   *
+   * PUT, because the leaf is the resource and holds exactly one document —
+   * uploading twice replaces rather than accumulates. No Content-Type is
+   * set: the browser must add its own multipart boundary, and setting the
+   * header by hand omits it and produces a request the server cannot parse.
+   */
+  uploadDocument(
+    projectId: string,
+    sectionNumber: string,
+    file: File,
+    subjectSlug = "",
+  ) {
+    const body = new FormData();
+    body.append("file", file);
+    const query = subjectSlug
+      ? `?subject_slug=${encodeURIComponent(subjectSlug)}`
+      : "";
+    return request<SectionDocument>(
+      `/projects/${projectId}/documents/${encodeURIComponent(sectionNumber)}${query}`,
+      { method: "PUT", body },
+    );
+  },
+
+  deleteDocument(projectId: string, sectionNumber: string, subjectSlug = "") {
+    const query = subjectSlug
+      ? `?subject_slug=${encodeURIComponent(subjectSlug)}`
+      : "";
+    return request<void>(
+      `/projects/${projectId}/documents/${encodeURIComponent(sectionNumber)}${query}`,
+      { method: "DELETE" },
+    );
+  },
+
   // ---- applicability (P17) ---------------------------------------------
 
   /** Every leaf this project's submission type declares, with its status. */
@@ -463,7 +547,8 @@ export const api = {
       { headers },
     );
     if (!response.ok) {
-      throw new ApiError(response.status, await extractErrorMessage(response));
+      const failure = await extractError(response);
+    throw new ApiError(response.status, failure.message, failure.blocking);
     }
 
     const blob = await response.blob();

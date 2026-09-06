@@ -254,6 +254,24 @@ export interface SectionStatus {
   citation: string | null;
 }
 
+/** Matches backend/app/api/routers/documents.py::SectionDocumentRead.
+ *
+ * The real third-party paper: a regulator's CPP, a CRO's study report. The
+ * platform can place and checksum it; it can never author it. */
+export interface SectionDocument {
+  id: string;
+  section_number: string;
+  subject_slug: string;
+  original_filename: string;
+  content_type: string;
+  size_bytes: number;
+  md5: string;
+  uploaded_at: string;
+  /** Server-built under `projects/{id}/` — never constructed here, so the
+   * path convention stays one piece of server-side knowledge. */
+  storage_key: string;
+}
+
 /** Matches backend/app/schemas/ctd.py::OverrideSummaryRead. */
 export interface OverrideSummary {
   rule_id: string;

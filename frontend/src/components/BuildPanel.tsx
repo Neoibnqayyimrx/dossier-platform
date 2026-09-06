@@ -22,6 +22,7 @@
 import { useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
+import type { BlockingFinding } from "@/lib/api";
 import type { EctdBuildResponse, OverrideSummary, Region } from "@/lib/types";
 import { Badge, Card, ErrorNotice } from "@/components/ui";
 
@@ -38,6 +39,11 @@ export function BuildPanel({
   region: Region;
 }) {
   const [error, setError] = useState<string | null>(null);
+  // P18: which leaves refused the build. Kept apart from `error` because a
+  // refusal is not a malfunction -- it is the ordinary state of a filing
+  // whose paper is not all in, and it deserves a list to work through
+  // rather than a red paragraph.
+  const [blocking, setBlocking] = useState<BlockingFinding[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [ctdKey, setCtdKey] = useState<string | null>(null);
   const [ectd, setEctd] = useState<EctdBuildResponse | null>(null);
@@ -51,11 +57,16 @@ export function BuildPanel({
 
   async function run(label: string, action: () => Promise<void>) {
     setError(null);
+    setBlocking([]);
     setBusy(label);
     try {
       await action();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Build failed");
+      if (err instanceof ApiError && err.blocking.length > 0) {
+        setBlocking(err.blocking);
+      } else {
+        setError(err instanceof ApiError ? err.message : "Build failed");
+      }
     } finally {
       setBusy(null);
     }
@@ -71,6 +82,32 @@ export function BuildPanel({
       </div>
 
       {error && <ErrorNotice message={error} />}
+
+      {blocking.length > 0 && (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-900 dark:bg-amber-950/40">
+          <p className="font-medium">
+            {blocking.length === 1
+              ? "One leaf is holding this build up:"
+              : `${blocking.length} leaves are holding this build up:`}
+          </p>
+          <ul className="mt-2 space-y-1">
+            {blocking.map((finding, index) => (
+              <li key={`${finding.rule_id}-${index}`} className="flex gap-2">
+                <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                  {finding.section ?? finding.rule_id}
+                </span>
+                <span>{finding.message}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+            Attach the missing documents on the Sections tab. If a document
+            genuinely cannot be supplied for this submission, record an
+            override with a reason on the Validation tab — that is the
+            deliberate exception, and it is reported on every build.
+          </p>
+        </div>
+      )}
 
       {waived.length > 0 && (
         <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm dark:border-amber-900 dark:bg-amber-950/40">
