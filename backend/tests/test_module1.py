@@ -22,6 +22,7 @@ from app.models import (
     DeclarationType,
 )
 from app.seed import same_owner_as
+from app.seed.documents import attach_certificate_documents
 from app.seed.examox import build_examox
 from app.templating.declarations import render_declaration
 from app.templating.render import render_section
@@ -225,5 +226,10 @@ def test_examox_clean_project_still_fully_exportable():
     """Sanity: adding R14-R16 doesn't regress the existing 'a clean project
     passes validation' guarantee test_seed_demo.py already covers."""
     project = build_examox(buggy=False)
+    # P18: "fully exportable" now includes having the certificate documents
+    # attached, not merely the certificate rows -- R20 is the rule that
+    # makes the difference, and a fixture modelling a finished filing has
+    # both.
+    attach_certificate_documents(project, InMemoryStorageClient())
     report = run_all(project)
     assert report.is_exportable()

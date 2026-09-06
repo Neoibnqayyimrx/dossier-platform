@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.core.storage import InMemoryStorageClient
+from app.seed.documents import attach_certificate_documents
 from app.ectd.build import build_ectd_sequence
 from app.ectd.report import SequenceNotBuiltError, validate_ectd_sequence
 from app.models import Base, NarrativeStatus, Region, Sequence
@@ -55,6 +56,7 @@ async def test_clean_sequence_passes_with_only_the_null_validator_advisory(db_fa
         await db.commit()
 
         storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
         await build_ectd_sequence(db, project, seq0, storage=storage)
 
         report = await validate_ectd_sequence(

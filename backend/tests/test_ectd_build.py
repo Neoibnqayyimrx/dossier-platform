@@ -21,6 +21,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.assembly.assemble import AssemblyBlockedError
 from app.core.storage import InMemoryStorageClient
+from app.seed.documents import attach_certificate_documents
 from app.ectd.build import build_ectd_sequence
 from app.ectd.checksum import md5_hex
 from app.ectd.index_xml import build_index_xml
@@ -230,6 +231,7 @@ async def test_first_sequence_is_dtd_valid_and_places_every_document(db_factory)
         await db.commit()
 
         storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
         result = await build_ectd_sequence(db, project, seq0, storage=storage)
 
         assert set(result.operations.values()) == {"new"}
@@ -352,6 +354,7 @@ async def test_combination_product_gets_one_drug_substance_element_per_active(db
         await db.commit()
 
         storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
         result = await build_ectd_sequence(db, project, seq0, storage=storage)
 
         with zipfile.ZipFile(io.BytesIO(storage.get(result.storage_key))) as zf:

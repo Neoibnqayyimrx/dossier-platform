@@ -7,12 +7,21 @@ from __future__ import annotations
 
 import uuid
 
+from app.seed.documents import attach_certificate_documents
 from app.seed.examox import build_examox
 
 
 async def _seed_project(session_factory, owner_id: uuid.UUID, buggy: bool = False) -> uuid.UUID:
     async with session_factory() as session:
         project = build_examox(buggy=buggy, owner_id=owner_id)
+        # P18: a finished filing has its certificate documents attached --
+        # R20 blocks the export otherwise, and the corrected EXAMOX fixture
+        # is meant to model a dossier that is ready to go.
+        #
+        # No explicit storage client: the API build reads through
+        # `get_storage_client()`, which is cached per process, so the seed
+        # has to write into that same one rather than a throwaway.
+        attach_certificate_documents(project)
         session.add(project)
         await session.commit()
         return project.id

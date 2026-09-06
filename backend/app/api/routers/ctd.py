@@ -36,7 +36,24 @@ async def build_ctd(project_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -
     try:
         result = await build_ctd_package(db, project, overridden_rule_ids=overridden)
     except AssemblyBlockedError as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "message": str(exc),
+                # Which leaves are actually holding the export up. The
+                # ordinary path, and it should be the easier one: the
+                # deliberate-exception path (an override with a logged
+                # reason) already exists in OverridePanel.
+                "blocking": [
+                    {
+                        "rule_id": finding.rule_id,
+                        "section": finding.section,
+                        "message": finding.message,
+                    }
+                    for finding in exc.findings
+                ],
+            },
+        ) from exc
 
     return CtdBuildResponse(
         storage_key=result.storage_key,

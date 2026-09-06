@@ -43,6 +43,29 @@ class Module1Slot:
     declaration_types: tuple[DeclarationType, ...] = ()
 
 
+@dataclass(frozen=True)
+class DocumentSlot:
+    """A Module 1 leaf whose content is an UPLOADED file (P18).
+
+    WHY Module 1 uploads need this and Modules 2-5 uploads do not: placement
+    for 2-5 is identical across regions, so `app.ctd.structure`'s flat folder
+    map serves every profile. Module 1's layout IS the regional part (this
+    file's opening docstring), and the same certificate legitimately sits at
+    a different number in a different agency's Module 1 -- so which leaf a
+    CPP answers is a property of the region, not of the certificate.
+
+    `certificate_type`, when set, is what lets an uploaded file RETIRE a
+    placeholder: the builders emit a clearly-marked placeholder for every
+    Certificate row on file, and a real document attached at the matching
+    leaf makes that placeholder both unnecessary and wrong to ship.
+    """
+
+    section_number: str
+    title: str
+    folder: str
+    certificate_type: CertificateType | None = None
+
+
 class Applicability(str, enum.Enum):
     """What a submission type says about one section (P17).
 
@@ -161,6 +184,17 @@ class RegionProfile:
         default_factory=dict
     )
 
+    # P18: Module 1 leaves that accept an uploaded document. Empty for a
+    # region whose Module 1 has not been modelled (EU), which means "we do
+    # not know where these go", not "they cannot be uploaded".
+    document_slots: tuple[DocumentSlot, ...] = ()
+
+    def document_slot(self, section_number: str) -> DocumentSlot | None:
+        return next(
+            (slot for slot in self.document_slots if slot.section_number == section_number),
+            None,
+        )
+
     def applicability_for(self, submission_type: SubmissionType) -> dict[str, SectionApplicability]:
         return self.applicability.get(submission_type, {})
 
@@ -260,8 +294,80 @@ def _new_chemical_entity_applicability() -> dict[str, SectionApplicability]:
     return table
 
 
+# The NAFDAC Module 1 leaves that hold a third-party document, with the
+# folder each lands in and (where there is one) the Certificate row it
+# satisfies. Numbers and titles come from the filed dossier the target TOC
+# was derived from.
+NAFDAC_DOCUMENT_SLOTS: tuple[DocumentSlot, ...] = (
+    DocumentSlot(
+        section_number="1.2.3",
+        title="Certificate of incorporation",
+        folder="m1/14-certificates",
+        certificate_type=CertificateType.INCORPORATION,
+    ),
+    DocumentSlot(
+        section_number="1.2.7",
+        title="Certificate of Pharmaceutical Product (CPP)",
+        folder="m1/14-certificates",
+        certificate_type=CertificateType.CPP,
+    ),
+    DocumentSlot(
+        section_number="1.2.8",
+        title="Certificate of Good Manufacturing Practice",
+        folder="m1/14-certificates",
+        certificate_type=CertificateType.GMP,
+    ),
+    DocumentSlot(
+        section_number="1.2.9",
+        title="Manufacturing Authorization",
+        folder="m1/14-certificates",
+        certificate_type=CertificateType.MANUFACTURING_LICENCE,
+    ),
+    DocumentSlot(
+        section_number="1.2.10",
+        title="Evidence of trademark registration",
+        folder="m1/14-certificates",
+        certificate_type=CertificateType.TRADEMARK,
+    ),
+    DocumentSlot(
+        section_number="1.2.11",
+        title="Superintendent Pharmacist's Annual Licence to Practice",
+        folder="m1/14-certificates",
+        certificate_type=CertificateType.PHARMACIST_LICENCE,
+    ),
+    DocumentSlot(
+        section_number="1.2.12",
+        title="Certificate of Registration and Retention of Premises",
+        folder="m1/14-certificates",
+        certificate_type=CertificateType.PREMISES_REGISTRATION,
+    ),
+    DocumentSlot(
+        section_number="1.2.13",
+        title="Evidence of previous market authorization",
+        folder="m1/12-administrative-information",
+    ),
+    DocumentSlot(
+        section_number="1.2.15",
+        title="Certificate of Suitability of the European Pharmacopoeia (CEP)",
+        folder="m1/14-certificates",
+        certificate_type=CertificateType.CEP,
+    ),
+    DocumentSlot(
+        section_number="1.2.16",
+        title="Letter of Access for APIMF(s)",
+        folder="m1/12-administrative-information",
+    ),
+    DocumentSlot(
+        section_number="1.5",
+        title="Electronic Review Documents",
+        folder="m1/15-electronic-review-documents",
+    ),
+)
+
+
 NAFDAC_PROFILE = RegionProfile(
     region=Region.NAFDAC,
+    document_slots=NAFDAC_DOCUMENT_SLOTS,
     applicability={
         SubmissionType.MULTISOURCE_GENERIC: _multisource_applicability(),
         SubmissionType.NEW_CHEMICAL_ENTITY: _new_chemical_entity_applicability(),
@@ -296,6 +402,15 @@ NAFDAC_PROFILE = RegionProfile(
                 CertificateType.FREE_SALE,
                 CertificateType.TRADEMARK,
                 CertificateType.MANUFACTURING_LICENCE,
+                # P18: a slot that does not ACCEPT a certificate type is a
+                # certificate with nowhere to be filed. Adding members to the
+                # enum without adding them here would have left three of them
+                # unfileable -- which is exactly what
+                # test_nafdac_profile_covers_every_certificate_and_declaration_type
+                # exists to catch, and did.
+                CertificateType.INCORPORATION,
+                CertificateType.PHARMACIST_LICENCE,
+                CertificateType.PREMISES_REGISTRATION,
             ),
         ),
         Module1Slot(
@@ -356,6 +471,15 @@ EU_PROFILE = RegionProfile(
                 CertificateType.FREE_SALE,
                 CertificateType.TRADEMARK,
                 CertificateType.MANUFACTURING_LICENCE,
+                # P18: a slot that does not ACCEPT a certificate type is a
+                # certificate with nowhere to be filed. Adding members to the
+                # enum without adding them here would have left three of them
+                # unfileable -- which is exactly what
+                # test_nafdac_profile_covers_every_certificate_and_declaration_type
+                # exists to catch, and did.
+                CertificateType.INCORPORATION,
+                CertificateType.PHARMACIST_LICENCE,
+                CertificateType.PREMISES_REGISTRATION,
             ),
         ),
         Module1Slot(
@@ -419,4 +543,28 @@ def resolve_applicability(project: "Project") -> dict[str, ResolvedApplicability
     return {
         number: ResolvedApplicability(section=section, answer=answers.get(number))
         for number, section in profile.applicability_for(project.submission_type).items()
+    }
+
+
+def satisfied_certificate_types(project: "Project") -> set[CertificateType]:
+    """Certificate types this project has attached a REAL document for (P18).
+
+    The join between two things that never used to meet: a `Certificate`
+    row, which is metadata about a document someone must go and obtain, and
+    a `SectionDocument`, which is that document having arrived. The region
+    profile is what knows they are the same thing, because it is what knows
+    a CPP answers leaf 1.2.7 in a NAFDAC filing.
+
+    Used by both builders to stop emitting a placeholder once the real file
+    exists, and by rule R20 to refuse to export while one has not.
+    """
+    profile = REGION_PROFILES.get(project.region)
+    if profile is None:
+        return set()
+
+    attached = {document.section_number for document in project.documents}
+    return {
+        slot.certificate_type
+        for slot in profile.document_slots
+        if slot.certificate_type is not None and slot.section_number in attached
     }

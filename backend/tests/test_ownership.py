@@ -163,6 +163,10 @@ def _project_probes(victim: dict) -> list[tuple[str, str, dict | None]]:
         ("GET", f"/projects/{project}/sequences", None),
         ("PATCH", f"/projects/{project}/sequences/{sequence}", {"description": "hijacked"}),
         ("GET", f"/projects/{project}/readiness", None),
+        # P18: the upload path is a WRITE into another project's storage
+        # prefix, so it is the probe that matters most on this list.
+        ("GET", f"/projects/{project}/documents", None),
+        ("DELETE", f"/projects/{project}/documents/1.2.7", None),
         (
             "POST",
             f"/projects/{project}/validation-overrides",

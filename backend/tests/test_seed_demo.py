@@ -7,7 +7,9 @@ from __future__ import annotations
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from app.core.storage import InMemoryStorageClient
 from app.models import ManufacturerRole, Base
+from app.seed.documents import attach_certificate_documents
 import app.validation.rules  # noqa: F401  registers rules
 from app.validation.engine import Severity, run_all
 from app.seed.examox import build_examox
@@ -18,6 +20,11 @@ def _load(buggy: bool = True):
     Base.metadata.create_all(engine)
     session = Session(engine, expire_on_commit=False)
     project = build_examox(buggy=buggy)
+    # P18: the corrected variant models a FINISHED filing, and R20 blocks
+    # export while a certificate is still a placeholder. Storage here is
+    # throwaway -- these tests never build a package, they only need the
+    # rows the rule reads.
+    attach_certificate_documents(project, InMemoryStorageClient())
     session.add(project)
     session.commit()
     session.refresh(project)

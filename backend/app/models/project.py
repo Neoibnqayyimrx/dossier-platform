@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from app.models.applicant import Applicant
     from app.models.declaration import Declaration
     from app.models.product import Product
+    from app.models.section_document import SectionDocument
     from app.models.sequence import Sequence
     from app.models.narrative import NarrativeGeneration
     from app.models.validation_override import ValidationOverride
@@ -85,6 +86,19 @@ class Project(Base):
         """
         kwargs.setdefault("submission_type", SubmissionType.MULTISOURCE_GENERIC)
         kwargs.setdefault("condition_answers", {})
+        # P18: start the uploaded-documents collection LOADED and empty.
+        #
+        # WHY: rule R20 reads `project.documents`, and on a project that was
+        # built in Python and then committed, that collection has never been
+        # loaded -- so the attribute access goes to the database. Under the
+        # async engine, IO from a plain attribute access does not merely
+        # block, it raises MissingGreenlet. Initialising it here means the
+        # rules can read it the way they read every other field.
+        #
+        # (Objects loaded from a query are unaffected: SQLAlchemy does not
+        # call `__init__` when it materialises a row, and the relationship's
+        # own `lazy="selectin"` loads it there.)
+        kwargs.setdefault("documents", [])
         super().__init__(**kwargs)
 
     sequences: Mapped[list["Sequence"]] = relationship(
@@ -101,6 +115,14 @@ class Project(Base):
     )
     declarations: Mapped[list["Declaration"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
+    )
+    # P18: the real files a human has attached to this filing's leaves.
+    # `lazy="selectin"` for the same reason every other project child is
+    # eagerly loaded (app/api/loading.py): the validation rules and the
+    # builders both walk these outside a request's await points, and a lazy
+    # load there raises under async SQLAlchemy rather than merely being slow.
+    documents: Mapped[list["SectionDocument"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", lazy="selectin"
     )
 
 

@@ -66,7 +66,24 @@ async def build_ectd(
     try:
         result = await build_ectd_sequence(db, project, sequence, overridden_rule_ids=overridden)
     except AssemblyBlockedError as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "message": str(exc),
+                # Which leaves are actually holding the export up. The
+                # ordinary path, and it should be the easier one: the
+                # deliberate-exception path (an override with a logged
+                # reason) already exists in OverridePanel.
+                "blocking": [
+                    {
+                        "rule_id": finding.rule_id,
+                        "section": finding.section,
+                        "message": finding.message,
+                    }
+                    for finding in exc.findings
+                ],
+            },
+        ) from exc
     except NotImplementedError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 

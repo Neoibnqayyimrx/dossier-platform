@@ -126,6 +126,55 @@ ICH_HEADING_PATH: dict[str, tuple[str, ...]] = {
         "m5-3-clinical-study-reports",
         "m5-3-7-case-report-forms-and-individual-patient-listings",
     ),
+    # P18: the uploaded third-party leaves. WHY they need entries here even
+    # though nothing renders them: `build_index_xml` SILENTLY SKIPS a leaf
+    # whose section key has no heading path (that is deliberate -- it is how
+    # Module 1 documents stay out of index.xml and go in the regional
+    # backbone instead). Without these, an uploaded BE study report would be
+    # written into the package, checksummed, listed in the CTD table of
+    # contents, and then quietly omitted from the eCTD backbone -- present on
+    # disk and invisible to the agency's software.
+    "3.2.P.3.5": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-3-manufacture",
+        "m3-2-p-3-5-process-validation-and-or-evaluation",
+    ),
+    "3.2.P.4.3": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-4-control-of-excipients",
+        "m3-2-p-4-3-validation-of-analytical-procedures",
+    ),
+    "3.2.P.5.3": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-5-control-of-drug-product",
+        "m3-2-p-5-3-validation-of-analytical-procedures",
+    ),
+    "3.3": ("m3-quality", "m3-3-literature-references"),
+    "5.3.1.1": (
+        "m5-clinical-study-reports",
+        "m5-3-clinical-study-reports",
+        "m5-3-1-reports-of-biopharmaceutic-studies",
+        "m5-3-1-1-bioavailability-study-reports",
+    ),
+    "5.3.1.2": (
+        "m5-clinical-study-reports",
+        "m5-3-clinical-study-reports",
+        "m5-3-1-reports-of-biopharmaceutic-studies",
+        "m5-3-1-2-comparative-ba-and-bioequivalence-study-reports",
+    ),
+    "5.3.1.4": (
+        "m5-clinical-study-reports",
+        "m5-3-clinical-study-reports",
+        "m5-3-1-reports-of-biopharmaceutic-studies",
+        "m5-3-1-4-reports-of-bioanalytical-and-analytical-methods-for-human-studies",
+    ),
+    "5.4": ("m5-clinical-study-reports", "m5-4-literature-references"),
 }
 
 # Sections repeated per drug substance: the heading chain BELOW the
@@ -134,6 +183,19 @@ ICH_HEADING_PATH: dict[str, tuple[str, ...]] = {
 DRUG_SUBSTANCE_HEADING_PATH: dict[str, tuple[str, ...]] = {
     "3.2.S.1": ("m3-2-s-1-general-information",),
     "3.2.S.4.1": ("m3-2-s-4-control-of-drug-substance", "m3-2-s-4-1-specification"),
+    # P18: uploaded per-substance artifacts.
+    "3.2.S.2.5": (
+        "m3-2-s-2-manufacture",
+        "m3-2-s-2-5-process-validation-and-or-evaluation",
+    ),
+    "3.2.S.3.1": (
+        "m3-2-s-3-characterisation",
+        "m3-2-s-3-1-elucidation-of-structure-and-other-characteristics",
+    ),
+    "3.2.S.4.3": (
+        "m3-2-s-4-control-of-drug-substance",
+        "m3-2-s-4-3-validation-of-analytical-procedures",
+    ),
 }
 
 # The DTD's real declared child order, keyed by parent element name
@@ -156,7 +218,6 @@ _CHILD_ORDER: dict[str, tuple[str, ...]] = {
         "m2-6-nonclinical-written-and-tabulated-summaries",
         "m2-7-clinical-summary",
     ),
-    "m3-quality": ("m3-2-body-of-data", "m3-3-literature-references"),
     "m3-2-body-of-data": (
         "m3-2-s-drug-substance",
         "m3-2-p-drug-product",
@@ -200,6 +261,50 @@ _CHILD_ORDER: dict[str, tuple[str, ...]] = {
         "m5-3-1-2-comparative-ba-and-bioequivalence-study-reports",
         "m5-3-1-3-in-vitro-in-vivo-correlation-study-reports",
         "m5-3-1-4-reports-of-bioanalytical-and-analytical-methods-for-human-studies",
+    ),
+    "m3-quality": ("m3-2-body-of-data", "m3-3-literature-references"),
+    "m3-2-s-drug-substance": (
+        "m3-2-s-1-general-information",
+        "m3-2-s-2-manufacture",
+        "m3-2-s-3-characterisation",
+        "m3-2-s-4-control-of-drug-substance",
+        "m3-2-s-5-reference-standards-or-materials",
+        "m3-2-s-6-container-closure-system",
+        "m3-2-s-7-stability",
+    ),
+    "m3-2-s-2-manufacture": (
+        "m3-2-s-2-1-manufacturer",
+        "m3-2-s-2-2-description-of-manufacturing-process-and-process-controls",
+        "m3-2-s-2-3-control-of-materials",
+        "m3-2-s-2-4-controls-of-critical-steps-and-intermediates",
+        "m3-2-s-2-5-process-validation-and-or-evaluation",
+        "m3-2-s-2-6-manufacturing-process-development",
+    ),
+    "m3-2-s-3-characterisation": (
+        "m3-2-s-3-1-elucidation-of-structure-and-other-characteristics",
+        "m3-2-s-3-2-impurities",
+    ),
+    "m3-2-s-4-control-of-drug-substance": (
+        "m3-2-s-4-1-specification",
+        "m3-2-s-4-2-analytical-procedures",
+        "m3-2-s-4-3-validation-of-analytical-procedures",
+        "m3-2-s-4-4-batch-analyses",
+        "m3-2-s-4-5-justification-of-specification",
+    ),
+    "m3-2-p-3-manufacture": (
+        "m3-2-p-3-1-manufacturers",
+        "m3-2-p-3-2-batch-formula",
+        "m3-2-p-3-3-description-of-manufacturing-process-and-process-controls",
+        "m3-2-p-3-4-controls-of-critical-steps-and-intermediates",
+        "m3-2-p-3-5-process-validation-and-or-evaluation",
+    ),
+    "m3-2-p-5-control-of-drug-product": (
+        "m3-2-p-5-1-specifications",
+        "m3-2-p-5-2-analytical-procedures",
+        "m3-2-p-5-3-validation-of-analytical-procedures",
+        "m3-2-p-5-4-batch-analyses",
+        "m3-2-p-5-5-characterisation-of-impurities",
+        "m3-2-p-5-6-justification-of-specifications",
     ),
     "m3-2-p-4-control-of-excipients": (
         "m3-2-p-4-1-specifications",

@@ -19,6 +19,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.assembly.assemble import AssemblyBlockedError
 from app.core.storage import InMemoryStorageClient
+from app.seed.documents import attach_certificate_documents
 from app.ctd.build import build_ctd_package
 from app.ctd.region_profiles import get_region_profile
 from app.ctd.structure import folder_for_section
@@ -87,13 +88,20 @@ async def test_package_places_every_document_in_its_correct_folder(db_factory):
         await db.commit()
 
         storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
         result = await build_ctd_package(db, project, storage=storage)
 
         paths = {f.path for f in result.manifest}
         # certificates/declarations have generated UUID-suffixed filenames,
         # so check by folder membership rather than exact path.
         assert paths >= (EXPECTED_PATHS - {"manifest.json"})
-        assert any(p.startswith("m1/14-certificates/cpp-") for p in paths)
+        # P18: the CPP arrives as an attached document filed at its own leaf
+        # (1.2.7), not as a `cpp-<uuid>` placeholder -- attach_certificate_
+        # documents above is what a finished filing has done. Both appearing
+        # would be the bug: a page reading "PLACEHOLDER — REPLACE THIS FILE"
+        # filed next to the certificate it was standing in for.
+        assert "m1/14-certificates/1.2.7.pdf" in paths
+        assert not any(p.startswith("m1/14-certificates/cpp-") for p in paths)
         assert any(p.startswith("m1/15-declarations/power-of-attorney-") for p in paths)
         assert any(p.startswith("m1/15-declarations/declaration-of-authenticity-") for p in paths)
 
@@ -111,6 +119,7 @@ async def test_manifest_md5s_match_the_actual_zipped_bytes(db_factory):
         await db.commit()
 
         storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
         result = await build_ctd_package(db, project, storage=storage)
 
         zip_bytes = storage.get(result.storage_key)
@@ -129,6 +138,7 @@ async def test_toc_lists_every_placed_document(db_factory):
         await db.commit()
 
         storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
         result = await build_ctd_package(db, project, storage=storage)
         zip_bytes = storage.get(result.storage_key)
         with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
@@ -164,6 +174,7 @@ async def test_rebuilding_the_same_project_is_byte_identical(db_factory):
         await db.commit()
 
         storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
         first = await build_ctd_package(db, project, storage=storage)
         second = await build_ctd_package(db, project, storage=storage)
 
@@ -211,11 +222,18 @@ async def test_a_combination_product_builds_end_to_end(db_factory):
         db.add(project)
         await db.commit()
 
+        storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
+
         # the corrected fixture is genuinely clean -- no overrides needed,
         # so this exercises the real gate rather than bypassing it.
+        #
+        # The attach has to happen BEFORE this line, not after: since P18 a
+        # filing with its certificates still on placeholders is not clean
+        # (R20), so asserting cleanliness first would be asserting it of a
+        # half-built fixture.
         assert not run_all(project).errors()
 
-        storage = InMemoryStorageClient()
         result = await build_ctd_package(db, project, storage=storage)
 
         paths = {f.path for f in result.manifest}

@@ -5,7 +5,9 @@ from __future__ import annotations
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from app.core.storage import InMemoryStorageClient
 from app.models import Base
+from app.seed.documents import attach_certificate_documents
 import app.validation.rules  # noqa: F401  registers rules
 from app.validation.engine import Severity, run_all
 from app.seed.lamox import build_lamox
@@ -17,6 +19,13 @@ def _load(buggy: bool):
     Base.metadata.create_all(engine)
     s = Session(engine, expire_on_commit=False)
     p = build_lamox(buggy=buggy)
+    # P18: LAMOX models a real, complete filing -- the point of the
+    # corrected variant is that a finished dossier passes every rule. R20
+    # blocks export while a certificate is still a placeholder, so a
+    # finished LAMOX has the certificate documents attached. (Storage here
+    # is throwaway: these tests never build a package, they only need the
+    # rows R20 reads.)
+    attach_certificate_documents(p, InMemoryStorageClient())
     s.add(p)
     s.commit()
     s.refresh(p)

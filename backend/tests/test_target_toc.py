@@ -72,8 +72,13 @@ def test_certificate_slots_are_placeholders_not_documents():
     assert resolve_status(by_number["1.2.7"], producible) == "placeholder"
     assert resolve_status(by_number["1.2.8"], producible) == "placeholder"
 
-    # 1.2.11 has no CertificateType at all, so there is not even a slot.
-    assert resolve_status(by_number["1.2.11"], producible) == "missing"
+    # 1.2.11 had no CertificateType at all when P16 wrote this, so there was
+    # not even a slot. P18 added the type AND a Module 1 document slot, so it
+    # now reads `placeholder` -- a place for the file exists, the file does
+    # not. That is the state changing for the right reason; `done` would
+    # still be wrong, and that is what this line now guards.
+    assert resolve_status(by_number["1.2.11"], producible) == "placeholder"
+    assert resolve_status(by_number["1.2.11"], producible, {"1.2.11"}) == "done"
 
 
 def test_status_is_never_hand_maintained_as_a_real_value():

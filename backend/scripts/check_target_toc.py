@@ -67,6 +67,7 @@ def producible_keys(sections: list[dict]) -> set[str]:
     """
     try:
         from app.ctd.region_profiles import NAFDAC_PROFILE
+        from app.ctd.structure import DRUG_SUBSTANCE_FOLDERS, MODULE_2_5_FOLDERS
         from app.templating.certificates import render_certificate_placeholder  # noqa: F401
         from app.templating.declarations import render_declaration  # noqa: F401
         from app.templating.registry import SECTIONS
@@ -102,10 +103,28 @@ def producible_keys(sections: list[dict]) -> set[str]:
         if backed_sources.intersection(entry.get("data_sources") or []):
             keys.add(entry.get("registry_key") or entry["number"])
 
+    # P18: an `uploaded` leaf is "producible" once the platform can PLACE a
+    # file at it -- a declared folder (Modules 2-5, or a per-substance one)
+    # or a Module 1 document slot. That is not the same as the document
+    # being there, and `resolve_status` keeps the two apart: this makes the
+    # leaf read `placeholder` rather than `missing`, and only a real
+    # attachment in a real project makes it `done`.
+    module1_document_leaves = {slot.section_number for slot in NAFDAC_PROFILE.document_slots}
+    for entry in sections:
+        if entry["production"] != "uploaded":
+            continue
+        number = entry["number"]
+        if (
+            number in MODULE_2_5_FOLDERS
+            or number in DRUG_SUBSTANCE_FOLDERS
+            or number in module1_document_leaves
+        ):
+            keys.add(entry.get("registry_key") or number)
+
     return keys
 
 
-def resolve_status(entry: dict, producible: set[str]) -> str:
+def resolve_status(entry: dict, producible: set[str], attached: set[str] = frozenset()) -> str:
     """The one place status is decided. Never hand-edited into the YAML.
 
     A leaf is DONE only if something can actually produce it. A producer alone
@@ -119,6 +138,14 @@ def resolve_status(entry: dict, producible: set[str]) -> str:
     production = entry["production"]
 
     if production == "uploaded":
+        # P18. An uploaded leaf is DONE when, and only when, a real file has
+        # actually been attached to it in a specific project -- which is why
+        # `attached` has to be passed in and defaults to nothing. Coverage
+        # with no project named is coverage of the PLATFORM ("could a file go
+        # here"); coverage for a project is coverage of a FILING ("is the
+        # paper in").
+        if key in attached:
+            return "done"
         # A slot for an uploaded leaf produces a placeholder, not the
         # document. Never DONE on a slot alone.
         return "placeholder" if is_producible else "missing"
@@ -137,14 +164,58 @@ def resolve_status(entry: dict, producible: set[str]) -> str:
     return "done" if is_producible else "missing"
 
 
+def attached_keys(project_id: str) -> set[str]:
+    """Leaf keys that `project_id` has a real uploaded document for (P18).
+
+    WHY the check grew a database mode at all: before P18 the question
+    "what does this dossier still owe?" had one answer for the whole
+    platform, because every leaf was either renderable or not. Uploads make
+    the answer per-filing -- the platform can place a CPP at 1.2.7 for every
+    project, and only this project knows whether the CPP is in. Reporting
+    the platform's capability as though it were the filing's completeness is
+    exactly the "looks complete, is not" failure P18 exists to remove.
+    """
+    import asyncio
+
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.core.config import get_settings
+    from app.models import SectionDocument
+
+    async def _load() -> set[str]:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with engine.connect() as conn:
+                rows = await conn.execute(
+                    select(SectionDocument.section_number, SectionDocument.subject_slug).where(
+                        SectionDocument.project_id == project_id
+                    )
+                )
+                return {f"{number}-{slug}" if slug else number for number, slug in rows.all()}
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(_load())
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--strict", action="store_true", help="exit 1 on any gap")
+    parser.add_argument(
+        "--project",
+        help=(
+            "A project id. Reports that FILING's completeness -- uploaded leaves "
+            "count as done once a document is attached -- rather than the "
+            "platform's capability."
+        ),
+    )
     args = parser.parse_args()
 
     target = load_target()
     sections = target["sections"]
     producible = producible_keys(sections)
+    attached = attached_keys(args.project) if args.project else frozenset()
 
     by_module: dict[int, Counter] = defaultdict(Counter)
     by_production = Counter()
@@ -152,7 +223,7 @@ def main() -> int:
     gaps: list[tuple[str, str, str]] = []
 
     for entry in sections:
-        status = resolve_status(entry, producible)
+        status = resolve_status(entry, producible, attached)
         by_module[entry["module"]][status] += 1
         by_production[entry["production"]] += 1
         for blocker in entry.get("blocked_by", []):
@@ -167,7 +238,8 @@ def main() -> int:
     print(f"Source: {target['meta']['derived_from']}")
     # Pasteable into the README verbatim -- progress that only exists in a
     # terminal is progress nobody outside this shell can see.
-    print(f"\nCOVERAGE: {done}/{total} leaves\n")
+    scope = f"project {args.project}" if args.project else "platform capability"
+    print(f"\nCOVERAGE: {done}/{total} leaves  ({scope})\n")
 
     print("By module:")
     for module in sorted(by_module):

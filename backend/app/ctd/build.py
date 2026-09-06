@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.assembly.assemble import assemble_project
 from app.assembly.pdf import convert_docx_to_pdf
 from app.core.storage import StorageClient, get_storage_client
-from app.ctd.region_profiles import get_region_profile
+from app.ctd.region_profiles import get_region_profile, satisfied_certificate_types
 from app.ctd.structure import folder_for_section_instance
 from app.ctd.toc import build_toc_pdf
 from app.models.project import Project
@@ -76,19 +76,38 @@ async def build_ctd_package(
     }
     for leaf in leaves:
         slot = module1_by_section.get(leaf.section)
+        # P18: an uploaded Module 1 leaf (a CPP, a letter of access) is
+        # placed by the region profile's document slots, since Module 1's
+        # layout is the regional part -- Modules 2-5 keep using the shared
+        # folder map. Checked before the generic path because
+        # `folder_for_section_instance` raises rather than guessing, and a
+        # Module 1 number is not in that map by design.
+        document_slot = profile.document_slot(leaf.section_number)
         folder = (
             slot.folder
             if slot is not None
-            else folder_for_section_instance(leaf.section_number, leaf.subject_slug)
+            else (
+                document_slot.folder
+                if document_slot is not None
+                else folder_for_section_instance(leaf.section_number, leaf.subject_slug)
+            )
         )
         path = f"{folder}/{leaf.filename}"
         files[path] = storage.get(leaf.storage_path)
         titles[path] = leaf.title
 
+    # P18: certificate types for which a real document has been attached.
+    # Their placeholders are not emitted -- shipping both would put a page
+    # reading "PLACEHOLDER - REPLACE THIS FILE" next to the certificate it
+    # was standing in for.
+    satisfied = satisfied_certificate_types(project)
+
     for slot in profile.module1_slots:
         if slot.certificate_types:
             for certificate in project.product.certificates:
                 if certificate.certificate_type not in slot.certificate_types:
+                    continue
+                if certificate.certificate_type in satisfied:
                     continue
                 result = render_certificate_placeholder(certificate, storage=storage)
                 title = f"{certificate.certificate_type.value} certificate"

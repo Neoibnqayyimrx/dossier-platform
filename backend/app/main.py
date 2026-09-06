@@ -8,6 +8,7 @@ from app.api.routers.applicants import router as applicants_router
 from app.api.routers.artifacts import router as artifacts_router
 from app.api.routers.auth import router as auth_router
 from app.api.routers.ctd import router as ctd_router
+from app.api.routers.documents import router as documents_router
 from app.api.routers.ectd import router as ectd_router
 from app.api.routers.enums import router as enums_router
 from app.api.routers.kb import router as kb_router
@@ -53,6 +54,7 @@ app.include_router(ectd_router)
 app.include_router(enums_router)
 app.include_router(regions_router)
 app.include_router(sections_router)
+app.include_router(documents_router)
 app.include_router(artifacts_router)
 for nested_router in NESTED_ROUTERS:
     app.include_router(nested_router)

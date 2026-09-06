@@ -14,14 +14,28 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
-def _envelope(code: int, message: str) -> JSONResponse:
-    return JSONResponse(status_code=code, content={"error": {"code": code, "message": message}})
+def _envelope(code: int, message: str, **extra) -> JSONResponse:
+    return JSONResponse(
+        status_code=code,
+        content={"error": {"code": code, "message": message, **extra}},
+    )
 
 
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
-        response = _envelope(exc.status_code, str(exc.detail))
+        # P18: a route may raise a DICT detail carrying `message` plus extra
+        # keys -- the export gate uses it to say WHICH leaves are blocking,
+        # so the UI can link to each instead of printing a paragraph. The
+        # envelope's shape is unchanged for every other caller: `code` and
+        # `message` are always there, and clients that ignore the rest keep
+        # working exactly as before.
+        if isinstance(exc.detail, dict):
+            detail = dict(exc.detail)
+            message = str(detail.pop("message", ""))
+            response = _envelope(exc.status_code, message, **detail)
+        else:
+            response = _envelope(exc.status_code, str(exc.detail))
         if exc.headers:
             response.headers.update(exc.headers)
         return response

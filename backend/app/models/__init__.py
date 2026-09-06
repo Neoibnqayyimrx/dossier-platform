@@ -45,6 +45,7 @@ from app.models.certificate import Certificate
 from app.models.applicant import Applicant
 from app.models.declaration import Declaration
 from app.models.project import Project, Section
+from app.models.section_document import SectionDocument
 from app.models.sequence import Sequence
 from app.models.sequence_leaf import SequenceLeaf
 from app.models.user import User
@@ -55,6 +56,7 @@ from app.models.validation_override import ValidationOverride
 __all__ = [
     "Base",
     "SpecificationTest",
+    "SectionDocument",
     # enums
     "CertificateType",
     "ClinicalKind",

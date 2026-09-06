@@ -215,6 +215,14 @@ class CertificateType(str, enum.Enum):
     FREE_SALE = "free-sale-certificate"
     TRADEMARK = "trademark-registration"  # product-level, not site-specific
     MANUFACTURING_LICENCE = "manufacturing-licence"  # site-specific, like GMP
+    # P18: found by checking the enum against the target TOC rather than
+    # against intuition. All three are ordinary NAFDAC Module 1 requirements
+    # about the APPLICANT as a business rather than about the medicine --
+    # which is exactly why a list written while thinking about product
+    # quality missed them.
+    INCORPORATION = "certificate-of-incorporation"  # 1.2.3, the company itself
+    PHARMACIST_LICENCE = "superintendent-pharmacist-licence"  # 1.2.11, annual
+    PREMISES_REGISTRATION = "premises-registration"  # 1.2.12, the site's own
 
 
 class DeclarationType(str, enum.Enum):

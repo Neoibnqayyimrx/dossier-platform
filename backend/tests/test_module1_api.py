@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from app.seed.documents import MINIMAL_PDF
+
 
 async def _complete_nafdac_project(client) -> dict:
     """Every fact the NAFDAC rule set asks for, entered the way the wizard
@@ -172,6 +174,16 @@ async def _complete_nafdac_project(client) -> dict:
                 "notarization_date": str(date.today()),
             },
         )
+
+    # P18: R20 wants the CPP itself, not merely the row saying one is
+    # expected. This is the last step of a real filing and the one the
+    # platform could not do at all before this phase -- and it happens here,
+    # through the same HTTP API as everything else, which is what makes this
+    # test's claim ("no seeding, nothing behind the API's back") still true.
+    await client.put(
+        f"/projects/{project['id']}/documents/1.2.7",
+        files={"file": ("CPP_NAFDAC.pdf", MINIMAL_PDF, "application/pdf")},
+    )
 
     return {"product_id": product_id, "project_id": project["id"], "applicant_id": applicant["id"]}
 

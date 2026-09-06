@@ -24,6 +24,7 @@ from app.core.storage import StorageClient, get_storage_client
 from app.models.project import Project
 from app.narrative.context import get_approved_narrative
 from app.templating.instances import expand_sections, slugify_subject
+from app.target_toc import target_leaves_by_number
 from app.templating.render import render_section
 import app.validation.rules  # noqa: F401  registers every rule on import
 from app.validation.engine import run_all
@@ -33,7 +34,19 @@ PDF_CONTENT_TYPE = "application/pdf"
 
 class AssemblyBlockedError(RuntimeError):
     """Raised when the project has unresolved (non-overridden) validation
-    errors -- AGENTS.md §5's export gate, extended to assembly."""
+    errors -- AGENTS.md §5's export gate, extended to assembly.
+
+    P18 gave it the findings themselves, not just a joined sentence. Once a
+    quarter of the dossier is uploaded paper, "blocked" is the ORDINARY
+    state of a filing in progress rather than an exceptional one, and the
+    useful answer is "these four leaves are waiting on a document" -- which
+    the UI can link to -- rather than a paragraph the user has to read and
+    translate back into a list of things to go and do.
+    """
+
+    def __init__(self, message: str, findings: list | None = None) -> None:
+        super().__init__(message)
+        self.findings = findings or []
 
 
 class LeafManifestEntry:
@@ -80,15 +93,47 @@ async def assemble_project(
     """
     report = run_all(project)
     if not report.is_exportable(overridden_rule_ids):
-        blocking = [f.message for f in report.errors(overridden_rule_ids)]
+        blocking = report.errors(overridden_rule_ids)
         raise AssemblyBlockedError(
-            "Cannot assemble: unresolved validation errors -- " + "; ".join(blocking)
+            "Cannot assemble: unresolved validation errors -- "
+            + "; ".join(f.message for f in blocking),
+            findings=blocking,
         )
 
     storage = storage or get_storage_client()
     manifest: list[LeafManifestEntry] = []
 
+    # P18: the real files a human has attached, keyed the same way a
+    # rendered document is (see SectionDocument.instance_key). An uploaded
+    # file WINS over a rendered one for the same leaf -- if someone has
+    # attached the actual signed, stamped document, a generated version of
+    # it is not an improvement on it.
+    uploaded = {document.instance_key: document for document in project.documents}
+
     for instance in expand_sections(project):
+        document = uploaded.pop(instance.key, None)
+        if document is not None:
+            # An uploaded PDF is ALREADY a leaf. It is not re-rendered and
+            # not re-converted: its stored MD5 was computed over these exact
+            # bytes at upload time (app/documents/ingest.py), and the whole
+            # point of a checksum is that it describes the file that ships.
+            manifest.append(
+                LeafManifestEntry(
+                    section=instance.key,
+                    title=instance.title,
+                    section_number=instance.number,
+                    subject_slug=(
+                        slugify_subject(instance.subject.inn_name)
+                        if instance.subject is not None
+                        else None
+                    ),
+                    storage_path=document.storage_key,
+                    md5=document.md5,
+                    filename=f"{instance.key}.pdf",
+                )
+            )
+            continue
+
         # Narratives are keyed by INSTANCE, not section number: ampicillin's
         # 3.2.S.1.3 prose is not cloxacillin's, and storing one approved
         # narrative for "3.2.S.1" would silently put the same paragraph
@@ -125,4 +170,38 @@ async def assemble_project(
             )
         )
 
+    # Whatever is left is an uploaded document for a leaf the registry does
+    # not know about -- which is most of them. A CRO's bioequivalence study
+    # report (5.3.1.2) and a regulator's CPP (1.2.7) have no template and
+    # never will, because nobody here can author them. Before P18 they were
+    # simply absent from the package; the file IS the leaf.
+    for document in sorted(uploaded.values(), key=lambda d: d.instance_key):
+        manifest.append(
+            LeafManifestEntry(
+                section=document.instance_key,
+                title=_uploaded_leaf_title(document),
+                section_number=document.section_number,
+                subject_slug=document.subject_slug or None,
+                storage_path=document.storage_key,
+                md5=document.md5,
+                filename=f"{document.instance_key}.pdf",
+            )
+        )
+
     return manifest
+
+
+def _uploaded_leaf_title(document) -> str:
+    """The bookmark and table-of-contents title for an uploaded leaf.
+
+    Taken from the target TOC rather than from the uploaded file's name: the
+    filename is whatever the CRO called it ("Final_Report_v3_signed.pdf"),
+    while the contract knows what the leaf IS. The original filename is
+    still stored and shown in the UI, where recognising your own file
+    matters more than naming the section.
+    """
+    leaf = target_leaves_by_number().get(document.section_number)
+    title = leaf.title if leaf is not None else document.section_number
+    if document.subject_slug:
+        return f"{title} — {document.subject_slug}"
+    return title

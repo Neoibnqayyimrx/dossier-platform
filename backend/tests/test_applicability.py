@@ -23,11 +23,12 @@ from app.ctd.region_profiles import (
 from app.ctd.structure import folder_for_section
 from app.models import Base, Section, SubmissionType
 from app.models.enums import Region
+from app.seed.documents import attach_certificate_documents
 from app.seed.examox import build_examox
 from app.templating.instances import expand_sections
 from app.templating.registry import SECTIONS
 from app.templating.render import render_section
-from app.validation.engine import run_all
+from app.validation.engine import Severity, run_all
 
 # 5.3.2 is a plain declared exclusion; 3.2.P.4.6 (novel excipients) is the
 # conditional one, and the pair is deliberate -- the whole point of P17 is
@@ -205,6 +206,9 @@ async def test_built_package_files_the_module_4_statement_in_m4(db_factory):
         await db.commit()
 
         storage = InMemoryStorageClient()
+        # P18: a finished filing has its certificates attached; R20 blocks
+        # the export otherwise.
+        attach_certificate_documents(project, storage)
         result = await build_ctd_package(db, project, storage=storage)
         paths = {f.path for f in result.manifest}
         zip_bytes = storage.get(result.storage_key)
@@ -245,7 +249,13 @@ def test_R19_warns_about_every_unanswered_condition():
     assert unanswered == conditional
     # A WARNING, never a gate: an unrelated filing must not become
     # unshippable over a question that genuinely does not apply to it.
-    assert run_all(project).is_exportable()
+    #
+    # Asserted on R19's own severities rather than on `is_exportable()`,
+    # which is a claim about the WHOLE report -- P18's R20 blocks this
+    # fixture for an unrelated reason (a certificate still on a
+    # placeholder), and a test of R19 that fails when R20 fires is not
+    # testing R19.
+    assert all(f.severity is Severity.WARNING for f in findings)
 
 
 def test_R19_goes_quiet_once_a_condition_is_answered():

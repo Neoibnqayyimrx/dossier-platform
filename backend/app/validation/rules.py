@@ -13,7 +13,12 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from app.ctd.region_profiles import REGION_PROFILES, Applicability, resolve_applicability
+from app.ctd.region_profiles import (
+    REGION_PROFILES,
+    Applicability,
+    resolve_applicability,
+    satisfied_certificate_types,
+)
 from app.validation.engine import Finding, Severity, rule
 from app.models import (
     DECLARATIONS_REQUIRING_NOTARIZATION,
@@ -418,10 +423,19 @@ def required_certificates_present(project) -> list[Finding]:
     if profile is None:
         return []
 
+    # P18 rephrased this rule from "is there a metadata row" to "is there a
+    # metadata row AND, eventually, a document". The row half still lives
+    # here (it is what carries the expiry date a regulator checks); the
+    # document half is R20, deliberately separate so the two failures read
+    # differently: "you have not obtained the CPP yet" and "you obtained it
+    # but never attached the file" are different problems for different
+    # people on different days.
+    satisfied = satisfied_certificate_types(project)
+
     out: list[Finding] = []
     for required in profile.required_certificate_types:
         held = [c for c in project.product.certificates if c.certificate_type == required]
-        if not held:
+        if not held and required not in satisfied:
             out.append(
                 Finding(
                     "R13",
@@ -623,3 +637,75 @@ def conditional_sections_are_answered(project) -> list[Finding]:
         for resolved in resolve_applicability(project).values()
         if resolved.is_unanswered_condition
     ]
+
+
+@rule("R20")
+def no_applicable_leaf_ships_a_placeholder(project) -> list[Finding]:
+    """A leaf the dossier owes must not go to a regulator as a placeholder.
+
+    This is the rule P18 exists to make true, and it is the severity model
+    working exactly as designed. A placeholder is not an approximation of a
+    document -- it is a page that says, in capitals, "PLACEHOLDER — REPLACE
+    THIS FILE". Its whole purpose (see app/templating/certificates.py) is to
+    make a gap loud rather than silent. Shipping one is therefore not a
+    degraded submission; it is submitting a note admitting the submission is
+    incomplete, and the agency's response to that is not in doubt.
+
+    ERROR, so it blocks the build. WHY an ERROR and not a WARNING, when R19
+    (an unanswered conditional) is only a WARNING: the platform cannot know
+    whether a biowaiver is being claimed, but it knows with certainty that
+    the CPP is still a placeholder -- it generated the placeholder. A rule
+    that is certain about a fatal defect should gate; a rule that is
+    guessing should not.
+
+    The deliberate exception path already exists and is unchanged: a human
+    can override this with a logged reason (P06/P15c), which is right for
+    the real case of a pre-submission meeting package where the certificates
+    genuinely are not in yet.
+    """
+    profile = REGION_PROFILES.get(project.region)
+    if profile is None:
+        return []
+
+    satisfied = satisfied_certificate_types(project)
+    out: list[Finding] = []
+
+    # Every Certificate row on file becomes a placeholder in the package
+    # unless a real document has been attached at its leaf. Iterating the
+    # ROWS (not the region's required list) is deliberate: a certificate
+    # someone chose to record is one they intend to file, and a placeholder
+    # for an optional certificate is just as unshippable as one for a
+    # mandatory certificate.
+    slots_by_type = {
+        slot.certificate_type: slot
+        for slot in profile.document_slots
+        if slot.certificate_type is not None
+    }
+    outstanding = {c.certificate_type for c in project.product.certificates} - satisfied
+
+    for certificate_type in sorted(outstanding, key=lambda t: t.value):
+        slot = slots_by_type.get(certificate_type)
+        if slot is None:
+            # WHY silence rather than an error here: this region has no
+            # declared leaf for that certificate, so there is nowhere to
+            # attach it -- and a gate you cannot pass is not a gate, it is a
+            # wall. It would block every EU export today with an instruction
+            # ("attach the document") the platform gives no way to follow.
+            #
+            # The gap is real and it is EU Module 1 being unmodelled, which
+            # EU_PROFILE already says of itself. It gets fixed by declaring
+            # those slots, at which point this rule starts covering EU with
+            # no change here.
+            continue
+        out.append(
+            Finding(
+                "R20",
+                Severity.ERROR,
+                "completeness",
+                f"The {certificate_type.value} certificate (leaf {slot.section_number}) is "
+                f"still a generated placeholder -- attach the actual document before "
+                f"exporting.",
+                section=slot.section_number,
+            )
+        )
+    return out

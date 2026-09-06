@@ -48,6 +48,28 @@ MODULE_2_5_FOLDERS: dict[str, str] = {
     "5.3.5": "m5/53-clinical-study-reports/535-efficacy-and-safety-studies",
     "5.3.6": "m5/53-clinical-study-reports/536-postmarketing-experience",
     "5.3.7": "m5/53-clinical-study-reports/537-case-report-forms",
+    # P18: leaves whose content is an UPLOADED third-party artifact -- a
+    # contract lab's validation report, a CRO's study report, a literature
+    # pack. They have no template and never will (nobody here can author
+    # them), but they still need a home, because a file with no declared
+    # folder cannot be placed and `folder_for_section` raises rather than
+    # guessing. Registering the folder is what makes the leaf attachable.
+    "3.2.P.3.5": "m3/32-body-data/32p/32p3-manufacture/32p35-process-validation",
+    "3.2.P.4.3": (
+        "m3/32-body-data/32p/32p4-control-of-excipients/32p43-validation-of-analytical-procedures"
+    ),
+    "3.2.P.5.3": (
+        "m3/32-body-data/32p/32p5-control-of-drug-product/32p53-validation-of-analytical-procedures"
+    ),
+    "3.3": "m3/33-literature-references",
+    "5.3.1.1": "m5/53-clinical-study-reports/531-biopharmaceutic-studies/5311-bioavailability",
+    "5.3.1.2": (
+        "m5/53-clinical-study-reports/531-biopharmaceutic-studies/5312-comparative-ba-and-be"
+    ),
+    "5.3.1.4": (
+        "m5/53-clinical-study-reports/531-biopharmaceutic-studies/5314-bioanalytical-methods"
+    ),
+    "5.4": "m5/54-literature-references",
 }
 
 
@@ -59,6 +81,13 @@ MODULE_2_5_FOLDERS: dict[str, str] = {
 DRUG_SUBSTANCE_FOLDERS: dict[str, str] = {
     "3.2.S.1": "32s1-general-information",
     "3.2.S.4.1": "32s4-control-of-drug-substance/32s41-specification",
+    # P18: uploaded per-substance artifacts. An elucidation-of-structure
+    # report is about ONE active -- filing ampicillin's spectra under a
+    # number that means "the drug substance" would put the wrong molecule in
+    # front of an assessor, which is the whole reason instances.py exists.
+    "3.2.S.2.5": "32s2-manufacture/32s25-process-validation",
+    "3.2.S.3.1": "32s3-characterisation/32s31-elucidation-of-structure",
+    "3.2.S.4.3": "32s4-control-of-drug-substance/32s43-validation-of-analytical-procedures",
 }
 
 

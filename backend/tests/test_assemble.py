@@ -20,6 +20,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.assembly.assemble import AssemblyBlockedError, assemble_project
 from app.core.storage import InMemoryStorageClient
+from app.seed.documents import attach_certificate_documents
 from app.models import Base
 from app.seed.examox import build_examox
 from app.templating.instances import expand_sections
@@ -49,12 +50,21 @@ async def test_assembling_a_clean_project_covers_every_registered_section(db_fac
         await db.commit()
 
         storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
         manifest = await assemble_project(db, project, storage=storage)
 
         # Every INSTANCE, not every registry number: a section that repeats
         # per drug substance owes one leaf per active, and its bare number
         # is never itself a leaf key.
-        assert {entry.section for entry in manifest} == {i.key for i in expand_sections(project)}
+        #
+        # A SUPERSET, not an equality, since P18: the manifest also carries
+        # leaves that have no registry entry at all -- an uploaded CPP or BE
+        # study report is a leaf the platform places and checksums but could
+        # never render. The registered sections must all still be there,
+        # which is what this asserts; the extras are asserted below.
+        sections = {entry.section for entry in manifest}
+        assert sections >= {i.key for i in expand_sections(project)}
+        assert "1.2.7" in sections  # the attached CPP, rendered by nobody
         for entry in manifest:
             assert entry.filename == f"{entry.section}.pdf"
             assert storage.get(entry.storage_path)  # actually stored, not just claimed
@@ -67,9 +77,20 @@ async def test_each_leaf_is_searchable_and_bookmarked(db_factory):
         await db.commit()
 
         storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
         manifest = await assemble_project(db, project, storage=storage)
 
+        # RENDERED leaves only, and the exclusion is a design decision worth
+        # stating (P18): an uploaded PDF ships byte-for-byte as supplied. It
+        # is not re-bookmarked, because its MD5 was computed over those exact
+        # bytes at upload time and is already published in the manifest and
+        # the eCTD backbone -- adding an outline entry would silently make
+        # every checksum wrong. The trade-off (uploaded leaves carry whatever
+        # bookmarks their author gave them) is recorded in the build log.
+        rendered = {i.key for i in expand_sections(project)}
         for entry in manifest:
+            if entry.section not in rendered:
+                continue
             pdf_bytes = storage.get(entry.storage_path)
             reader = PdfReader(io.BytesIO(pdf_bytes))
             assert reader.pages[0].extract_text().strip()  # real text, not rasterized
@@ -84,6 +105,7 @@ async def test_reassembly_is_byte_identical(db_factory):
         await db.commit()
 
         storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
         first = await assemble_project(db, project, storage=storage)
         second = await assemble_project(db, project, storage=storage)
 
@@ -106,10 +128,20 @@ async def test_no_mega_pdf_is_ever_produced(db_factory):
         await db.commit()
 
         storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
         manifest = await assemble_project(db, project, storage=storage)
 
-        assert len(manifest) == len(expand_sections(project))
+        # One leaf per registered section, PLUS one per attached document --
+        # never fewer (a merge would show up as a shortfall here), and never
+        # a leaf that is neither.
+        rendered = {i.key for i in expand_sections(project)}
+        uploaded = {d.instance_key for d in project.documents}
+        assert {e.section for e in manifest} == rendered | uploaded
+        assert len(manifest) == len(rendered | uploaded)
+
         for entry in manifest:
+            if entry.section not in rendered:
+                continue  # an uploaded PDF's page count is its author's business
             pdf_bytes = storage.get(entry.storage_path)
             reader = PdfReader(io.BytesIO(pdf_bytes))
             # each leaf's own docx source is a single short section, so a
@@ -152,6 +184,7 @@ async def test_rendered_docx_source_is_not_the_pdf_itself(db_factory):
         await db.commit()
 
         storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
         manifest = await assemble_project(db, project, storage=storage)
         p1 = next(e for e in manifest if e.section == "3.2.P.1")
         pdf_bytes = storage.get(p1.storage_path)
