@@ -1,23 +1,33 @@
 "use client";
 
 /**
- * The 3.2.S.4.1 specification table for ONE active ingredient.
+ * The specification table for ONE owner -- a drug substance (3.2.S.4.1),
+ * an excipient (3.2.P.4.1) or the finished product (3.2.P.5.1).
  *
- * WHY this is nested inside the active-ingredient step rather than being a
- * step of its own: 3.2.S is repeated per drug substance, so a combination
- * product has one complete specification per active. A flat "Specifications"
- * step would have to ask "which substance?" on every row, which is exactly
- * the ambiguity the nesting removes.
+ * P20 generalised this from the drug-substance-only editor P13 wrote. The
+ * reasoning is the backend's, one layer up (see app/models/spec_owner.py):
+ * a specification is ONE artifact the CTD asks for of three different
+ * things, and three editors that drift is the failure mode. One editor
+ * means one place where the "cite the method, never paste the monograph"
+ * warning lives, one place row order is decided, one place a validation
+ * message is worded.
  *
- * The previous version of this data was a single free-text box. It read
- * fine and could not be used: nothing could render it as the table
- * 3.2.S.4.1 is required to contain, cite a method against it, or check it.
+ * WHY the drug-substance and excipient editors stay NESTED inside their
+ * owner's row rather than becoming a step of their own: 3.2.S.4.1 and
+ * 3.2.P.4.1 repeat per subject, so a flat "Specifications" step would have
+ * to ask "which substance?" on every row -- exactly the ambiguity the
+ * nesting removes. The drug PRODUCT's specification does not repeat, so it
+ * is the one that can sensibly stand alone.
  */
 
 import { useCallback, useEffect, useState } from "react";
 
 import { ApiError, api } from "@/lib/api";
-import type { SpecificationTest } from "@/lib/types";
+import {
+  SPECIFICATION_SECTION,
+  type SpecificationOwnerKind,
+  type SpecificationTest,
+} from "@/lib/types";
 
 const inputClass =
   "w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-sm " +
@@ -25,24 +35,50 @@ const inputClass =
 
 const EMPTY = { test_name: "", method: "", acceptance_criterion: "" };
 
+/** What an empty specification means, per owner. Only the drug substance's
+ * is a blocking rule today (R07), so the other two say what is missing
+ * without claiming an error the backend would not raise. */
+const EMPTY_HINT: Record<SpecificationOwnerKind, string> = {
+  "drug-substance":
+    "No tests yet. Every active ingredient needs a specification before the dossier can be exported (rule R07).",
+  "drug-product":
+    "No tests yet. Without them 3.2.P.5.1 cannot be rendered, and batch results have no limits to be checked against.",
+  excipient:
+    "No tests yet. Each excipient owes its own 3.2.P.4.1 -- usually its monograph plus whatever this formulation depends on.",
+};
+
 export function SpecificationEditor({
-  apiId,
-  substanceName,
+  owner,
+  ownerId,
+  ownerName,
+  onRowsChange,
 }: {
-  apiId: string;
-  substanceName: string;
+  owner: SpecificationOwnerKind;
+  ownerId: string;
+  ownerName: string;
+  /** Lets a parent (the batch screen) see the tests a result may answer,
+   * without fetching them a second time and risking a different answer. */
+  onRowsChange?: (rows: SpecificationTest[]) => void;
 }) {
   const [rows, setRows] = useState<SpecificationTest[]>([]);
   const [draft, setDraft] = useState(EMPTY);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const publish = useCallback(
+    (next: SpecificationTest[]) => {
+      setRows(next);
+      onRowsChange?.(next);
+    },
+    [onRowsChange],
+  );
+
   useEffect(() => {
     let cancelled = false;
     api
-      .listSpecificationTests(apiId)
+      .listSpecificationTests(owner, ownerId)
       .then((loaded) => {
-        if (!cancelled) setRows(loaded);
+        if (!cancelled) publish(loaded);
       })
       .catch(() => {
         if (!cancelled) setError("Could not load the specification");
@@ -50,7 +86,7 @@ export function SpecificationEditor({
     return () => {
       cancelled = true;
     };
-  }, [apiId]);
+  }, [owner, ownerId, publish]);
 
   const update = useCallback(
     (name: keyof typeof EMPTY, value: string) =>
@@ -63,7 +99,7 @@ export function SpecificationEditor({
     setError(null);
     setBusy(true);
     try {
-      const saved = await api.createSpecificationTest(apiId, {
+      const saved = await api.createSpecificationTest(owner, ownerId, {
         ...draft,
         // Rows keep the order they were entered in: specification tables
         // are conventionally ordered (description, identification, assay,
@@ -71,7 +107,7 @@ export function SpecificationEditor({
         // side by side, so the order is content, not presentation.
         sort_order: rows.length,
       });
-      setRows((previous) => [...previous, saved]);
+      publish([...rows, saved]);
       setDraft(EMPTY);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save the test");
@@ -82,8 +118,8 @@ export function SpecificationEditor({
 
   async function remove(rowId: string) {
     try {
-      await api.deleteSpecificationTest(apiId, rowId);
-      setRows((previous) => previous.filter((row) => row.id !== rowId));
+      await api.deleteSpecificationTest(owner, ownerId, rowId);
+      publish(rows.filter((row) => row.id !== rowId));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not remove the test");
     }
@@ -92,15 +128,14 @@ export function SpecificationEditor({
   return (
     <div className="mt-3 rounded-md border border-slate-200 p-3 dark:border-slate-800">
       <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-        3.2.S.4.1 Specification — {substanceName}
+        {SPECIFICATION_SECTION[owner]} Specification — {ownerName}
       </p>
 
       {error && <p className="mb-2 text-sm text-red-600">{error}</p>}
 
       {rows.length === 0 ? (
         <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
-          No tests yet. Every active ingredient needs a specification before
-          the dossier can be exported (rule R07).
+          {EMPTY_HINT[owner]}
         </p>
       ) : (
         <table className="mb-3 w-full text-left text-sm">

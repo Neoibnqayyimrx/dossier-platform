@@ -362,6 +362,61 @@ export interface SpecificationTest {
   acceptance_criterion: string;
   sort_order: number;
   notes: string | null;
+  /** P20: which of the three things this row is a specification OF.
+   * Derived on the backend from whichever foreign key is set, so it can
+   * never disagree with the owner. */
+  owner_kind?: SpecificationOwnerKind;
+}
+
+/** The three things the CTD asks for a specification of: 3.2.S.4.1 of the
+ * drug substance, 3.2.P.4.1 of each excipient, 3.2.P.5.1 of the finished
+ * product. One table, one editor -- three editors that drift is the
+ * failure mode this replaced. */
+export type SpecificationOwnerKind =
+  | "drug-substance"
+  | "drug-product"
+  | "excipient";
+
+/** The URL segment each owner's specification hangs under. Keyed by owner
+ * kind so a caller names the OWNER, not a path. */
+export const SPECIFICATION_PARENT: Record<SpecificationOwnerKind, string> = {
+  "drug-substance": "apis",
+  "drug-product": "products",
+  excipient: "excipients",
+};
+
+/** Which section number an owner's specification renders into. Shown in
+ * the editor's heading so the filer can see, while typing, which page of
+ * the dossier they are filling in. */
+export const SPECIFICATION_SECTION: Record<SpecificationOwnerKind, string> = {
+  "drug-substance": "3.2.S.4.1",
+  "drug-product": "3.2.P.5.1",
+  excipient: "3.2.P.4.1",
+};
+
+/** One batch put forward in 3.2.S.4.4 / 3.2.P.5.4. */
+export interface BatchAnalysis {
+  id: string;
+  batch_number: string;
+  manufacture_date: string | null;
+  batch_size: string | null;
+  manufacturer_id: string | null;
+  purpose: string | null;
+  notes: string | null;
+  owner_kind?: SpecificationOwnerKind;
+  results: BatchAnalysisResult[];
+}
+
+/** One measured value, against one specification test, for one batch.
+ * `specification_test_id` is a foreign key, not a test name typed again:
+ * a result cannot be recorded for a test that is not in the
+ * specification, because there would be no id to send. */
+export interface BatchAnalysisResult {
+  id: string;
+  batch_analysis_id: string;
+  specification_test_id: string;
+  result: string;
+  sort_order: number;
 }
 
 export interface Excipient {

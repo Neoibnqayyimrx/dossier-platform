@@ -20,7 +20,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { api, ApiError, type ProductChildResource } from "@/lib/api";
-import type { Applicant, Vocabularies } from "@/lib/types";
+import type { Applicant, SpecificationTest, Vocabularies } from "@/lib/types";
+import { BatchAnalysisEditor } from "@/components/BatchAnalysisEditor";
 import { SpecificationEditor } from "@/components/SpecificationEditor";
 import {
   CHILD_STEPS,
@@ -154,13 +155,25 @@ function ChildStep({
                   Remove
                 </button>
               </div>
-              {/* Each active ingredient carries its own 3.2.S.4.1
-                  specification -- the section repeats per drug substance,
-                  so the table belongs to the substance, not the product. */}
+              {/* P20: an active ingredient carries its own 3.2.S.4.1 and
+                  its own batches; an excipient carries its own 3.2.P.4.1.
+                  Both sections repeat per subject, so the tables belong to
+                  the subject, not to the product -- which is exactly why
+                  the editor is nested inside the row rather than being a
+                  step of its own. One editor serves both. */}
               {step.id === "apis" && (
+                <OwnerControlPanel
+                  owner="drug-substance"
+                  ownerId={String(row.id)}
+                  ownerName={String(row.inn_name ?? "this substance")}
+                  withBatches
+                />
+              )}
+              {step.id === "excipients" && (
                 <SpecificationEditor
-                  apiId={String(row.id)}
-                  substanceName={String(row.inn_name ?? "this substance")}
+                  owner="excipient"
+                  ownerId={String(row.id)}
+                  ownerName={String(row.name ?? "this excipient")}
                 />
               )}
             </li>
@@ -192,6 +205,48 @@ function ChildStep({
         </form>
       </Card>
     </div>
+  );
+}
+
+/**
+ * A specification plus, where the CTD has one, the batches measured
+ * against it.
+ *
+ * The two are one component because the batch screen needs the
+ * specification's actual rows -- a result answers a test, and the tests
+ * offered must provably be the same rows the editor above is showing. Two
+ * independent fetches could disagree, and "the result answers a test in
+ * the spec" is the invariant the whole screen exists to hold.
+ */
+function OwnerControlPanel({
+  owner,
+  ownerId,
+  ownerName,
+  withBatches = false,
+}: {
+  owner: "drug-substance" | "drug-product";
+  ownerId: string;
+  ownerName: string;
+  withBatches?: boolean;
+}) {
+  const [specification, setSpecification] = useState<SpecificationTest[]>([]);
+  return (
+    <>
+      <SpecificationEditor
+        owner={owner}
+        ownerId={ownerId}
+        ownerName={ownerName}
+        onRowsChange={setSpecification}
+      />
+      {withBatches && (
+        <BatchAnalysisEditor
+          owner={owner}
+          ownerId={ownerId}
+          ownerName={ownerName}
+          specification={specification}
+        />
+      )}
+    </>
   );
 }
 

@@ -12,6 +12,7 @@
  * that cookie-and-proxy design is the thing to revisit.
  */
 
+import { SPECIFICATION_PARENT } from "@/lib/types";
 import type {
   Applicant,
   AuthToken,
@@ -28,6 +29,9 @@ import type {
   SectionDocument,
   SectionStatus,
   Sequence,
+  BatchAnalysis,
+  BatchAnalysisResult,
+  SpecificationOwnerKind,
   SpecificationTest,
   User,
   ValidationOverride,
@@ -334,12 +338,19 @@ export const api = {
   },
 
   /**
-   * Specification rows hang off an ACTIVE INGREDIENT, not a product --
-   * 3.2.S is repeated per drug substance, so each active has its own
-   * specification. Same factory on the backend, different parent.
+   * Specification rows hang off whichever thing they are a specification
+   * OF -- an active ingredient (3.2.S.4.1), an excipient (3.2.P.4.1) or
+   * the product itself (3.2.P.5.1). P20 made the backend mount ONE model
+   * at three parents, so these three helpers take an owner kind and an id
+   * rather than existing three times over.
+   *
+   * The owner is always in the PATH, never in the body: the backend's
+   * ownership check is on the parent in the path, so that is the only
+   * place an owner can be trusted to come from.
    */
   createSpecificationTest(
-    apiId: string,
+    owner: SpecificationOwnerKind,
+    ownerId: string,
     payload: {
       test_name: string;
       method: string;
@@ -347,18 +358,82 @@ export const api = {
       sort_order: number;
     },
   ) {
-    return request<SpecificationTest>(`/apis/${apiId}/specification`, {
+    return request<SpecificationTest>(
+      `/${SPECIFICATION_PARENT[owner]}/${ownerId}/specification`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  },
+
+  listSpecificationTests(owner: SpecificationOwnerKind, ownerId: string) {
+    return request<SpecificationTest[]>(
+      `/${SPECIFICATION_PARENT[owner]}/${ownerId}/specification`,
+    );
+  },
+
+  deleteSpecificationTest(
+    owner: SpecificationOwnerKind,
+    ownerId: string,
+    rowId: string,
+  ) {
+    return request<void>(
+      `/${SPECIFICATION_PARENT[owner]}/${ownerId}/specification/${rowId}`,
+      { method: "DELETE" },
+    );
+  },
+
+  /**
+   * Batches (3.2.S.4.4 / 3.2.P.5.4). Only a drug substance or the finished
+   * product can have them -- the CTD has no excipient batch-analysis leaf,
+   * which is why the backend's BatchAnalysis declares the narrower
+   * two-owner space.
+   */
+  listBatches(owner: "drug-substance" | "drug-product", ownerId: string) {
+    return request<BatchAnalysis[]>(
+      `/${SPECIFICATION_PARENT[owner]}/${ownerId}/batches`,
+    );
+  },
+
+  createBatch(
+    owner: "drug-substance" | "drug-product",
+    ownerId: string,
+    payload: {
+      batch_number: string;
+      manufacture_date?: string | null;
+      batch_size?: string | null;
+      purpose?: string | null;
+    },
+  ) {
+    return request<BatchAnalysis>(
+      `/${SPECIFICATION_PARENT[owner]}/${ownerId}/batches`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  },
+
+  deleteBatch(
+    owner: "drug-substance" | "drug-product",
+    ownerId: string,
+    batchId: string,
+  ) {
+    return request<void>(
+      `/${SPECIFICATION_PARENT[owner]}/${ownerId}/batches/${batchId}`,
+      { method: "DELETE" },
+    );
+  },
+
+  /** A result always names the specification test it answers. The backend
+   * refuses one whose test belongs to a different material (422). */
+  createBatchResult(
+    batchId: string,
+    payload: { specification_test_id: string; result: string; sort_order: number },
+  ) {
+    return request<BatchAnalysisResult>(`/batches/${batchId}/results`, {
       method: "POST",
       body: JSON.stringify(payload),
     });
   },
 
-  listSpecificationTests(apiId: string) {
-    return request<SpecificationTest[]>(`/apis/${apiId}/specification`);
-  },
-
-  deleteSpecificationTest(apiId: string, rowId: string) {
-    return request<void>(`/apis/${apiId}/specification/${rowId}`, {
+  deleteBatchResult(batchId: string, resultId: string) {
+    return request<void>(`/batches/${batchId}/results/${resultId}`, {
       method: "DELETE",
     });
   },
