@@ -50,7 +50,13 @@ describe("cross-reference fields", () => {
       ),
     );
 
+    // Two `active_ingredient_id` selects since P19: the batch-formula
+    // line's (which active is this line?) and the packaging row's (which
+    // substance does this drum hold?). Both are cross-references to rows
+    // saved in an earlier step, which is exactly what a runtime vocabulary
+    // is for.
     expect(runtimeFields.map((f) => f.name).sort()).toEqual([
+      "active_ingredient_id",
       "active_ingredient_id",
       "manufacturer_id",
       "manufacturer_id",

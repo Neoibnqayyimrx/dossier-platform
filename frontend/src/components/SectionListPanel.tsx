@@ -159,6 +159,26 @@ function DocumentControl({
   );
 }
 
+/**
+ * The copies a repeated section owes (P19).
+ *
+ * WHY the copies are listed rather than counted: "2 copies" tells the filer
+ * how much work there is, and "Ampicillin / Cloxacillin" tells them what
+ * the work IS. The subject names are the same strings that end up in the
+ * folder names and the eCTD backbone, so what the screen shows and what the
+ * package contains are one list.
+ */
+function Copies({ section }: { section: SectionStatus }) {
+  return (
+    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+      {section.copies.length}{" "}
+      {section.copies.length === 1 ? "copy" : "copies"} — one per{" "}
+      {section.repeat?.replace(/_/g, " ")}:{" "}
+      {section.copies.map((copy) => copy.subject).join(", ")}
+    </p>
+  );
+}
+
 function ConditionControl({
   section,
   onAnswer,
@@ -357,6 +377,7 @@ export function SectionListPanel({
                       {STATUS_LABELS[section.status]}
                     </Badge>
                   </div>
+                  {section.copies.length > 0 && <Copies section={section} />}
                   {section.citation && section.status === "not-applicable" && (
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                       Basis: {section.citation}

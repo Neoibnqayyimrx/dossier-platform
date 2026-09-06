@@ -240,6 +240,17 @@ export type SectionStatusValue =
  * Deliberately served rather than assembled here: the applicability table
  * is regulatory config, and a copy in TypeScript would drift into telling
  * a filer a section they owe is not applicable. */
+/** Matches backend SectionCopyRead: one COPY of a repeated section (P19).
+ *
+ * A product with two actives owes two complete 3.2.S.1 documents. The
+ * section list shows the copies rather than one row per number, because a
+ * row per number understates the dossier by exactly the amount that makes
+ * repetition worth having. */
+export interface SectionCopy {
+  key: string;
+  subject: string;
+}
+
 export interface SectionStatus {
   number: string;
   module: number;
@@ -252,6 +263,12 @@ export interface SectionStatus {
   answer: boolean | null;
   /** The guideline cited in the statement, when one is being filed. */
   citation: string | null;
+  /** The axis this section repeats along ("drug_substance", "pack", …), or
+   * null when it appears exactly once. */
+  repeat: string | null;
+  /** What this project actually owes along that axis. Empty for a section
+   * that appears once. */
+  copies: SectionCopy[];
 }
 
 /** Matches backend/app/api/routers/documents.py::SectionDocumentRead.

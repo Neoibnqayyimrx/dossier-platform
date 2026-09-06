@@ -114,6 +114,7 @@ export const CHILD_STEPS: ChildStepSpec[] = [
         type: "select",
         vocabulary: "manufacturer_role",
         required: true,
+        help: "Also decides where the site is filed: every role except “API manufacturer” gets its own copy of 3.2.P.3.1, and the API site is named in 3.2.S.2.1 instead.",
       },
       { name: "site_address", label: "Site address", type: "text" },
       { name: "country", label: "Country", type: "text" },
@@ -192,6 +193,13 @@ export const CHILD_STEPS: ChildStepSpec[] = [
         type: "select",
         vocabulary: "compendial_status",
       },
+      {
+        name: "origin",
+        label: "Origin",
+        type: "select",
+        vocabulary: "excipient_origin",
+        help: "Generates the TSE/BSE statement at 3.2.P.4.5. An excipient of animal or human origin needs a TSE/BSE certificate on file (rule R21) — and the name never tells you: magnesium stearate is vegetable in one plant and tallow-derived in the next.",
+      },
     ],
   },
   {
@@ -199,9 +207,27 @@ export const CHILD_STEPS: ChildStepSpec[] = [
     title: "Packaging",
     addLabel: "Add packaging component",
     blurb:
-      "Primary, secondary and labelling components. Checked for consistency against the declared pack size (rule R12).",
-    summarise: (row) => `${row.component} — ${row.description}`,
+      "Primary, secondary and labelling components — for the finished product, and for the drug substance as it arrives. Checked for consistency against the declared pack size (rule R12).",
+    // The role leads the summary because it is what tells two otherwise
+    // similar rows apart: "primary — Alu/PVC blister" and "primary — fibre
+    // drum" are different sections of the dossier, not different wording.
+    summarise: (row) => `${row.role} — ${row.component} — ${row.description}`,
     fields: [
+      {
+        name: "role",
+        label: "Packs the",
+        type: "select",
+        vocabulary: "packaging_role",
+        required: true,
+        help: "The finished product (3.2.P.7) or the drug substance as it is shipped to you (3.2.S.6). These are different sections and different qualifications — a drum is not a blister.",
+      },
+      {
+        name: "active_ingredient_id",
+        label: "Which drug substance",
+        type: "select",
+        vocabulary: "active_ingredient",
+        help: "Only for drug-substance packaging, and only when a combination product's actives ship differently. Leave empty and the pack is filed under every substance.",
+      },
       {
         name: "component",
         label: "Component",
