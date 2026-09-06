@@ -18,6 +18,7 @@ from __future__ import annotations
 from app.ctd.region_profiles import REGION_PROFILES, resolve_applicability
 from app.models.enums import CertificateType, PackagingRole, TSE_RELEVANT_ORIGINS
 from app.models.project import Project
+from app.templating import quality_control
 from app.templating.registry import get_section
 
 # What a context prints where a fact should be but is not. Shared rather
@@ -150,19 +151,25 @@ def build_context(
             "narrative": narrative,
         }
 
-    if section_number == "3.2.S.4.1":
-        return {
-            "product": product,
-            "substance": subject,
-            # Sorted here, not just relied on from the relationship's
-            # order_by: that ordering only applies when the rows are loaded
-            # from the database, so an object built in memory (a seed, a
-            # test, an API create) would render in insertion order. The
-            # rendered table has to be deterministic either way -- the
-            # builders must be byte-identical across runs.
-            "specification": sorted(subject.specification, key=lambda r: r.sort_order),
-            "narrative": narrative,
-        }
+    # ---- P20: the control sections ------------------------------------
+    #
+    # WHY these are dispatched through a table instead of eleven more `if`
+    # branches: they are eleven sections built from four SHAPES -- a
+    # specification table, a batch table, an impurity table, and a
+    # narrative with one of those under it. The `if` chain below grew one
+    # branch per section because each of those sections was genuinely
+    # different; these are genuinely the same, and writing them as
+    # branches would be writing the same builder eleven times. See
+    # app/templating/quality_control.py.
+    #
+    # Note where `subject` comes from and where it does not. 3.2.S.4.1
+    # repeats per drug substance and 3.2.P.4.1 per excipient, so the
+    # subject IS the owner. 3.2.P.5.1 does not repeat, so its owner is the
+    # product itself -- and 3.2.P.4.2 / 3.2.P.4.4 do not repeat either but
+    # are ABOUT the excipients, so they take the whole list. Three
+    # different answers to "what owns this section", resolved once here.
+    if section_number in _QUALITY_CONTROL_SECTIONS:
+        return _quality_control_context(section, project, subject, narrative)
 
     if section_number == "3.2.S.2.1":
         # WHY this renders a marker instead of raising when the manufacturer
@@ -456,3 +463,69 @@ def _excipient_origin_context(product) -> dict:
             else ""
         ),
     }
+
+
+# ---- P20 dispatch ----------------------------------------------------------
+#
+# Section number -> (shape, how to find the owner). Kept as one table so
+# that "which owner does this section render from" is answerable by reading
+# one screen, rather than by tracing eleven branches -- and so that adding
+# 3.2.P.2 or a second impurity leaf later is a row, not a branch.
+#
+# The owner resolvers:
+#   "subject"    -- the section repeats, so the instance's subject is the
+#                   owner (a drug substance, or an excipient).
+#   "product"    -- the section appears once and is about the medicine.
+#   "excipients" -- the section appears once but is about every excipient.
+_SUBJECT, _PRODUCT, _EXCIPIENTS = "subject", "product", "excipients"
+
+_QUALITY_CONTROL_SECTIONS: dict[str, tuple[str, str]] = {
+    "3.2.S.4.1": ("specification", _SUBJECT),
+    "3.2.P.4.1": ("specification", _SUBJECT),
+    "3.2.P.5.1": ("specification", _PRODUCT),
+    "3.2.S.3.2": ("impurities", _SUBJECT),
+    "3.2.P.5.5": ("impurities", _PRODUCT),
+    "3.2.S.4.4": ("batches", _SUBJECT),
+    "3.2.P.5.4": ("batches", _PRODUCT),
+    "3.2.S.4.2": ("procedures", _SUBJECT),
+    "3.2.P.4.2": ("procedures", _EXCIPIENTS),
+    "3.2.P.5.2": ("procedures", _PRODUCT),
+    "3.2.P.4.4": ("justification", _EXCIPIENTS),
+    "3.2.P.5.6": ("justification", _PRODUCT),
+}
+
+
+def _quality_control_context(section, project, subject, narrative) -> dict:
+    shape, owner_source = _QUALITY_CONTROL_SECTIONS[section.number]
+    product = project.product
+
+    if owner_source == _SUBJECT:
+        # A repeating section with no subject is a caller bug, not a data
+        # gap -- expand_sections never produces one. Raising names the
+        # section rather than letting an AttributeError name a field.
+        if subject is None:
+            raise ValueError(
+                f"Section {section.number} repeats along {section.repeat!r}, so it needs "
+                f"a subject; none was passed."
+            )
+        owner = subject
+    elif owner_source == _PRODUCT:
+        owner = product
+    else:
+        owner = None
+
+    if shape == "specification":
+        return quality_control.specification_context(section, owner)
+    if shape == "impurities":
+        return quality_control.impurities_context(section, owner)
+    if shape == "batches":
+        return quality_control.batch_analysis_context(section, owner)
+
+    # The two narrative shapes take a LIST of owners: 3.2.P.4.2 and
+    # 3.2.P.4.4 cover every excipient in one document, while their drug
+    # substance and drug product counterparts cover exactly one thing. One
+    # builder either way -- a list of length one is not a special case.
+    owners = list(product.excipients) if owner_source == _EXCIPIENTS else [owner]
+    if shape == "procedures":
+        return quality_control.analytical_procedures_context(section, owners, narrative)
+    return quality_control.justification_context(section, owners, narrative)

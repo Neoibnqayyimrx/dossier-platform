@@ -49,6 +49,22 @@ MODULE_2_5_FOLDERS: dict[str, str] = {
     # m3-2-r-regional-information for every region, and only what goes
     # inside it varies. So the folder belongs in this common map with the
     # rest of Module 3.
+    # P20: the control-of-drug-product sections, plus the two excipient
+    # sections that cover ALL excipients in one document (3.2.P.4.1 is the
+    # one that repeats, so it lives in REPEAT_FOLDERS below instead).
+    "3.2.P.4.2": ("m3/32-body-data/32p/32p4-control-of-excipients/32p42-analytical-procedures"),
+    "3.2.P.4.4": (
+        "m3/32-body-data/32p/32p4-control-of-excipients/32p44-justification-of-specifications"
+    ),
+    "3.2.P.5.1": "m3/32-body-data/32p/32p5-control-of-drug-product/32p51-specification",
+    "3.2.P.5.2": ("m3/32-body-data/32p/32p5-control-of-drug-product/32p52-analytical-procedures"),
+    "3.2.P.5.4": "m3/32-body-data/32p/32p5-control-of-drug-product/32p54-batch-analyses",
+    "3.2.P.5.5": (
+        "m3/32-body-data/32p/32p5-control-of-drug-product/32p55-characterisation-of-impurities"
+    ),
+    "3.2.P.5.6": (
+        "m3/32-body-data/32p/32p5-control-of-drug-product/" "32p56-justification-of-specifications"
+    ),
     "3.2.R": "m3/32-body-data/32r-regional-information",
     "3.2.A": "m3/32-body-data/32a-appendices",
     # ONE statement for the whole of Module 4, not one per 4.1/4.2/4.3 --
@@ -137,7 +153,24 @@ REPEAT_FOLDERS: dict[str, RepeatFolders] = {
             "3.2.S.2.1": "32s2-manufacture/32s21-manufacturer",
             "3.2.S.5": "32s5-reference-standards",
             "3.2.S.6": "32s6-container-closure-system",
+            # P20. Each of these is about ONE substance -- a combination
+            # product's two actives have two impurity profiles and two
+            # batch histories, and filing either under a number that means
+            # "the drug substance" puts the wrong material's numbers in
+            # front of an assessor.
+            "3.2.S.3.2": "32s3-characterisation/32s32-impurities",
+            "3.2.S.4.2": "32s4-control-of-drug-substance/32s42-analytical-procedures",
+            "3.2.S.4.4": "32s4-control-of-drug-substance/32s44-batch-analyses",
         },
+    ),
+    # P20: the excipient axis, declared by P19 and unused until
+    # `SpecificationTest` could belong to an excipient. Only 3.2.P.4.1
+    # repeats along it -- 3.2.P.4.2, 3.2.P.4.4 and 3.2.P.4.5 each cover
+    # every excipient in one document and stay in MODULE_2_5_FOLDERS.
+    "excipient": RepeatFolders(
+        base="m3/32-body-data/32p/32p4-control-of-excipients",
+        prefix="excipient",
+        tails={"3.2.P.4.1": "32p41-specification"},
     ),
     "manufacturing_site": RepeatFolders(
         base="m3/32-body-data/32p/32p3-manufacture/32p31-manufacturers",

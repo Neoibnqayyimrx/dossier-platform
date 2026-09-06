@@ -325,3 +325,35 @@ def drug_substance_info(project: "Project") -> dict[str, tuple[str, str]]:
             )
         info[instance.key] = (instance.subject.inn_name, manufacturer.name)
     return info
+
+
+def repeat_element_info(project: "Project") -> dict[str, tuple[str, dict[str, str]]]:
+    """instance key -> (axis name, eCTD element attributes), for every
+    section filed under a REPEATING heading element.
+
+    Two axes qualify today, and only two, because only two are starred in
+    the ICH DTD:
+
+      drug_substance  m3-2-s-drug-substance*          substance, manufacturer  #REQUIRED
+      excipient       m3-2-p-4-control-of-excipients* excipient                #IMPLIED
+
+    Every other repeating section (3.2.P.3.1 per site, 3.2.P.7 per pack)
+    files several LEAVES under one heading instead, because its element is
+    declared once with `leaf*` content. Placement and CTD folders answer to
+    different authorities -- the folder tree still gives each subject its
+    own directory, since that is how a human navigates it.
+
+    WHY the excipient attribute is always set even though the DTD marks it
+    #IMPLIED: two specification leaves under one heading, distinguishable
+    only by filename, is a heading an assessor cannot read. The spec
+    permits it; the dossier should not do it.
+    """
+    info: dict[str, tuple[str, dict[str, str]]] = {}
+    for key, (substance, manufacturer) in drug_substance_info(project).items():
+        info[key] = ("drug_substance", {"substance": substance, "manufacturer": manufacturer})
+
+    for instance in expand_sections(project):
+        if instance.spec.repeat != "excipient" or instance.subject is None:
+            continue
+        info[instance.key] = ("excipient", {"excipient": instance.subject.name})
+    return info

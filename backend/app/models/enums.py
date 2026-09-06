@@ -339,3 +339,46 @@ class UserRole(str, enum.Enum):
 
     USER = "user"
     ADMIN = "admin"
+
+
+class SpecificationOwnerKind(str, enum.Enum):
+    """WHAT a specification (or a batch of it) is about.
+
+    A specification is one artifact -- a list of tests, each with a method
+    and an acceptance criterion -- and the CTD asks for it three times, of
+    three different things: 3.2.S.4.1 of the drug substance, 3.2.P.4.1 of
+    each excipient, 3.2.P.5.1 of the finished product. This enum is not a
+    stored column anywhere; it is the NAME of the answer that
+    `SpecificationTest.owner_kind` derives from which foreign key is set
+    (see app/models/spec_owner.py for why the owner is three nullable FKs
+    rather than a stored discriminator). It exists so the API, the wizard
+    and the rules can talk about the owner type without each inventing its
+    own three strings.
+    """
+
+    DRUG_SUBSTANCE = "drug-substance"
+    DRUG_PRODUCT = "drug-product"
+    EXCIPIENT = "excipient"
+
+
+class ImpurityType(str, enum.Enum):
+    """Where an impurity COMES FROM, which is the distinction ICH Q3A/Q3B
+    is built on and the one 3.2.S.3.2 and 3.2.P.5.5 are organised by.
+
+    The difference is not cosmetic: a process-related impurity is
+    controlled by the drug substance's specification and its route of
+    synthesis, and a degradation product is controlled by the finished
+    product's specification, its packaging and its shelf life. Filing one
+    as the other points an assessor at the wrong control strategy.
+
+    DEGRADATION covers Q3B's "degradation product" (and, on the substance
+    side, a degradant seen on the API's own stability). RESIDUAL_SOLVENT is
+    kept separate because ICH Q3C sets its limits by class, independently
+    of Q3A -- rule R10 already reads those class limits, and a solvent
+    filed as a process impurity would be checked against the wrong table.
+    """
+
+    PROCESS_RELATED = "process-related"
+    DEGRADATION = "degradation"
+    RESIDUAL_SOLVENT = "residual-solvent"
+    INORGANIC = "inorganic"

@@ -19,6 +19,7 @@ from app.ctd.region_profiles import (
     resolve_applicability,
     satisfied_certificate_types,
 )
+from app.validation.acceptance import evaluate
 from app.validation.engine import Finding, Severity, rule
 from app.models import (
     DECLARATIONS_REQUIRING_NOTARIZATION,
@@ -376,7 +377,60 @@ def pharmacopoeial_version_reminder(project) -> list[Finding]:
                     f"-- verify the current edition is in force before submission.",
                 )
             )
+    # P20: impurity limits, which are the limits most likely to MOVE between
+    # editions -- a monograph revision that adds a named impurity or tightens
+    # an individual limit changes what the applicant has committed to, and
+    # nothing in the dossier announces it. The reminder can only be raised
+    # because `Impurity.limit_source` records the citation as data; the
+    # platform still stores no monograph text (AGENTS.md §5).
+    for owner in [*product.apis, product]:
+        for impurity in owner.impurities:
+            if not _cites_a_pharmacopoeia(impurity.limit_source):
+                continue
+            out.append(
+                Finding(
+                    "R11",
+                    Severity.INFO,
+                    "regulatory-limit",
+                    f"Impurity {impurity.name} ({_owner_label(owner)}) takes its limit "
+                    f"of {impurity.limit or 'not stated'} from {impurity.limit_source} "
+                    f"-- verify the current edition is in force before submission.",
+                    section="3.2.S.3.2" if owner is not product else "3.2.P.5.5",
+                )
+            )
     return out
+
+
+# The pharmacopoeias a limit can be sourced from, as they are actually
+# cited. Narrow on purpose: R11 is an INFO reminder, and a false positive
+# here costs a line of noise, but the LIST is also what decides whether an
+# in-house limit is silently treated as compendial, which would tell the
+# filer to go check a monograph that does not govern their limit.
+_PHARMACOPOEIA_TOKENS = ("bp", "usp", "ph. eur", "ph eur", "ep", "jp", "monograph")
+
+
+def _cites_a_pharmacopoeia(limit_source: str | None) -> bool:
+    if not limit_source:
+        return False
+    # Tokenised rather than substring-matched: "ep" is inside "except" and
+    # inside "development", and matching those would attach a
+    # pharmacopoeial reminder to an in-house toxicological justification.
+    words = re.findall(r"[a-z.]+", limit_source.lower())
+    text = limit_source.lower()
+    return any(token in words for token in _PHARMACOPOEIA_TOKENS) or any(
+        token in text for token in ("ph. eur", "ph eur", "monograph")
+    )
+
+
+def _owner_label(owner) -> str:
+    """What a specification owner is called, for a finding's message. A
+    finding must name the offending values (see Finding.message), and
+    "Impurity A" alone does not say whose impurity A."""
+    for attribute in ("inn_name", "brand_name", "name"):
+        value = getattr(owner, attribute, None)
+        if value:
+            return str(value)
+    return "unknown material"
 
 
 _PACKAGING_LABEL_COMPONENTS = (
@@ -402,8 +456,7 @@ def pack_size_matches_packaging(project) -> list[Finding]:
     relevant = [
         p
         for p in product.packaging
-        if p.component in _PACKAGING_LABEL_COMPONENTS
-        and p.role is not PackagingRole.DRUG_SUBSTANCE
+        if p.component in _PACKAGING_LABEL_COMPONENTS and p.role is not PackagingRole.DRUG_SUBSTANCE
     ]
     if not relevant:
         return []
@@ -773,3 +826,91 @@ def animal_origin_excipient_has_tse_evidence(project) -> list[Finding]:
             section="3.2.P.4.5",
         )
     ]
+
+
+@rule("R22")
+def batch_results_within_specification(project) -> list[Finding]:
+    """A batch analysis result outside its own specification's acceptance
+    criterion. ERROR -- it blocks the export.
+
+    **This is the rule that justifies P20's whole design.** Every other
+    part of the phase -- the polymorphic owner, the batch model, the
+    foreign key from a result to the test it answers -- exists so that this
+    check can be arithmetic rather than reading. The limit is not a copy of
+    the specification's limit; it IS the specification's limit, reached
+    through `result.specification_test`. Tighten a limit in 3.2.S.4.1 and
+    every batch already on file is re-judged against it, with nothing
+    re-entered anywhere.
+
+    The regulatory fact: an out-of-specification result in a batch analysis
+    table is not a formatting problem. It is either a batch that should not
+    have been released, or a specification the applicant does not actually
+    meet, and either way the dossier as filed contradicts itself in a way
+    an assessor will find -- because comparing those two tables is
+    precisely what an assessor does with them.
+
+    ERROR rather than WARNING, on the same test R20 passes and R19 fails:
+    the platform is not guessing here. It holds the number, it holds the
+    limit, and the comparison is decided. A rule that is certain about a
+    fatal defect should gate; a rule that is inferring should not.
+
+    Every finding names the batch, the test, the result and the limit --
+    never just "inconsistent" -- because a finding a filer cannot act on
+    without opening three screens is a finding they will not act on.
+    """
+    out: list[Finding] = []
+    product = project.product
+
+    for owner in [*product.apis, product]:
+        section = "3.2.S.4.4" if owner is not product else "3.2.P.5.4"
+        for batch in owner.batch_analyses:
+            unchecked: list[str] = []
+            for result in batch.results:
+                test = result.specification_test
+                if test is None:
+                    # Structurally impossible through the API (the FK is
+                    # NOT NULL and the router checks the owner match), so
+                    # this can only be an in-memory object mid-construction.
+                    # Skipping is right: there is no limit to judge against,
+                    # and inventing one would be worse than saying nothing.
+                    continue
+                verdict = evaluate(test.acceptance_criterion, result.result)
+                if verdict is None:
+                    unchecked.append(test.test_name)
+                    continue
+                if verdict:
+                    continue
+                out.append(
+                    Finding(
+                        "R22",
+                        Severity.ERROR,
+                        "regulatory-limit",
+                        f"Batch {batch.batch_number} of {_owner_label(owner)}: "
+                        f"{test.test_name} result {result.result!r} is outside the "
+                        f"acceptance criterion {test.acceptance_criterion!r} declared "
+                        f"in the specification.",
+                        section=section,
+                    )
+                )
+            if unchecked:
+                # ONE finding per batch rather than one per row, and INFO
+                # rather than WARNING. A specification's first rows are
+                # descriptive by nature ("White crystalline powder"), so a
+                # per-row warning would fire several times on every batch of
+                # every filing and teach the reader to scroll past the
+                # report. What must never happen is silence: an unchecked
+                # result is not a passed result, and the difference has to
+                # be visible somewhere.
+                out.append(
+                    Finding(
+                        "R22",
+                        Severity.INFO,
+                        "regulatory-limit",
+                        f"Batch {batch.batch_number} of {_owner_label(owner)}: "
+                        f"{len(unchecked)} result(s) could not be checked mechanically "
+                        f"against their acceptance criteria ({', '.join(unchecked)}) -- "
+                        f"these need a human read.",
+                        section=section,
+                    )
+                )
+    return out

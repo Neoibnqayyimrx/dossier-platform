@@ -43,7 +43,11 @@ from app.models import (
     StabilityStudyType,
     ClinicalKind,
 )
-from app.seed.specifications import bp_substance_specification
+from app.seed.specifications import (
+    attach_control_data,
+    bp_substance_specification,
+    penicillin_impurities,
+)
 
 # Real dossier text (trimmed) — note the three planted-but-REAL defects.
 BUGGY_P1 = """
@@ -168,6 +172,9 @@ def build_lamox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Projec
         compendial_std=CompendialStatus.BP,
         manufacturer=api_manufacturer_row,
         specification=bp_substance_specification(),
+        # P20: 3.2.S.3.2. The profile is per SUBSTANCE, so a combination
+        # product carries two -- see app/models/impurity.py.
+        impurities=penicillin_impurities("Amoxicillin"),
         smiles="CC1(C)S[C@@H]2[C@H](NC(=O)[C@H](N)c3ccc(O)cc3)C(=O)N2[C@H]1C(=O)O",
     )
     product.apis.append(amoxicillin)
@@ -295,4 +302,10 @@ def build_lamox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Projec
                 narrative_text="Table of content (Modules 1-5). LATRIM 960 layout reused.",
             )
         )
+    # P20: the control sections' data -- excipient and drug-product
+    # specifications, impurity profiles, and batch analyses checked against
+    # each owner's own specification. Attached last because every part of it
+    # points at an active, an excipient or a manufacturing site.
+    attach_control_data(product)
+
     return project

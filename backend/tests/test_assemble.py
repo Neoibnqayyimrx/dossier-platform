@@ -144,9 +144,19 @@ async def test_no_mega_pdf_is_ever_produced(db_factory):
                 continue  # an uploaded PDF's page count is its author's business
             pdf_bytes = storage.get(entry.storage_path)
             reader = PdfReader(io.BytesIO(pdf_bytes))
-            # each leaf's own docx source is a single short section, so a
-            # merged multi-section PDF would visibly have far more pages.
-            assert len(reader.pages) == 1
+            # A smoke bound, NOT the guarantee. The real granularity check is
+            # the one-leaf-per-section assertion above; this catches a merged
+            # module PDF, which would run to dozens of pages.
+            #
+            # It used to assert exactly one page, on the premise that "each
+            # leaf's own docx source is a single short section". P20 outgrew
+            # that premise rather than breaking it: 3.2.S.4.4 renders one row
+            # per test per batch, so its length is a function of the DATA, not
+            # of how many sections were concatenated. Tightening the number
+            # back down would just make the test fail again the first time a
+            # fixture gains a fourth batch -- which is a test measuring the
+            # wrong thing, not a granularity regression.
+            assert len(reader.pages) <= 12
 
 
 async def test_assembly_is_blocked_by_unresolved_validation_errors(db_factory):

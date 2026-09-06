@@ -13,7 +13,15 @@ from __future__ import annotations
 
 from sqlalchemy.orm import selectinload
 
-from app.models import ActiveIngredient, BatchFormulaLine, Product, Project
+from app.models import (
+    ActiveIngredient,
+    BatchAnalysis,
+    BatchAnalysisResult,
+    BatchFormulaLine,
+    Excipient,
+    Product,
+    Project,
+)
 
 # Every child collection ProductRead nests (app/schemas/product.py).
 PRODUCT_CHILD_OPTIONS = (
@@ -61,4 +69,40 @@ READINESS_LOAD_OPTIONS = PROJECT_CHILD_OPTIONS + (
     .selectinload(BatchFormulaLine.active_ingredient),
     selectinload(Project.product).selectinload(Product.certificates),
     selectinload(Project.sections),
+    # P20. R22 walks batch -> results -> the specification test each result
+    # answers, and R11 now reads impurity limits; the P20 sections render
+    # from the excipient and drug-product specifications. Every one of
+    # those is a relationship that did not exist when this list was last
+    # written, and the failure mode is the one this module's docstring
+    # describes -- MissingGreenlet, raised deep inside a synchronous rule,
+    # nowhere near the query that forgot to load it.
+    #
+    # The result -> specification_test hop is the load-bearing one: it is
+    # how R22 reaches the limit WITHOUT a copy of it, which is the whole
+    # design. It is also two levels down, and `selectinload` chains have to
+    # spell out every level.
+    selectinload(Project.product)
+    .selectinload(Product.apis)
+    .selectinload(ActiveIngredient.batch_analyses)
+    .selectinload(BatchAnalysis.results)
+    .selectinload(BatchAnalysisResult.specification_test),
+    selectinload(Project.product)
+    .selectinload(Product.apis)
+    .selectinload(ActiveIngredient.batch_analyses)
+    .selectinload(BatchAnalysis.manufacturer),
+    selectinload(Project.product)
+    .selectinload(Product.apis)
+    .selectinload(ActiveIngredient.impurities),
+    selectinload(Project.product)
+    .selectinload(Product.excipients)
+    .selectinload(Excipient.specification),
+    selectinload(Project.product).selectinload(Product.specification),
+    selectinload(Project.product)
+    .selectinload(Product.batch_analyses)
+    .selectinload(BatchAnalysis.results)
+    .selectinload(BatchAnalysisResult.specification_test),
+    selectinload(Project.product)
+    .selectinload(Product.batch_analyses)
+    .selectinload(BatchAnalysis.manufacturer),
+    selectinload(Project.product).selectinload(Product.impurities),
 )

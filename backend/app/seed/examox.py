@@ -43,7 +43,11 @@ from app.models import (
     StabilityStudyType,
     ClinicalKind,
 )
-from app.seed.specifications import bp_substance_specification
+from app.seed.specifications import (
+    attach_control_data,
+    bp_substance_specification,
+    penicillin_impurities,
+)
 
 # Buggy variant: the same three copy-paste defect classes as LAMOX's real
 # dossier (wrong strength, wrong dosage-form word, leftover foreign-product
@@ -176,6 +180,9 @@ def build_examox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Proje
         compendial_std=CompendialStatus.BP,
         manufacturer=api_manufacturer,
         specification=bp_substance_specification(),
+        # P20: 3.2.S.3.2. The profile is per SUBSTANCE, so a combination
+        # product carries two -- see app/models/impurity.py.
+        impurities=penicillin_impurities("Amoxicillin"),
         # base (anhydrous) amoxicillin structure -- public chemistry,
         # not the trihydrate salt actually weighed (see salt_factor).
         smiles="CC1(C)S[C@@H]2[C@H](NC(=O)[C@H](N)c3ccc(O)cc3)C(=O)N2[C@H]1C(=O)O",
@@ -305,4 +312,10 @@ def build_examox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Proje
                 narrative_text="Table of content (Modules 1-5). NUFLOX 960 layout reused.",
             )
         )
+    # P20: the control sections' data -- excipient and drug-product
+    # specifications, impurity profiles, and batch analyses checked against
+    # each owner's own specification. Attached last because every part of it
+    # points at an active, an excipient or a manufacturing site.
+    attach_control_data(product)
+
     return project

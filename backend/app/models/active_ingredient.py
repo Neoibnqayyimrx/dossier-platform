@@ -12,6 +12,8 @@ from app.models.base import Base
 from app.models.enums import CompendialStatus
 
 if TYPE_CHECKING:
+    from app.models.batch_analysis import BatchAnalysis
+    from app.models.impurity import Impurity
     from app.models.manufacturer import Manufacturer
     from app.models.product import Product
     from app.models.specification import SpecificationTest
@@ -63,4 +65,19 @@ class ActiveIngredient(Base):
         back_populates="active_ingredient",
         cascade="all, delete-orphan",
         order_by="SpecificationTest.sort_order",
+    )
+    # P20: the batches of THIS substance (3.2.S.4.4) and its impurity
+    # profile (3.2.S.3.2). Both hang off the active rather than off the
+    # product for the same reason the specification does -- a combination
+    # product's two actives are two materials, with two batch histories and
+    # two impurity profiles.
+    batch_analyses: Mapped[list["BatchAnalysis"]] = relationship(
+        back_populates="active_ingredient",
+        cascade="all, delete-orphan",
+        order_by="BatchAnalysis.batch_number",
+    )
+    impurities: Mapped[list["Impurity"]] = relationship(
+        back_populates="active_ingredient",
+        cascade="all, delete-orphan",
+        order_by="Impurity.name",
     )

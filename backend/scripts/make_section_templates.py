@@ -92,39 +92,6 @@ def build_3_2_s_1() -> Path:
     return path
 
 
-def build_3_2_s_4_1() -> Path:
-    """3.2.S.4.1 Specification: the table of tests, methods and limits.
-
-    Nothing here is narrative. Every cell is structured data the applicant
-    committed to, which is exactly why the free-text field this replaced
-    could not produce this page.
-    """
-    doc = Document()
-    doc.add_heading("3.2.S.4.1 Specification", level=1)
-    doc.add_paragraph("Drug substance: {{ substance.inn_name }}")
-    doc.add_paragraph(
-        "Compendial standard: {{ substance.compendial_std.value if "
-        "substance.compendial_std else '[[NOT STATED]]' }}"
-    )
-
-    _looping_table(
-        doc,
-        ["Test", "Method", "Acceptance criterion"],
-        ["{{ row.test_name }}", "{{ row.method }}", "{{ row.acceptance_criterion }}"],
-        loop="row in specification",
-    )
-
-    note = doc.add_paragraph()
-    note.add_run(
-        "Methods are cited, not reproduced. Pharmacopoeial monographs are "
-        "copyrighted and are referenced here by name only."
-    ).font.size = Pt(9)
-
-    path = TEMPLATES_DIR / "section_3_2_s_4_1.docx"
-    doc.save(path)
-    return path
-
-
 def build_na_statement() -> Path:
     """The not-applicable statement — ONE template for all 14 such leaves.
 
@@ -389,8 +356,225 @@ P19_BUILDERS = (
 )
 
 
+# ---- P20: five templates, eleven sections ----------------------------------
+#
+# Every builder below is named after a SHAPE, not a section number, and each
+# is used by two or three sections. That is the phase's thesis arriving at
+# the template layer: a specification is one artifact the CTD asks for of
+# three different things, so it is one template that prints its own heading
+# and its own owner label from the context.
+#
+# The heading is `{{ section_number }} {{ section_title }}` rather than a
+# literal, which is the mechanism that makes the sharing possible -- and it
+# is the same mechanism the fourteen not-applicable statements already share
+# one template through (see build_na_statement).
+
+
+def build_specification() -> Path:
+    """3.2.S.4.1, 3.2.P.4.1, 3.2.P.5.1 -- the specification table.
+
+    Replaces P13's `section_3_2_s_4_1.docx`, which was deleted rather than
+    left in place: an unreferenced binary template is exactly the thing that
+    rots unnoticed, and `git diff` would never show anyone that it had.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    doc.add_paragraph("{{ owner_label }}: {{ owner_name }}")
+    doc.add_paragraph("Compendial standard: {{ compendial_standard }}")
+
+    _looping_table(
+        doc,
+        ["Test", "Method", "Acceptance criterion"],
+        ["{{ row.test_name }}", "{{ row.method }}", "{{ row.acceptance_criterion }}"],
+        loop="row in specification",
+    )
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "Methods are cited, not reproduced. Pharmacopoeial monographs are "
+        "copyrighted and are referenced here by name only."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "specification.docx"
+    doc.save(path)
+    return path
+
+
+def build_analytical_procedures() -> Path:
+    """3.2.S.4.2, 3.2.P.4.2, 3.2.P.5.2 -- hybrid.
+
+    The table is generated from the specification rows (every row already
+    carries its method as a citation); the narrative slot describes the
+    in-house methods only. A compendial method needs no description here --
+    and could not be given one without reproducing copyrighted monograph
+    text (AGENTS.md 5).
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    _looping_table(
+        doc,
+        ["Material", "Test", "Analytical procedure", "Basis"],
+        [
+            "{{ row.owner }}",
+            "{{ row.test_name }}",
+            "{{ row.method }}",
+            "{{ row.basis }}",
+        ],
+        loop="row in procedures",
+    )
+    doc.add_paragraph("{{ in_house_statement }}")
+    doc.add_heading("Description of in-house procedures", level=2)
+    doc.add_paragraph(
+        "{{ narrative.in_house_methods or "
+        "'[[AI DRAFT PENDING -- description of in-house analytical procedures]]' }}"
+    )
+    path = TEMPLATES_DIR / "analytical_procedures.docx"
+    doc.save(path)
+    return path
+
+
+def build_justification_of_specification() -> Path:
+    """3.2.P.4.4, 3.2.P.5.6 -- hybrid.
+
+    The limits are printed FROM THE SPECIFICATION rows, so the prose is
+    read against the actual acceptance criteria rather than against a typed
+    restatement of them. A justification defending a limit the
+    specification no longer contains is one of the easier ways for a
+    dossier to contradict itself.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    _looping_table(
+        doc,
+        ["Material", "Test", "Acceptance criterion", "Basis"],
+        [
+            "{{ row.owner }}",
+            "{{ row.test_name }}",
+            "{{ row.acceptance_criterion }}",
+            "{{ row.basis }}",
+        ],
+        loop="row in limits",
+    )
+    doc.add_heading("Justification", level=2)
+    doc.add_paragraph(
+        "{{ narrative.justification or "
+        "'[[AI DRAFT PENDING -- justification of the acceptance criteria above]]' }}"
+    )
+    path = TEMPLATES_DIR / "justification_of_specification.docx"
+    doc.save(path)
+    return path
+
+
+def build_batch_analysis() -> Path:
+    """3.2.S.4.4, 3.2.P.5.4 -- what the batches actually gave.
+
+    Two tables, and the ORDER of them is the point. First the batches
+    themselves (number, date, size, site, purpose), because an assessor's
+    first question is which material these numbers describe. Then the
+    results, one ROW PER TEST with the acceptance criterion on the same
+    line and one cell per batch -- so a limit and every number judged
+    against it are read across a single line. A batch-major layout would
+    put the limit in a different table from the numbers, which is the
+    layout that lets an out-of-specification result pass unnoticed.
+
+    The per-batch result cells use `{%tc %}`, docxtpl's COLUMN loop, for
+    the same reason the row loops use `{%tr %}`: the number of batches is
+    data, not a fixed template width.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    doc.add_paragraph("{{ owner_label }}: {{ owner_name }}")
+    doc.add_paragraph("{{ no_batches_statement }}")
+
+    doc.add_heading("Batches", level=2)
+    _looping_table(
+        doc,
+        ["Batch number", "Date of manufacture", "Batch size", "Site", "Purpose"],
+        [
+            "{{ b.batch_number }}",
+            "{{ b.manufacture_date }}",
+            "{{ b.batch_size }}",
+            "{{ b.site }}",
+            "{{ b.purpose }}",
+        ],
+        loop="b in batches",
+    )
+
+    doc.add_heading("Results", level=2)
+    # One ROW per test per batch, so the acceptance criterion and the number
+    # judged against it are always on the same line -- see
+    # quality_control.batch_analysis_context for why this beats the
+    # column-per-batch matrix a certificate of analysis uses.
+    _looping_table(
+        doc,
+        ["Test", "Acceptance criterion", "Batch", "Result"],
+        [
+            "{{ row.test_name }}",
+            "{{ row.acceptance_criterion }}",
+            "{{ row.batch_number }}",
+            "{{ row.result }}",
+        ],
+        loop="row in results",
+    )
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "Each result is recorded against the specification test it answers, and is "
+        "checked against that test's acceptance criterion by rule R22 before export. "
+        "The limits printed above are the specification's own -- they are not "
+        "re-entered here."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "batch_analysis.docx"
+    doc.save(path)
+    return path
+
+
+def build_impurities() -> Path:
+    """3.2.S.3.2, 3.2.P.5.5 -- the named impurity profile.
+
+    `Basis of limit` is its own column rather than being folded into the
+    limit, because an uncited limit is the query an assessor writes back.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    doc.add_paragraph("{{ owner_label }}: {{ owner_name }}")
+    doc.add_paragraph("{{ no_impurities_statement }}")
+    _looping_table(
+        doc,
+        ["Impurity", "Type", "Limit", "Basis of limit", "Origin"],
+        [
+            "{{ row.name }}",
+            "{{ row.impurity_type }}",
+            "{{ row.limit }}",
+            "{{ row.limit_source }}",
+            "{{ row.origin }}",
+        ],
+        loop="row in impurities",
+    )
+    note = doc.add_paragraph()
+    note.add_run(
+        "Limits are cited to their source. Where the source is a pharmacopoeial "
+        "monograph, the monograph is referenced by name only -- its text is "
+        "copyrighted and is never reproduced."
+    ).font.size = Pt(9)
+    path = TEMPLATES_DIR / "impurities.docx"
+    doc.save(path)
+    return path
+
+
+P20_BUILDERS = (
+    build_specification,
+    build_analytical_procedures,
+    build_justification_of_specification,
+    build_batch_analysis,
+    build_impurities,
+)
+
+
 if __name__ == "__main__":
-    built_paths = [build_3_2_s_1(), build_3_2_s_4_1(), build_na_statement()]
+    built_paths = [build_3_2_s_1(), build_na_statement()]
     built_paths.extend(builder() for builder in P19_BUILDERS)
+    built_paths.extend(builder() for builder in P20_BUILDERS)
     for built in built_paths:
         print(f"wrote {built}")

@@ -118,10 +118,14 @@ capabilities:
   spec_polymorphic_owner:
     summary: Let SpecificationTest belong to a drug product or excipient, not only an API.
     detail: >
-      SpecificationTest is FK'd to active_ingredient, so it is drug-substance-only
-      by construction. 3.2.P.5.1 and 3.2.P.4.1 are the same table with a
-      different owner. Doing this as one migration now is far cheaper than
-      building P.5.1 separately and refactoring two near-duplicate tables later.
+      LANDED IN P20. SpecificationTest now carries three nullable foreign keys
+      (active_ingredient, product, excipient) with a CHECK that exactly one is
+      set — chosen over an owner_type/owner_id discriminator because a bare
+      owner_id cannot be a foreign key, so nothing would stop a deleted
+      excipient leaving its specification rows pointing at nothing. One model,
+      one editor, one renderer and one rule set now serve 3.2.S.4.1, 3.2.P.4.1
+      and 3.2.P.5.1. The migration WIDENED the table: every pre-P20 row keeps
+      the active_ingredient_id it had. See app/models/spec_owner.py.
 
   stability_timepoints:
     summary: Per-timepoint, per-test stability results.
@@ -170,16 +174,22 @@ capabilities:
   batch_analysis_model:
     summary: Batch analysis results (3.2.S.4.4, 3.2.P.5.4).
     detail: >
-      Batch number, manufacture date, site, and per-test results checked
-      against the corresponding specification. Depends on spec_polymorphic_owner
-      so drug-product batches can be checked against the drug-product spec.
+      LANDED IN P20. BatchAnalysis (number, date, size, site, purpose) plus
+      BatchAnalysisResult, where each result carries a foreign key to the
+      SpecificationTest it answers — so a result for a test not in the
+      specification is unrepresentable, and the limit it is judged against is
+      never a copy. Rule R22 blocks the export on any result outside its own
+      criterion, naming the batch, the test, the result and the limit.
 
   impurity_model:
     summary: Named impurities with limits and justification.
     detail: >
-      Needed for 3.2.S.3.2 and 3.2.P.5.5. Should reference the pharmacopoeial
-      monograph so the existing pharmacopoeial_version_reminder rule can reach
-      impurity limits too.
+      LANDED IN P20. Impurity carries name, type (process-related, degradation,
+      residual solvent, inorganic), limit, the monograph or guideline the limit
+      comes from, and an optional SMILES. R11 (pharmacopoeial_version_reminder)
+      now reads limit_source, so it reaches impurity limits — and discriminates:
+      a BP-derived limit gets the reminder, an ICH Q3A/Q3B threshold does not,
+      because that one does not move with a pharmacopoeial edition.
 
   repeat_axis_generalisation:
     summary: Generalise section repetition beyond drug substance.
@@ -188,9 +198,12 @@ capabilities:
       ingredient via a REPEAT_PER_DRUG_SUBSTANCE constant; the axis is now a
       field on SectionSpec (`repeat`, spelled the same as the key below) and
       resolved through instances.REPEAT_AXES. All four axes named here exist:
-      drug_substance, manufacturing_site, pack, excipient. The excipient axis
-      has no section yet -- 3.2.P.4.1 still waits on spec_polymorphic_owner --
-      but adding one is now a registry entry rather than a new branch.
+      drug_substance, manufacturing_site, pack, excipient. P20 used the
+      excipient axis for 3.2.P.4.1, and it was a registry entry rather than a
+      new branch, exactly as intended — the one place it was NOT free was the
+      eCTD backbone, where m3-2-p-4-control-of-excipients turns out to be
+      starred with an `excipient` attribute, so excipients repeat as a heading
+      ELEMENT like drug substances rather than as leaves like packs.
 
   per_module_toc:
     summary: Generate 1.1 / 2.1 / 3.1 / 5.1 by walking the built package.
@@ -461,7 +474,7 @@ sections:
     title: Quality Information Summary (QIS)
     applicable: true
     production: generated
-    blocked_by: [spec_polymorphic_owner, stability_timepoints]
+    blocked_by: [stability_timepoints]
     notes: >
       HIGHEST-LEVERAGE GENERATED DOCUMENT IN THE TARGET. The QIS is almost
       entirely a re-presentation of Module 3 data in a different layout —
@@ -531,7 +544,7 @@ sections:
       - 2.3.P.5 Control of drug product
       - 2.3.P.6 Reference standards or materials
       - 2.3.P.7 Container closure system
-    blocked_by: [spec_polymorphic_owner, stability_timepoints]
+    blocked_by: [stability_timepoints]
     notes: >
       Registered and rendering, but currently a thin overview. Every
       subsection above mirrors a Module 3 section, so the QOS should be
@@ -672,7 +685,6 @@ sections:
     applicable: true
     production: generated
     repeat: drug_substance
-    blocked_by: [impurity_model]
     status: unknown
 
   - number: "3.2.S.4.1"
@@ -712,7 +724,6 @@ sections:
     applicable: true
     production: generated
     repeat: drug_substance
-    blocked_by: [batch_analysis_model]
     status: unknown
 
   - number: "3.2.S.5"
@@ -873,7 +884,6 @@ sections:
     applicable: true
     production: generated
     repeat: excipient
-    blocked_by: [spec_polymorphic_owner]
     status: unknown
 
   - number: "3.2.P.4.2"
@@ -926,7 +936,6 @@ sections:
     title: Specification (drug product)
     applicable: true
     production: generated
-    blocked_by: [spec_polymorphic_owner]
     status: unknown
 
   - number: "3.2.P.5.2"
@@ -949,7 +958,6 @@ sections:
     title: Batch analyses (drug product)
     applicable: true
     production: generated
-    blocked_by: [batch_analysis_model, spec_polymorphic_owner]
     status: unknown
 
   - number: "3.2.P.5.5"
@@ -957,7 +965,6 @@ sections:
     title: Characterization of impurities
     applicable: true
     production: generated
-    blocked_by: [impurity_model]
     status: unknown
 
   - number: "3.2.P.5.6"

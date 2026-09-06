@@ -19,6 +19,7 @@ from app.models.enums import GMPStatus, ManufacturerRole
 
 if TYPE_CHECKING:
     from app.models.active_ingredient import ActiveIngredient
+    from app.models.batch_analysis import BatchAnalysis
     from app.models.certificate import Certificate
     from app.models.product import Product
 
@@ -41,3 +42,7 @@ class Manufacturer(Base):
     product: Mapped["Product"] = relationship(back_populates="manufacturers")
     apis: Mapped[list["ActiveIngredient"]] = relationship(back_populates="manufacturer")
     certificates: Mapped[list["Certificate"]] = relationship(back_populates="manufacturer")
+    # P20: the batches this site made. The back-reference exists so that a
+    # batch table and 3.2.S.2.1 / 3.2.P.3.1 cannot name the same site
+    # differently -- there is one Manufacturer row and both read it.
+    batch_analyses: Mapped[list["BatchAnalysis"]] = relationship(back_populates="manufacturer")

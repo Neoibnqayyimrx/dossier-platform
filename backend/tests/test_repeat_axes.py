@@ -92,9 +92,25 @@ def test_a_combination_product_owes_two_copies_of_every_per_substance_section():
     for instance in per_substance:
         by_number.setdefault(instance.number, []).append(instance.key)
 
-    # Five sections repeat per substance after P19 (3.2.S.1, 3.2.S.4.1 from
-    # P13; 3.2.S.2.1, 3.2.S.5, 3.2.S.6 new here).
-    assert set(by_number) == {"3.2.S.1", "3.2.S.4.1", "3.2.S.2.1", "3.2.S.5", "3.2.S.6"}
+    # Eight sections repeat per substance after P20 (3.2.S.1, 3.2.S.4.1 from
+    # P13; 3.2.S.2.1, 3.2.S.5, 3.2.S.6 from P19; 3.2.S.3.2, 3.2.S.4.2,
+    # 3.2.S.4.4 added with the impurity and batch-analysis models).
+    #
+    # An exact set rather than a subset, deliberately: what this test is
+    # for is that EVERY per-substance section is expanded per substance, so
+    # a new one that quietly failed to repeat -- and therefore filed one
+    # active's impurity profile as though it were the product's -- has to
+    # show up here as a difference rather than pass unnoticed.
+    assert set(by_number) == {
+        "3.2.S.1",
+        "3.2.S.2.1",
+        "3.2.S.3.2",
+        "3.2.S.4.1",
+        "3.2.S.4.2",
+        "3.2.S.4.4",
+        "3.2.S.5",
+        "3.2.S.6",
+    }
     for number, keys in by_number.items():
         assert keys == [f"{number}-ampicillin", f"{number}-cloxacillin"], number
 
@@ -202,9 +218,11 @@ def test_two_expansions_of_one_project_produce_identical_keys_and_paths():
             (
                 i.key,
                 i.title,
-                folder_for_section_instance(i.number, i.subject_slug)
-                if i.number not in ("1.0", "1.2")
-                else None,
+                (
+                    folder_for_section_instance(i.number, i.subject_slug)
+                    if i.number not in ("1.0", "1.2")
+                    else None
+                ),
             )
             for i in expand_sections(project)
         ]
@@ -391,9 +409,11 @@ async def test_two_builds_of_a_repeated_dossier_are_byte_identical(db_factory):
                 (
                     entry.section,
                     entry.filename,
-                    entry.section_number
-                    if entry.section_number.startswith("1.")
-                    else folder_for_section_instance(entry.section_number, entry.subject_slug),
+                    (
+                        entry.section_number
+                        if entry.section_number.startswith("1.")
+                        else folder_for_section_instance(entry.section_number, entry.subject_slug)
+                    ),
                     entry.md5,
                 )
                 for entry in manifest
@@ -429,7 +449,7 @@ def test_every_new_section_reaches_the_ectd_backbone():
     """
     from app.ectd.index_xml import build_index_xml
     from app.ectd.leaf import Leaf
-    from app.templating.instances import drug_substance_info
+    from app.templating.instances import repeat_element_info
 
     project = _load(build_ampiclox)
     leaves = {}
@@ -447,7 +467,7 @@ def test_every_new_section_reaches_the_ectd_backbone():
 
     # Raises if the result is not DTD-valid, which is the other half of the
     # guarantee: the new headings are real element names in real positions.
-    xml = build_index_xml(leaves, substance_info=drug_substance_info(project))
+    xml = build_index_xml(leaves, repeat_info=repeat_element_info(project))
     assert xml.count(b"<leaf") == len(leaves)
 
     # Both packs under ONE m3-2-p-7 element: the DTD declares that heading

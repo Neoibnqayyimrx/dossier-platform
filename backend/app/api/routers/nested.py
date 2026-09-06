@@ -1,10 +1,22 @@
 """Instantiates every child-collection router from the factory in
 product_children.py — one entry per resource.
 
-Most parents are Product. Two are not: a specification belongs to one
-active ingredient, and a declaration belongs to one project. Both reach
-their owner through `owner_via`, which names the relationship to walk to
-the Product that carries owner_id.
+Most parents are Product. Several are not: a declaration belongs to one
+project, and a specification belongs to whichever of three things it is a
+specification OF. All of them reach their owner through `owner_via`, which
+names the relationship to walk to the Product that carries owner_id.
+
+P20 made `specification` the first resource mounted THREE TIMES, under
+three different parents, from one model and one pair of schemas. That is
+the polymorphic owner paying off at the API layer: the same table is
+reachable as `/apis/{id}/specification`, `/products/{id}/specification` and
+`/excipients/{id}/specification`, with no second CRUD implementation and no
+way for the three to drift apart in what they validate or how they order.
+
+The owner is always taken from the URL PATH, never from the request body
+(see app/schemas/specification.py) -- the ownership check the factory runs
+is on the parent in the path, so the path is the only place an owner can be
+trusted to come from.
 """
 
 from __future__ import annotations
@@ -12,11 +24,13 @@ from __future__ import annotations
 from app.api.routers.product_children import build_child_router
 from app.models import (
     ActiveIngredient,
+    BatchAnalysis,
     BatchFormulaLine,
     Certificate,
     ClinicalEntry,
     Declaration,
     Excipient,
+    Impurity,
     Manufacturer,
     Packaging,
     Project,
@@ -28,6 +42,11 @@ from app.schemas.active_ingredient import (
     ActiveIngredientRead,
     ActiveIngredientUpdate,
 )
+from app.schemas.batch_analysis import (
+    BatchAnalysisCreate,
+    BatchAnalysisRead,
+    BatchAnalysisUpdate,
+)
 from app.schemas.batch_formula import (
     BatchFormulaLineCreate,
     BatchFormulaLineRead,
@@ -37,6 +56,7 @@ from app.schemas.certificate import CertificateCreate, CertificateRead, Certific
 from app.schemas.clinical import ClinicalEntryCreate, ClinicalEntryRead, ClinicalEntryUpdate
 from app.schemas.declaration import DeclarationCreate, DeclarationRead, DeclarationUpdate
 from app.schemas.excipient import ExcipientCreate, ExcipientRead, ExcipientUpdate
+from app.schemas.impurity import ImpurityCreate, ImpurityRead, ImpurityUpdate
 from app.schemas.manufacturer import ManufacturerCreate, ManufacturerRead, ManufacturerUpdate
 from app.schemas.packaging import PackagingCreate, PackagingRead, PackagingUpdate
 from app.schemas.specification import (
@@ -107,10 +127,11 @@ NESTED_ROUTERS = [
         update_schema=CertificateUpdate,
         read_schema=CertificateRead,
     ),
-    # The one child whose parent is NOT a Product: a drug-substance
-    # specification belongs to a single active ingredient, because a
-    # fixed-dose combination has one specification per active (3.2.S is
-    # repeated per drug substance).
+    # ---- one specification model, three mount points (P20) -------------
+    #
+    # 3.2.S.4.1: per drug substance, because a fixed-dose combination has one
+    # specification per active -- ampicillin's assay limits are not
+    # cloxacillin's.
     build_child_router(
         resource="specification",
         model=SpecificationTest,
@@ -122,6 +143,82 @@ NESTED_ROUTERS = [
         parent_fk="active_ingredient_id",
         order_by="sort_order",
         owner_via="product",
+    ),
+    # 3.2.P.5.1: the finished product's own specification. Product IS the
+    # owner here, so no owner_via hop -- the one mount point of the three
+    # that needs none.
+    build_child_router(
+        resource="specification",
+        model=SpecificationTest,
+        create_schema=SpecificationTestCreate,
+        update_schema=SpecificationTestUpdate,
+        read_schema=SpecificationTestRead,
+        parent_fk="product_id",
+        order_by="sort_order",
+    ),
+    # 3.2.P.4.1: per excipient.
+    build_child_router(
+        resource="specification",
+        model=SpecificationTest,
+        create_schema=SpecificationTestCreate,
+        update_schema=SpecificationTestUpdate,
+        read_schema=SpecificationTestRead,
+        parent_model=Excipient,
+        parent_segment="excipients",
+        parent_fk="excipient_id",
+        order_by="sort_order",
+        owner_via="product",
+    ),
+    # ---- batches and impurities, on the same two-owner pattern ----------
+    #
+    # 3.2.S.4.4 / 3.2.P.5.4. The RESULTS inside a batch are not a factory
+    # router: recording one requires checking that the specification test it
+    # answers belongs to the same owner as the batch, which is a rule about
+    # two parents at once. See app/api/routers/batch_results.py.
+    build_child_router(
+        resource="batches",
+        model=BatchAnalysis,
+        create_schema=BatchAnalysisCreate,
+        update_schema=BatchAnalysisUpdate,
+        read_schema=BatchAnalysisRead,
+        parent_model=ActiveIngredient,
+        parent_segment="apis",
+        parent_fk="active_ingredient_id",
+        order_by="batch_number",
+        nested_collections=("results",),
+        owner_via="product",
+    ),
+    build_child_router(
+        resource="batches",
+        model=BatchAnalysis,
+        create_schema=BatchAnalysisCreate,
+        update_schema=BatchAnalysisUpdate,
+        read_schema=BatchAnalysisRead,
+        parent_fk="product_id",
+        order_by="batch_number",
+        nested_collections=("results",),
+    ),
+    # 3.2.S.3.2 / 3.2.P.5.5.
+    build_child_router(
+        resource="impurities",
+        model=Impurity,
+        create_schema=ImpurityCreate,
+        update_schema=ImpurityUpdate,
+        read_schema=ImpurityRead,
+        parent_model=ActiveIngredient,
+        parent_segment="apis",
+        parent_fk="active_ingredient_id",
+        order_by="name",
+        owner_via="product",
+    ),
+    build_child_router(
+        resource="impurities",
+        model=Impurity,
+        create_schema=ImpurityCreate,
+        update_schema=ImpurityUpdate,
+        read_schema=ImpurityRead,
+        parent_fk="product_id",
+        order_by="name",
     ),
     # P15a: the other non-Product parent. A Declaration (Power of Attorney,
     # Declaration of Authenticity) names a representative for THIS filing,

@@ -17,7 +17,16 @@ BP limits for any substance.
 
 from __future__ import annotations
 
-from app.models import SpecificationTest
+from datetime import date
+
+from app.models import (
+    BatchAnalysis,
+    BatchAnalysisResult,
+    Impurity,
+    ImpurityType,
+    ManufacturerRole,
+    SpecificationTest,
+)
 
 
 def bp_substance_specification(assay_lower: str = "98.0", assay_upper: str = "102.0"):
@@ -25,7 +34,7 @@ def bp_substance_specification(assay_lower: str = "98.0", assay_upper: str = "10
     (is it the right substance?), then assay (how much?), then impurities
     and physical attributes."""
     rows = [
-        ("Description", "Visual", "White to off-white crystalline powder"),
+        ("Description", "Visual, BP monograph", "White to off-white crystalline powder"),
         ("Identification A", "IR absorption, BP monograph", "Complies with reference spectrum"),
         ("Identification B", "HPLC retention time, BP monograph", "Corresponds to reference"),
         ("Assay (anhydrous basis)", "HPLC, BP monograph", f"{assay_lower} - {assay_upper} % w/w"),
@@ -46,3 +55,268 @@ def bp_substance_specification(assay_lower: str = "98.0", assay_upper: str = "10
         )
         for i, (name, method, criterion) in enumerate(rows)
     ]
+
+
+def excipient_specification(compendial: str = "BP"):
+    """A short compendial excipient specification (3.2.P.4.1).
+
+    Deliberately SHORTER than the drug substance's. That is not laziness --
+    it is what an excipient specification looks like. A compendial excipient
+    is controlled to its monograph plus the attributes that matter for this
+    formulation (particle size for a diluent, for instance); the applicant
+    does not re-derive the monograph's full test list into the dossier.
+    """
+    rows = [
+        ("Description", f"Visual, {compendial} monograph", "Complies with monograph"),
+        ("Identification", f"{compendial} monograph", "Complies"),
+        ("Loss on drying", f"{compendial} monograph", "NMT 15.0 %"),
+        ("Microbial limits", f"{compendial} monograph", "TAMC NMT 10^3 CFU/g"),
+    ]
+    return [
+        SpecificationTest(
+            test_name=name,
+            method=method,
+            acceptance_criterion=criterion,
+            sort_order=i,
+        )
+        for i, (name, method, criterion) in enumerate(rows)
+    ]
+
+
+def drug_product_specification(assay_lower: str = "90.0", assay_upper: str = "110.0"):
+    """The FINISHED PRODUCT's specification (3.2.P.5.1).
+
+    WHY the assay window is wider than the drug substance's (98.0-102.0):
+    this is the real regulatory shape, not an arbitrary difference in the
+    fixture. A drug substance is a purified material held to a narrow
+    window; a finished dosage form has to absorb content uniformity,
+    manufacturing loss and shelf-life degradation on top of it, which is
+    why pharmacopoeial finished-product monographs typically allow
+    90-110 % of label claim. A platform that stored one specification for
+    "the product" would have had to pick one of these two windows and be
+    wrong about the other -- which is the concrete reason the owner had to
+    become polymorphic rather than the table being reused.
+
+    It also carries the two tests that only a finished product has --
+    dissolution and uniformity of dosage units -- which is the other half
+    of the same point.
+    """
+    rows = [
+        ("Description", "Visual", "As described in 3.2.P.1"),
+        ("Identification", "HPLC, BP monograph", "Retention time corresponds to reference"),
+        ("Assay", "HPLC, BP monograph", f"{assay_lower} - {assay_upper} % of label claim"),
+        ("Uniformity of dosage units", "BP monograph", "Complies"),
+        ("Dissolution", "BP monograph", "NLT 80 % (Q) in 45 minutes"),
+        ("Related substances - total", "HPLC, In-house method AM-014", "NMT 5.0 %"),
+        ("Water content", "Karl Fischer, BP monograph", "NMT 14.0 %"),
+        ("Microbial limits", "BP monograph", "TAMC NMT 10^2 CFU/g"),
+    ]
+    return [
+        SpecificationTest(
+            test_name=name,
+            method=method,
+            acceptance_criterion=criterion,
+            sort_order=i,
+        )
+        for i, (name, method, criterion) in enumerate(rows)
+    ]
+
+
+def batches_against(specification, batch_numbers, results_by_test, manufacturer=None):
+    """Build BatchAnalysis rows whose results point at `specification`'s
+    own test objects.
+
+    WHY the seeds go through this helper rather than constructing results
+    directly: a result is only meaningful as an answer to a specific test,
+    and the link is a foreign key, not a name match. Writing that by hand
+    per seed would be three chances to point a result at the wrong test --
+    which is exactly the mistake the model shape exists to prevent, so the
+    fixtures should not be able to make it either.
+
+    `results_by_test` maps a test name to one reported value per batch.
+    A test absent from the map simply is not reported for these batches,
+    which is what "Not tested" renders as in 3.2.S.4.4.
+    """
+    by_name = {test.test_name: test for test in specification}
+    unknown = set(results_by_test) - set(by_name)
+    if unknown:
+        # Loud rather than silent, in the same spirit as folder_for_section:
+        # a typo'd test name here would produce a batch table with a row
+        # quietly missing, and nobody would notice until an assessor did.
+        raise KeyError(
+            f"No such test(s) in this specification: {sorted(unknown)}; "
+            f"known tests: {sorted(by_name)}"
+        )
+
+    batches = []
+    for index, number in enumerate(batch_numbers):
+        batch = BatchAnalysis(
+            batch_number=number,
+            manufacture_date=date(2025, 3 + index, 12),
+            batch_size="250,000 capsules",
+            purpose="Stability and bioequivalence batches",
+            manufacturer=manufacturer,
+        )
+        for test_name, values in results_by_test.items():
+            test = by_name[test_name]
+            batch.results.append(
+                BatchAnalysisResult(
+                    specification_test=test,
+                    result=values[index],
+                    sort_order=test.sort_order,
+                )
+            )
+        batches.append(batch)
+    return batches
+
+
+def penicillin_impurities(inn_name: str):
+    """A plausible impurity profile for a penicillin drug substance
+    (3.2.S.3.2).
+
+    Realistic in SHAPE, invented in detail -- like every other number in
+    these seeds. What the shape demonstrates is the thing the section is
+    for: each impurity says where it came from (process or degradation) and
+    on whose authority its limit rests. The unnamed-degradant row is
+    deliberately the one whose limit is an ICH threshold rather than a
+    monograph, because that is the ordinary real case and it is what makes
+    rule R11's reminder discriminate rather than fire on everything.
+    """
+    return [
+        Impurity(
+            name="Impurity A (6-aminopenicillanic acid)",
+            impurity_type=ImpurityType.PROCESS_RELATED,
+            limit="NMT 1.0 %",
+            limit_source="BP monograph",
+            origin="Residual starting material carried through from the synthesis.",
+        ),
+        Impurity(
+            name=f"{inn_name} penilloic acid",
+            impurity_type=ImpurityType.DEGRADATION,
+            limit="NMT 1.0 %",
+            limit_source="BP monograph",
+            origin="Hydrolysis of the beta-lactam ring on exposure to moisture.",
+        ),
+        Impurity(
+            name="Any other unspecified impurity",
+            impurity_type=ImpurityType.DEGRADATION,
+            limit="NMT 0.10 %",
+            limit_source="ICH Q3A identification threshold",
+            origin="Unidentified; controlled at the qualification threshold.",
+        ),
+        Impurity(
+            name="Dichloromethane",
+            impurity_type=ImpurityType.RESIDUAL_SOLVENT,
+            limit="NMT 600 ppm",
+            limit_source="ICH Q3C Class 2 limit",
+            origin="Solvent used in the final crystallisation step.",
+        ),
+    ]
+
+
+def drug_product_impurities():
+    """3.2.P.5.5 -- the finished product's impurity profile.
+
+    Shorter than the substance's, and degradation-only, which is the
+    regulatory point of the section: formulating and packing a medicine
+    cannot introduce a process impurity of the API, but it can let the API
+    break down. What 3.2.P.5.5 characterises is what the formulation, the
+    container and the shelf life allow to form.
+    """
+    return [
+        Impurity(
+            name="Total degradation products",
+            impurity_type=ImpurityType.DEGRADATION,
+            limit="NMT 5.0 %",
+            limit_source="BP monograph for the finished dosage form",
+            origin="Sum of hydrolysis and polymerisation products over shelf life.",
+        ),
+        Impurity(
+            name="Any individual degradation product",
+            impurity_type=ImpurityType.DEGRADATION,
+            limit="NMT 1.0 %",
+            limit_source="ICH Q3B qualification threshold",
+            origin="Controlled at the Q3B threshold for the maximum daily dose.",
+        ),
+    ]
+
+
+def attach_control_data(product, oos: bool = False) -> None:
+    """Wire P20's control-section data onto a seeded product.
+
+    Called once per seed, AFTER the actives, excipients and manufacturers
+    are on the product, because every part of it points at one of those.
+
+    WHY one shared function rather than three copies in the seed files:
+    exactly the reason `bp_substance_specification` was extracted in P13 --
+    three hand-written copies of the same table drift, and what the fixtures
+    are demonstrating is the SHAPE. It also means the out-of-specification
+    case below has one definition, so a test asserting on it cannot be
+    passing against a different fixture than it thinks.
+
+    `oos=True` plants a genuine out-of-specification result: batch two's
+    assay reads 103.4 % against a 98.0-102.0 % limit. That is a fixture for
+    rule R22 in exactly the spirit of LAMOX's planted copy-paste bugs
+    (R01-R03) -- a defect the platform must catch, not a real defect in
+    anyone's product.
+    """
+    finished_site = next(
+        (m for m in product.manufacturers if m.role is not ManufacturerRole.API_MANUFACTURER),
+        None,
+    )
+    api_site = next(
+        (m for m in product.manufacturers if m.role is ManufacturerRole.API_MANUFACTURER),
+        None,
+    )
+
+    # 3.2.P.4.1 -- one specification per excipient, the section the whole
+    # polymorphic-owner migration was for.
+    for excipient in product.excipients:
+        if not excipient.specification:
+            standard = excipient.compendial_status.value if excipient.compendial_status else "BP"
+            excipient.specification = excipient_specification(standard.upper())
+
+    # 3.2.P.5.1 / 3.2.P.5.5 -- the finished product's own control data.
+    if not product.specification:
+        product.specification = drug_product_specification()
+    if not product.impurities:
+        product.impurities = drug_product_impurities()
+
+    # 3.2.S.4.4 -- batches of each drug substance, checked against that
+    # substance's own specification.
+    for index, api in enumerate(product.apis):
+        if api.batch_analyses:
+            continue
+        assays = ["99.1 % w/w", "103.4 % w/w" if oos else "99.8 % w/w", "100.2 % w/w"]
+        api.batch_analyses = batches_against(
+            api.specification,
+            [
+                f"API/{api.inn_name[:3].upper()}/24/{n:04d}"
+                for n in (11 + index, 21 + index, 31 + index)
+            ],
+            {
+                "Description": ["Complies"] * 3,
+                "Assay (anhydrous basis)": assays,
+                "Related substances - total": ["0.42 %", "0.51 %", "0.38 %"],
+                "Water content": ["12.8 %", "13.1 %", "12.4 %"],
+            },
+            manufacturer=api_site,
+        )
+
+    # 3.2.P.5.4 -- batches of the finished product.
+    if not product.batch_analyses:
+        product.batch_analyses = batches_against(
+            product.specification,
+            [f"{product.brand_name[:3].upper()}/24/{n:04d}" for n in (101, 102, 103)],
+            {
+                "Assay": [
+                    "98.6 % of label claim",
+                    "99.4 % of label claim",
+                    "97.9 % of label claim",
+                ],
+                "Dissolution": ["94 % in 45 min", "92 % in 45 min", "96 % in 45 min"],
+                "Uniformity of dosage units": ["Complies"] * 3,
+                "Related substances - total": ["0.8 %", "1.1 %", "0.9 %"],
+            },
+            manufacturer=finished_site,
+        )

@@ -23,6 +23,7 @@ XML covers m1.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from lxml import etree
@@ -197,6 +198,60 @@ ICH_HEADING_PATH: dict[str, tuple[str, ...]] = {
         "m3-2-p-drug-product",
         "m3-2-p-7-container-closure-system",
     ),
+    # P20: the control sections that appear once. Note 3.2.P.4.2 and
+    # 3.2.P.4.4 sit under `m3-2-p-4-control-of-excipients` with NO
+    # `excipient` attribute, while 3.2.P.4.1 gets one element per excipient
+    # -- see REPEATING_ELEMENTS below. Both are legal, because the DTD
+    # declares that element starred with `excipient` #IMPLIED.
+    "3.2.P.4.2": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-4-control-of-excipients",
+        "m3-2-p-4-2-analytical-procedures",
+    ),
+    "3.2.P.4.4": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-4-control-of-excipients",
+        "m3-2-p-4-4-justification-of-specifications",
+    ),
+    "3.2.P.5.1": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-5-control-of-drug-product",
+        "m3-2-p-5-1-specifications",
+    ),
+    "3.2.P.5.2": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-5-control-of-drug-product",
+        "m3-2-p-5-2-analytical-procedures",
+    ),
+    "3.2.P.5.4": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-5-control-of-drug-product",
+        "m3-2-p-5-4-batch-analyses",
+    ),
+    "3.2.P.5.5": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-5-control-of-drug-product",
+        "m3-2-p-5-5-characterisation-of-impurities",
+    ),
+    "3.2.P.5.6": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-5-control-of-drug-product",
+        "m3-2-p-5-6-justification-of-specifications",
+    ),
     "3.2.R": ("m3-quality", "m3-2-body-of-data", "m3-2-r-regional-information"),
     "5.3.1.1": (
         "m5-clinical-study-reports",
@@ -242,6 +297,78 @@ DRUG_SUBSTANCE_HEADING_PATH: dict[str, tuple[str, ...]] = {
     "3.2.S.2.1": ("m3-2-s-2-manufacture", "m3-2-s-2-1-manufacturer"),
     "3.2.S.5": ("m3-2-s-5-reference-standards-or-materials",),
     "3.2.S.6": ("m3-2-s-6-container-closure-system",),
+    # P20.
+    "3.2.S.3.2": ("m3-2-s-3-characterisation", "m3-2-s-3-2-impurities"),
+    "3.2.S.4.2": (
+        "m3-2-s-4-control-of-drug-substance",
+        "m3-2-s-4-2-analytical-procedures",
+    ),
+    "3.2.S.4.4": (
+        "m3-2-s-4-control-of-drug-substance",
+        "m3-2-s-4-4-batch-analyses",
+    ),
+}
+
+# Sections repeated per EXCIPIENT: the heading chain below the per-excipient
+# `m3-2-p-4-control-of-excipients` element.
+EXCIPIENT_HEADING_PATH: dict[str, tuple[str, ...]] = {
+    "3.2.P.4.1": ("m3-2-p-4-1-specifications",),
+}
+
+
+@dataclass(frozen=True)
+class RepeatingElement:
+    """An axis whose sections repeat as a heading ELEMENT, not as leaves.
+
+    P19 established that most repeating sections do NOT need this: the DTD
+    declares `m3-2-p-3-1-manufacturers` and `m3-2-p-7-container-closure-
+    system` once each with `leaf*` content, so three packs are three leaves
+    under one heading. Only where the DTD stars the element itself does the
+    HEADING repeat.
+
+    P20 found the second such axis, and it was not obvious from the section
+    numbers. `m3-2-p-4-control-of-excipients` is declared
+
+        m3-2-p-4-control-of-excipients*   ... excipient CDATA #IMPLIED
+
+    -- starred, with an attribute naming the subject: structurally the same
+    shape as `m3-2-s-drug-substance`, arrived at from the other end of
+    Module 3. So this is a table rather than the `if` P13 could get away
+    with when the drug substance was the only case.
+
+    One difference worth naming, because it is the spec making a judgement:
+    `substance` and `manufacturer` on the drug-substance element are both
+    #REQUIRED -- a drug substance cannot be filed anonymously -- while
+    `excipient` here is #IMPLIED. The DTD is willing to accept an unnamed
+    excipient section; this platform is not, and always sets the attribute,
+    because an assessor reading two specification leaves under one heading
+    needs to know which material each is about.
+    """
+
+    tag: str
+    # Where the repeating element hangs, as a chain from the root.
+    parent_path: tuple[str, ...]
+    # Which attribute names the subject -- also the discriminator that keeps
+    # two subjects' subtrees from being merged into one element (the P13
+    # bug; see _Node).
+    discriminator_attr: str
+    # Section number -> the heading chain BELOW the repeating element.
+    heading_paths: dict[str, tuple[str, ...]]
+
+
+REPEATING_ELEMENTS: dict[str, RepeatingElement] = {
+    "drug_substance": RepeatingElement(
+        tag="m3-2-s-drug-substance",
+        parent_path=("m3-quality", "m3-2-body-of-data"),
+        discriminator_attr="substance",
+        heading_paths=DRUG_SUBSTANCE_HEADING_PATH,
+    ),
+    "excipient": RepeatingElement(
+        tag="m3-2-p-4-control-of-excipients",
+        parent_path=("m3-quality", "m3-2-body-of-data", "m3-2-p-drug-product"),
+        discriminator_attr="excipient",
+        heading_paths=EXCIPIENT_HEADING_PATH,
+    ),
 }
 
 # The DTD's real declared child order, keyed by parent element name
@@ -391,31 +518,42 @@ class _Node:
         return self.children[key]
 
 
-def _place_drug_substance_leaf(
-    root_node: _Node, section_key: str, leaf: Leaf, info: tuple[str, str]
+def _place_repeated_leaf(
+    root_node: _Node, section_key: str, leaf: Leaf, axis: str, attrs: dict[str, str]
 ) -> None:
-    """File one 3.2.S leaf under its own `m3-2-s-drug-substance` element.
+    """File one leaf under its own copy of a repeating heading element.
 
-    `substance` and `manufacturer` are both #REQUIRED by the DTD -- the
-    spec refuses to let a drug substance be filed anonymously, since an
-    assessor reviewing a combination product must be able to tell whose
-    specification they are reading and who made that material.
+    P13 wrote this for the drug substance alone, when `m3-2-s-drug-
+    substance` was the only starred heading anything was filed under. P20
+    found the second (`m3-2-p-4-control-of-excipients`) and generalised
+    rather than branching -- which is the lesson P19's build-log entry
+    already recorded about `instances.py`: a single-case implementation
+    does not look like it is making assumptions, because with one case
+    every assumption is true.
+
+    The discriminator is the attribute that names the subject. Without it
+    `_Node` would key both excipients' subtrees by tag alone and MERGE
+    them -- producing, exactly as it would have for two drug substances, a
+    DTD-VALID backbone that files one material's specification under the
+    other's name. A merge is far worse than a crash here, because nothing
+    reports it.
     """
-    substance, manufacturer = info
+    element = REPEATING_ELEMENTS[axis]
     number = section_key.split("-", 1)[0]
     try:
-        tail = DRUG_SUBSTANCE_HEADING_PATH[number]
+        tail = element.heading_paths[number]
     except KeyError:
         raise ValueError(
-            f"section {number!r} repeats per drug substance but has no "
-            f"DRUG_SUBSTANCE_HEADING_PATH entry"
+            f"section {number!r} repeats per {axis} but has no heading path in "
+            f"REPEATING_ELEMENTS[{axis!r}].heading_paths"
         )
-    body = root_node.child("m3-quality").child("m3-2-body-of-data")
-    # discriminator = the substance, so two actives get two sibling elements
-    node = body.child(
-        "m3-2-s-drug-substance",
-        discriminator=substance,
-        attrs={"substance": substance, "manufacturer": manufacturer},
+    node = root_node
+    for tag in element.parent_path:
+        node = node.child(tag)
+    node = node.child(
+        element.tag,
+        discriminator=attrs[element.discriminator_attr],
+        attrs=attrs,
     )
     for tag in tail[:-1]:
         node = node.child(tag)
@@ -453,20 +591,27 @@ def _attach(el: etree._Element, node: _Node) -> None:
 
 def build_index_xml(
     leaves_by_section: dict[str, Leaf],
-    substance_info: dict[str, tuple[str, str]] | None = None,
+    repeat_info: dict[str, tuple[str, dict[str, str]]] | None = None,
 ) -> bytes:
     """Build and DTD-validate `index.xml` from this sequence's leaves,
     keyed by `section_key` (an `app.templating.registry.SECTIONS` number).
     Leaves whose `section_key` has no `ICH_HEADING_PATH` entry (Module 1
     documents) are silently skipped here -- they belong only in the
     regional backbone (`app.ectd.regional`).
+
+    `repeat_info` maps an instance key to `(axis name, element attributes)`
+    for the leaves that belong under a REPEATING heading element -- see
+    `REPEATING_ELEMENTS` and `app.templating.instances.repeat_element_info`.
+    P20 widened this from P13's drug-substance-only `substance_info`: the
+    excipient axis needed exactly the same treatment, and a second
+    parameter for it would have been the second special case.
     """
-    substance_info = substance_info or {}
+    repeat_info = repeat_info or {}
     root_node = _Node("ectd:ectd")
     for section_key, leaf in leaves_by_section.items():
-        info = substance_info.get(section_key)
-        if info is not None:
-            _place_drug_substance_leaf(root_node, section_key, leaf, info)
+        repeated = repeat_info.get(section_key)
+        if repeated is not None:
+            _place_repeated_leaf(root_node, section_key, leaf, *repeated)
             continue
         # P19: a key may now be "3.2.P.7-pack-blister" as well as a bare
         # number -- packs and manufacturing sites repeat too. A section

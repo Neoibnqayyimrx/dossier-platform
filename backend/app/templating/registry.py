@@ -118,16 +118,126 @@ SECTIONS: dict[str, SectionSpec] = {
         structure_images_slot="structures",
         repeat="drug_substance",
     ),
+    # ---- P20: one specification template, three owners -----------------
+    #
+    # 3.2.S.4.1, 3.2.P.4.1 and 3.2.P.5.1 all name `specification.docx`. That
+    # is the same call the model layer made one level up (app/models/
+    # spec_owner.py): a specification is ONE artifact asked for of three
+    # different things, and three near-identical templates would be three
+    # places for the same table to be laid out differently. P13's
+    # `section_3_2_s_4_1.docx` was deleted rather than left beside its
+    # replacement -- an unreferenced binary template is exactly the kind of
+    # thing that rots unnoticed.
     "3.2.S.4.1": SectionSpec(
         number="3.2.S.4.1",
         title="Specification (Drug Substance)",
-        template_filename="section_3_2_s_4_1.docx",
+        template_filename="specification.docx",
         # No narrative slots: a specification is a table of commitments,
         # every cell of which is structured data. There is nothing here for
         # the LLM to draft -- same reasoning as the registration form (1.2).
         narrative_slots=[],
         grounding_query=None,
         repeat="drug_substance",
+    ),
+    "3.2.P.4.1": SectionSpec(
+        number="3.2.P.4.1",
+        title="Specification (Excipients)",
+        template_filename="specification.docx",
+        narrative_slots=[],
+        grounding_query=None,
+        # Per EXCIPIENT -- the axis P19 declared and deliberately left
+        # unused, because `SpecificationTest` could not yet belong to an
+        # excipient. Registering this section is now a registry entry
+        # rather than a new branch, which was the whole point of P19.
+        repeat="excipient",
+    ),
+    "3.2.P.5.1": SectionSpec(
+        number="3.2.P.5.1",
+        title="Specification (Drug Product)",
+        template_filename="specification.docx",
+        narrative_slots=[],
+        grounding_query=None,
+        # No repeat: there is exactly one finished product. The asymmetry
+        # is real, not an oversight -- 3.2.S and 3.2.P.4 are about
+        # MATERIALS, of which there can be several, and 3.2.P.5 is about
+        # the medicine, of which there is one.
+    ),
+    # ---- P20: batches, impurities, and the prose that sits beside them --
+    "3.2.S.3.2": SectionSpec(
+        number="3.2.S.3.2",
+        title="Impurities (Drug Substance)",
+        template_filename="impurities.docx",
+        narrative_slots=[],
+        grounding_query=None,
+        repeat="drug_substance",
+    ),
+    "3.2.S.4.2": SectionSpec(
+        number="3.2.S.4.2",
+        title="Analytical Procedures (Drug Substance)",
+        template_filename="analytical_procedures.docx",
+        # HYBRID: the table of methods is generated from the specification
+        # rows, and the narrative describes the in-house methods only.
+        # Where the specification is pharmacopoeial an analytical procedure
+        # reduces to a citation -- and reproducing the monograph would
+        # breach AGENTS.md 5 -- so there is nothing for the LLM to write
+        # about those rows at all.
+        narrative_slots=["in_house_methods"],
+        grounding_query="analytical procedure validation ICH Q2 specificity accuracy precision",
+        repeat="drug_substance",
+    ),
+    "3.2.S.4.4": SectionSpec(
+        number="3.2.S.4.4",
+        title="Batch Analysis (Drug Substance)",
+        template_filename="batch_analysis.docx",
+        narrative_slots=[],
+        grounding_query=None,
+        repeat="drug_substance",
+    ),
+    "3.2.P.4.2": SectionSpec(
+        number="3.2.P.4.2",
+        title="Analytical Procedures (Excipients)",
+        template_filename="analytical_procedures.docx",
+        narrative_slots=["in_house_methods"],
+        grounding_query="analytical procedure validation ICH Q2 specificity accuracy precision",
+        # NOT repeated, unlike 3.2.P.4.1 beside it, and the target TOC says
+        # so. One document listing every excipient's methods is what an
+        # assessor wants; one document per excipient would be a folder of
+        # one-line files.
+    ),
+    "3.2.P.4.4": SectionSpec(
+        number="3.2.P.4.4",
+        title="Justification of Specification (Excipients)",
+        template_filename="justification_of_specification.docx",
+        narrative_slots=["justification"],
+        grounding_query="justification of specification acceptance criteria ICH Q6A",
+    ),
+    "3.2.P.5.2": SectionSpec(
+        number="3.2.P.5.2",
+        title="Analytical Procedures (Drug Product)",
+        template_filename="analytical_procedures.docx",
+        narrative_slots=["in_house_methods"],
+        grounding_query="analytical procedure validation ICH Q2 specificity accuracy precision",
+    ),
+    "3.2.P.5.4": SectionSpec(
+        number="3.2.P.5.4",
+        title="Batch Analyses (Drug Product)",
+        template_filename="batch_analysis.docx",
+        narrative_slots=[],
+        grounding_query=None,
+    ),
+    "3.2.P.5.5": SectionSpec(
+        number="3.2.P.5.5",
+        title="Characterisation of Impurities (Drug Product)",
+        template_filename="impurities.docx",
+        narrative_slots=[],
+        grounding_query=None,
+    ),
+    "3.2.P.5.6": SectionSpec(
+        number="3.2.P.5.6",
+        title="Justification of Specification (Drug Product)",
+        template_filename="justification_of_specification.docx",
+        narrative_slots=["justification"],
+        grounding_query="justification of specification acceptance criteria ICH Q6A",
     ),
     # ---- P19: the sections whose data the platform already held --------
     #

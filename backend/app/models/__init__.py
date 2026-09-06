@@ -23,6 +23,7 @@ from app.models.enums import (
     ExcipientFunction,
     ExcipientOrigin,
     GMPStatus,
+    ImpurityType,
     KBLicense,
     KBSource,
     LegalStatus,
@@ -32,6 +33,7 @@ from app.models.enums import (
     PackagingRole,
     Region,
     RegistrationType,
+    SpecificationOwnerKind,
     StabilityStudyType,
     SubmissionType,
 )
@@ -44,6 +46,8 @@ from app.models.stability import StabilityStudy
 from app.models.clinical import ClinicalEntry
 from app.models.batch_formula import BatchFormulaLine
 from app.models.specification import SpecificationTest
+from app.models.batch_analysis import BatchAnalysis, BatchAnalysisResult
+from app.models.impurity import Impurity
 from app.models.certificate import Certificate
 from app.models.applicant import Applicant
 from app.models.declaration import Declaration
@@ -71,6 +75,7 @@ __all__ = [
     "ExcipientFunction",
     "ExcipientOrigin",
     "GMPStatus",
+    "ImpurityType",
     "KBLicense",
     "KBSource",
     "LegalStatus",
@@ -80,6 +85,7 @@ __all__ = [
     "PackagingRole",
     "Region",
     "RegistrationType",
+    "SpecificationOwnerKind",
     "StabilityStudyType",
     "SubmissionType",
     # entities
@@ -91,6 +97,9 @@ __all__ = [
     "StabilityStudy",
     "ClinicalEntry",
     "BatchFormulaLine",
+    "BatchAnalysis",
+    "BatchAnalysisResult",
+    "Impurity",
     "Certificate",
     "Applicant",
     "Declaration",

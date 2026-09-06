@@ -41,10 +41,13 @@ if TYPE_CHECKING:
     from app.models.batch_formula import BatchFormulaLine
     from app.models.certificate import Certificate
     from app.models.clinical import ClinicalEntry
+    from app.models.batch_analysis import BatchAnalysis
     from app.models.excipient import Excipient
+    from app.models.impurity import Impurity
     from app.models.manufacturer import Manufacturer
     from app.models.packaging import Packaging
     from app.models.project import Project
+    from app.models.specification import SpecificationTest
     from app.models.stability import StabilityStudy
     from app.models.user import User
 
@@ -96,6 +99,25 @@ class Product(Base):
     )
     certificates: Mapped[list["Certificate"]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
+    )
+    # P20: the FINISHED PRODUCT's own specification (3.2.P.5.1), its
+    # released batches (3.2.P.5.4) and its impurity profile (3.2.P.5.5).
+    # There is exactly one finished product, so unlike 3.2.S.4.1 and
+    # 3.2.P.4.1 these sections do not repeat.
+    specification: Mapped[list["SpecificationTest"]] = relationship(
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by="SpecificationTest.sort_order",
+    )
+    batch_analyses: Mapped[list["BatchAnalysis"]] = relationship(
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by="BatchAnalysis.batch_number",
+    )
+    impurities: Mapped[list["Impurity"]] = relationship(
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by="Impurity.name",
     )
 
     # ---- reverse side of Project -> Product (many Projects per Product) --

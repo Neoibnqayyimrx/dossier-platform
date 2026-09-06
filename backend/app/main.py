@@ -13,6 +13,7 @@ from app.api.routers.ectd import router as ectd_router
 from app.api.routers.enums import router as enums_router
 from app.api.routers.kb import router as kb_router
 from app.api.routers.narrative import router as narrative_router
+from app.api.routers.batch_results import router as batch_results_router
 from app.api.routers.nested import NESTED_ROUTERS
 from app.api.routers.products import router as products_router
 from app.api.routers.projects import router as projects_router
@@ -56,6 +57,7 @@ app.include_router(regions_router)
 app.include_router(sections_router)
 app.include_router(documents_router)
 app.include_router(artifacts_router)
+app.include_router(batch_results_router)
 for nested_router in NESTED_ROUTERS:
     app.include_router(nested_router)
 
