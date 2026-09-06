@@ -31,6 +31,189 @@ Newest entry at the top.
 
 ---
 
+## P18 — The upload path (2026-09-04)
+
+**Platform capability: 23/98 done, and the 22 `upload_path` leaves move from
+`missing` to `placeholder` — every one of them now has a route by which a
+real file can arrive.** The headline number deliberately does NOT move for
+those 22, which is the most important thing in this entry; see "two kinds of
+coverage" below.
+
+### What actually changed
+
+Before this phase the platform could build a structurally perfect eCTD
+package in which roughly a quarter of the leaves were pages reading
+"PLACEHOLDER — REPLACE THIS FILE". `Certificate` was metadata only and said
+so in its own docstring; MinIO had been wired since P04 but only BUILDERS
+ever wrote to it, and `artifacts.py` was download-only. There was no route by
+which a regulatory affairs officer could attach the actual CPP.
+
+`SectionDocument` is that route. It is keyed by section INSTANCE (number +
+subject slug) rather than section number, for the reason `instances.py`
+already argued for rendered documents and which is stronger for uploaded
+ones: "3.2.S.3.1" does not name one document once a product has two actives,
+and an elucidation-of-structure report is about ampicillin OR cloxacillin.
+Filing one under a number meaning "both" puts the wrong molecule's spectra in
+front of an assessor.
+
+### The non-PDF decision: convert at upload
+
+Three options, and the checksum settles it.
+
+The eCTD manifest and `index.xml` publish an MD5 over the bytes that ship. If
+a `.docx` were stored as-is and converted during the build, the checksum
+could only be computed at build time, and the file a user sees listed on the
+section screen would not be the file being checksummed. **Converting at
+upload means the bytes, the size and the MD5 are settled at the moment of
+upload and never change afterwards** — the shipped file and the recorded
+checksum are the same object by construction, not by care.
+
+It also fails at the right time. A conversion that goes wrong is the
+uploader's problem and they are standing right there. Discovering it during a
+build, weeks later, possibly by someone else, turns a five-second fix into an
+incident.
+
+**Rejecting non-PDFs outright was the third option and it loses on contact
+with reality**: a letter of access genuinely arrives as a Word document, and
+telling a regulatory affairs officer to convert it by hand is asking them to
+do, less reliably, something this codebase has done deterministically since
+P07.
+
+**Images are refused on purpose.** A scanned JPEG is a real thing people
+have, but wrapping it in a PDF container produces a leaf with no extractable
+text — which agency validators flag and reviewers cannot search. Refusing
+with an instruction ("scan or export to PDF") is more honest than accepting
+something that will be rejected further downstream, where the feedback is
+worse.
+
+And the declared `content_type` is treated as a hint, not as truth: it is
+whatever the client says it is. The magic number is a property of the file.
+
+### Versioning: replaced in place, deliberately
+
+**Uploading twice replaces; there is no history.** This is a simplification
+and it is the one a regulatory audit will eventually want undone — "what did
+we file in sequence 0000, and who changed it before 0001" is a question this
+table cannot answer today.
+
+What makes it acceptable for now: **eCTD lifecycle already versions at the
+SEQUENCE level** (P09). Once a sequence is submitted its leaves are frozen by
+their checksums, so the history that matters to a REGULATOR is preserved even
+though the working copy's history is not. What is lost is internal
+provenance, and the day someone asks for it, the fix is a
+`section_document_version` child table plus a pointer to the current row —
+not a redesign.
+
+A related deliberate choice: **detaching a document does not delete the
+stored object.** A detach is usually "I attached the wrong file"; the cost of
+orphaned bytes is a little storage, and the cost of deleting the right file
+by accident is a CPP that takes weeks to reissue.
+
+### An uploaded leaf ships byte-for-byte, bookmarks and all
+
+P07 gives every RENDERED leaf a bookmark from its known section title, and a
+test asserts it. Uploaded leaves are deliberately exempt, and the reason is
+the checksum again: the MD5 is computed at upload and is already published in
+the manifest and the eCTD backbone, so adding an outline entry afterwards
+would silently make every published checksum wrong.
+
+The alternative -- bookmark at ingest, before checksumming -- is technically
+available and was rejected for a different reason: it means modifying a third
+party's signed document. Real eCTD publishers do add bookmarks to supplied
+PDFs, so this is a defensible thing to revisit, but doing it silently to a
+regulator's signed CPP is not something to slip in without deciding it on
+purpose.
+
+**The trade-off, stated plainly: uploaded leaves carry whatever bookmarks
+their author gave them, which may be none.** What is guaranteed is that they
+are searchable PDFs rather than images, which is enforced at upload.
+
+### Two kinds of coverage, and why the number did not jump
+
+This is the subtlest thing in the phase and it nearly went wrong.
+
+The naive move was to let the 22 `upload_path` leaves count as `done` now
+that they can be attached. That would have been the exact laundering P16
+exists to prevent: **a route to attach a CPP is a property of the PLATFORM;
+the CPP actually being in is a property of one FILING.** Reporting the first
+as though it were the second produces a green number for a dossier with no
+paper in it.
+
+So `resolve_status` gained an `attached` set, the script gained
+`--project <id>`, and the report now labels itself: "platform capability" or
+"project <id>". Without a project, an attachable-but-empty leaf reads
+`placeholder` — the honest state, and the same word the check already used
+for a certificate slot with no certificate.
+
+### R20 and the blast radius of a gate that means it
+
+`R20` is an ERROR: an applicable leaf standing on a placeholder blocks the
+build. That is the severity model working as designed — a placeholder's whole
+purpose is to make a gap loud, and shipping one is submitting a note
+admitting the submission is incomplete.
+
+**The interesting part was what it broke.** Every seed fixture models a
+COMPLETE filing, which is what makes them useful for testing assembly and the
+builders. The moment R20 existed, every one of them became a blocked filing,
+and a dozen tests failed. Two ways to fix that:
+
+1. Teach those tests to override R20.
+2. Give the fixtures the documents a finished filing has.
+
+**The first would have been the same fixture with the new gate switched
+off** — the tests would go green and prove less than they did before. So
+`app/seed/documents.py` attaches stand-in documents through the real
+`ingest_document` path, which also means the seeds exercise validation,
+conversion and checksumming rather than bypassing them.
+
+**One place R20 deliberately stays silent**: a certificate type the region
+has no declared leaf for. EU has no Module 1 document slots, so there is
+nowhere to attach — and a gate you cannot pass is not a gate, it is a wall.
+It would block every EU export with an instruction the platform gives no way
+to follow. The gap is real and it is EU Module 1 being unmodelled, which
+`EU_PROFILE` already says of itself; declaring those slots turns the rule on
+for EU with no change to the rule.
+
+### Three async/ORM traps, all the same shape
+
+All three were "a plain attribute access did IO", and under the async engine
+that does not merely block, it raises `MissingGreenlet`.
+
+- **`project.documents` on a committed, Python-built project.** R20 reads it;
+  the collection had never been loaded, so reading it went to the database
+  from inside a synchronous rule. Fixed by initialising the collection in
+  `Project.__init__`, the same move P17 made for `condition_answers`. Objects
+  loaded from a query are unaffected — SQLAlchemy does not call `__init__`
+  when it materialises a row.
+- **Appending to that collection in the seed helper.** Same cause, different
+  caller; `set_committed_value` says "this collection is already loaded, here
+  it is" without the SELECT.
+- **`id` was `None` until flush.** `default=uuid.uuid4` fires at INSERT, which
+  was harmless while ids were only database keys. It stopped being harmless
+  the moment ids became part of OBJECT STORAGE PATHS: computing
+  `projects/{id}/documents/...` from `None` produces a key that looks
+  plausible, stores real bytes, and belongs to no project. `Base.__init__`
+  now assigns it at construction.
+
+  That last fix had its own trap worth recording: **SQLAlchemy installs its
+  `_declarative_constructor` only on classes that do not define `__init__`.**
+  Defining one on `Base` means `super().__init__(**kwargs)` reaches
+  `object.__init__`, which rejects keywords outright — every model
+  constructor in the codebase broke at once, with a message
+  ("object.__init__() takes exactly one argument") that says nothing about
+  the real cause.
+
+### Certificate types found by checking, not by thinking
+
+Three were missing: certificate of incorporation (1.2.3), superintendent
+pharmacist's annual licence to practice (1.2.11), certificate of registration
+and retention of premises (1.2.12). All three are about the APPLICANT as a
+business rather than about the medicine — which is exactly why a list written
+while thinking about product quality missed them, and exactly the kind of gap
+the target TOC exists to surface.
+
+---
+
 ## P17 — Applicability as data, and the statements it owes (2026-09-04)
 
 **Coverage: 9/98 → 23/98 leaves.** The largest single jump so far, and the

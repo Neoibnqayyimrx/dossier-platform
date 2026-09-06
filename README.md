@@ -66,9 +66,17 @@ Python 3.11 · FastAPI · Pydantic v2 · SQLAlchemy 2.x (async) · Alembic · Po
 ## Coverage against a real dossier
 
 **23/98 leaves** of a filed NAFDAC multisource dossier (Me Cure, Amlodipine
-Tablets 5 mg) can be produced today — including the fourteen sections the
-dossier declares *not applicable*, which are filed as generated statements
-citing the guideline that excuses them, not omitted. The target is data, not prose —
+Tablets 5 mg) are produced from data today — including the fourteen sections
+the dossier declares *not applicable*, which are filed as generated
+statements citing the guideline that excuses them, not omitted. A further
+**22 leaves accept an uploaded document** (a regulator's CPP, a CRO's study
+report — paper no software can author), and the build refuses to export while
+any of them is still a placeholder.
+
+Two kinds of coverage, kept apart on purpose: run the check with no arguments
+for what the *platform* can do, and with `--project <id>` for what one
+*filing* actually has in. A route to attach a CPP is not the same fact as the
+CPP being attached. The target is data, not prose —
 `docs/target-toc.yaml` declares every leaf that dossier owes and how it is
 produced; `uv run python -m scripts.check_target_toc` (run in CI on every push)
 compares it against what the platform can actually render, and prints the gap
