@@ -31,6 +31,241 @@ Newest entry at the top.
 
 ---
 
+## P20 — One specification, three owners (2026-09-06)
+
+**Platform capability: 32/98 → 43/98 leaves.** Eleven sections, and one
+schema decision that the rest of Module 3's control sections now rest on.
+
+### The decision the phase exists for
+
+`SpecificationTest` was foreign-keyed to `active_ingredient`, so it was
+drug-substance-only *by construction*. But 3.2.S.4.1, 3.2.P.4.1 and
+3.2.P.5.1 are the same table — test, method, acceptance criterion, order —
+asked of three different things. Building them separately would have meant
+three tables, three editors, three rule sets, and the drift between them is
+precisely what this platform exists to catch.
+
+**Chosen: one nullable foreign key per owner type, plus a CHECK that
+exactly one is set.**
+
+```
+active_ingredient_id  UUID NULL  REFERENCES active_ingredient(id)
+product_id            UUID NULL  REFERENCES product(id)
+excipient_id          UUID NULL  REFERENCES excipient(id)
+CHECK ((CASE WHEN active_ingredient_id IS NULL THEN 0 ELSE 1 END) + ... = 1)
+```
+
+**Rejected: a discriminator column** — `owner_type VARCHAR` + `owner_id
+UUID`. It is the tidier schema, it never changes when a fourth owner type
+appears, and it is what the generic-foreign-key recipes reach for. It was
+rejected because **`owner_id` cannot be a foreign key**, since a column
+cannot reference three tables — so the database cannot enforce that the
+owner exists. Delete an excipient and its specification rows survive,
+pointing at nothing, with no cascade and no constraint violated. The first
+symptom is a 3.2.P.4.1 that renders empty, or a batch analysis checked
+against a specification belonging to nothing. Trading referential integrity
+for schema convenience is the wrong trade in a system whose entire claim is
+that its data cannot disagree with itself.
+
+The cost is real and is schema churn: a fourth owner is a migration — one
+column, one FK, one widened CHECK, one entry in `_OWNER_ATTRS`. That is the
+honest price, because Module 3 has exactly three things with a
+specification and the list is fixed by ICH M4Q rather than by this
+codebase. The fourth owner is hypothetical; the orphan rows were a
+certainty.
+
+Two owner spaces, not one: `BatchAnalysis` and `Impurity` accept only the
+drug substance and the drug product. The CTD has no excipient batch-analysis
+or impurity leaf, and a row the dossier could never render should not be
+storable.
+
+**The migration widened; it did not move.** Every pre-P20 row keeps the
+`active_ingredient_id` it had, which is what makes the CHECK satisfied by
+every existing row before it is added — and what makes P13's tests pass
+unchanged. `test_the_migration_widened_the_table_without_moving_a_row`
+states that as a test rather than as a promise in a docstring.
+
+### The rule that justifies the whole design
+
+R22: a batch result outside its own specification's acceptance criterion is
+an ERROR that names the batch, the test, the result and the limit.
+
+The point is not the comparison, it is **where the limit comes from**.
+`BatchAnalysisResult.specification_test_id` is a foreign key, so R22 reads
+`result.specification_test.acceptance_criterion` — the same string 3.2.S.4.1
+renders. There is no copy. Tighten a limit in the specification and every
+batch already on file is re-judged against it with nothing re-entered
+anywhere, which
+`test_tightening_the_specification_re_judges_batches_already_on_file` pins.
+
+It also makes the mistake unrepresentable rather than merely detectable: a
+result for a test that is not in the specification has no row to point at.
+The wizard's batch screen is a list of the spec's own tests for the same
+reason, and the API refuses a cross-owner pairing with a 422 — not a 404,
+because the test exists and the caller may legitimately know about it; what
+is wrong is the pairing.
+
+### Parsing an acceptance criterion, and the ordering bug that nearly landed
+
+`acceptance_criterion` is text on purpose — real criteria are ranges, NMT/NLT
+one-sided limits, "Complies", "Corresponds to reference spectrum" — so R22
+has to read them. `app/validation/acceptance.py` is deliberately its own
+module because it is the part of P20 most likely to be wrong.
+
+Two things it gets right that a first draft would not:
+
+**1. `None` is a third answer and never means "passed".** An unparseable
+pair is reported as unchecked (one INFO per batch, not one per row, so the
+report stays readable), because an unchecked result is not a passed result
+and the difference has to be visible somewhere. Every branch returns `None`
+rather than guessing.
+
+**2. The non-conforming list is checked FIRST.** `"does not comply"`
+contains `"comply"` — so a substring test in the natural order reads a
+failure as a pass. That is the single most dangerous bug this module could
+have, and it is the one a reasonable person writes. It is pinned by a test
+case, in both languages.
+
+A European decimal comma (`"0,15"`) is normalised rather than parsed as the
+integer 15 — a hundredfold error, in the unsafe direction.
+
+### The eCTD surprise: excipients repeat as an ELEMENT
+
+P19 established that most repeating sections file several leaves under one
+heading, because their DTD element is declared once with `leaf*` content.
+Only 3.2.S had a repeating heading, and that looked like a drug-substance
+peculiarity.
+
+It is not. The DTD declares:
+
+```
+<!ELEMENT m3-2-p-drug-product (..., m3-2-p-4-control-of-excipients*, ...)>
+<!ATTLIST m3-2-p-4-control-of-excipients  %att;  excipient CDATA #IMPLIED>
+```
+
+Starred, with an attribute naming the subject — structurally the same shape
+as `m3-2-s-drug-substance`, arrived at from the other end of Module 3. So
+`_place_drug_substance_leaf` became `_place_repeated_leaf` driven by a
+`REPEATING_ELEMENTS` table, and `build_index_xml`'s `substance_info`
+parameter became `repeat_info`. Adding a second parameter would have been
+the second special case, which is the mistake P19's own build-log entry
+warns about.
+
+Without the discriminator this would have been the P13 `_Node` bug arriving
+by a new route: both excipients' subtrees merged under one element,
+producing a **DTD-valid** backbone that files one material's specification
+under the other's name. A merge is far worse than a crash, because nothing
+reports it.
+
+One difference worth naming, because it is the spec making a judgement:
+`substance` and `manufacturer` are #REQUIRED on the drug-substance element —
+a drug substance cannot be filed anonymously — while `excipient` is
+#IMPLIED. The DTD will accept an unnamed excipient section. This platform
+always sets the attribute anyway: two specification leaves under one
+heading, distinguishable only by filename, is a heading an assessor cannot
+read.
+
+### Sharing templates, and the binary that was deleted
+
+Eleven sections, five templates. `specification.docx` serves 3.2.S.4.1,
+3.2.P.4.1 and 3.2.P.5.1; `batch_analysis.docx` serves both batch sections;
+`impurities.docx` both impurity sections; and the two hybrid shapes share
+one each. The mechanism is the heading being `{{ section_number }}
+{{ section_title }}` rather than a literal — the same mechanism P17's
+fourteen not-applicable statements already share one template through.
+
+P13's `section_3_2_s_4_1.docx` was **deleted**, not left beside its
+replacement. An unreferenced binary template is exactly the thing that rots
+unnoticed, and `git diff` would never show anyone that it had.
+
+**The `{%tc %}` gotcha, which is P13's `{%tr %}` gotcha in the other
+dimension.** The batch results table was first written as a matrix — one row
+per test, one column per batch — using docxtpl's column loop with the tags
+as paragraphs inside a cell. It dies with the same `Encountered unknown tag
+'endfor'` the P13 entry recorded: the tags need *cells* of their own, just
+as `{%tr %}` needs *rows* of their own.
+
+The fix was not to fight the loop but to change the table, and the flat form
+is the better document anyway: one row per test per batch, with the
+acceptance criterion on the same line as the result. A limit printed in one
+table and the numbers judged against it in another is the layout that lets
+an out-of-specification result pass unnoticed. Flat also works for any
+number of batches.
+
+### Three things that only showed up when the code ran
+
+**1. Every new relationship is a `MissingGreenlet` waiting to happen.** 53
+tests failed at once because R22 walks batch → results → specification test
+and R11 now reads impurity limits, none of which `app/api/loading.py`
+eager-loads. The failure surfaces deep inside a synchronous rule, nowhere
+near the query that forgot to load it. The `result → specification_test` hop
+is the load-bearing one — it is how R22 reaches the limit without a copy —
+and it happens to work through the identity map when the specification is
+already loaded, which is exactly the kind of accidental correctness worth
+spelling out explicitly instead.
+
+**2. "Visual" is not a monograph citation.** The seeded drug-substance
+specification's Description row cited its method as `"Visual"`, so
+3.2.S.4.2's compendial/in-house classifier read it as in-house and asked for
+a method description. The classifier was right; the fixture was wrong — a BP
+monograph does carry a Characters/Description section, so the citation is
+`"Visual, BP monograph"`. Worth recording because the failure direction was
+chosen deliberately: a false negative (compendial read as in-house) asks for
+a description that is already public — wasteful, harmless. A false positive
+would tell an applicant they owe no method description when they do, which
+is a deficiency letter.
+
+**3. R11 had to learn to discriminate.** Extending the pharmacopoeial-version
+reminder to impurity limits is only useful if it fires on a BP-derived limit
+and *not* on an ICH Q3A/Q3B threshold — the latter does not move with a
+pharmacopoeial edition, and a reminder to go check one is noise that teaches
+the reader to ignore R11 entirely. Tokenising `limit_source` rather than
+substring-matching it matters here: `"ep"` is inside `"except"` and inside
+`"development"`.
+
+### The browser has a second copy of the acceptance check, on purpose
+
+The brief asked for out-of-specification results to show *at entry*, not at
+export, and it is right about why: the person typing a certificate of
+analysis has the paper in front of them and can check a transposed digit in
+five seconds. So `frontend/src/lib/acceptance.ts` mirrors the Python.
+
+Duplicating a rule is normally what this platform refuses. Two things make
+it tolerable, and both had to be true:
+
+1. **The copy is advisory and cannot gate anything.** The export gate is
+   R22 on the backend. Wrong permissively, the build still blocks; wrong
+   strictly, the filer sees a warning the report does not repeat. Neither
+   can put a bad number in a package.
+2. **It is pinned by a shared test table.** `acceptance.test.ts` carries the
+   same cases as the backend's parametrised test, deliberately, so changing
+   one without the other fails a test rather than drifting quietly.
+
+If a third copy is ever wanted, that is the signal to make it an endpoint.
+
+### Deviation from the prompt
+
+The prompt asked for 3.2.S.4.5 (justification of specification, drug
+substance) alongside 3.2.P.4.4 and 3.2.P.5.6. **`docs/target-toc.yaml` has
+no 3.2.S.4.5 leaf** — the source dossier it was derived from does not file
+one, and 3.2.S.4 stops at .4. Registering a section the contract does not
+name would have put a document in the package that the coverage check
+cannot see, so it was left out. The other two justification leaves are
+built. If the real target does owe a 3.2.S.4.5, the fix is to add it to the
+target first and let the check demand it — the contract leads, not the
+registry.
+
+### Known gaps
+
+- `Certificate` still has no excipient link, so 3.2.P.4.5's TSE/BSE evidence
+  is per product rather than per material (carried over from P19).
+- 1.4.2 (QIS) and 2.3 (QOS) are no longer blocked by
+  `spec_polymorphic_owner`, but remain blocked by `stability_timepoints`.
+  The QOS is the highest-leverage document in the target and it needs both.
+- `BatchAnalysis.batch_size` is free text, so nothing reconciles it against
+  3.2.P.3.2's computed batch size. That check wants the same treatment R04
+  gives the batch formula, and is a rule rather than a model change.
+
 ## P19 — The sections the data already supported (2026-09-06)
 
 **Platform capability: 23/98 → 32/98 leaves.** Nine sections, all of them
