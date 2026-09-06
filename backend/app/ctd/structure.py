@@ -19,6 +19,8 @@ would never find.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 MODULE_2_5_FOLDERS: dict[str, str] = {
     "2.3": "m2/23-quality-overall-summary",
     "3.2.P.1": "m3/32-body-data/32p/32p1-description-and-composition",
@@ -33,6 +35,21 @@ MODULE_2_5_FOLDERS: dict[str, str] = {
     "2.6": "m2/26-nonclinical-summary",
     "2.7": "m2/27-clinical-summary",
     "3.2.P.4.6": "m3/32-body-data/32p/32p4-control-of-excipients/32p46-novel-excipients",
+    # P19: the sections whose data was already modelled and already
+    # validated but which had no home. Each folder name follows the eCTD
+    # element it corresponds to in ich-ectd-3-2.dtd, same as its neighbours.
+    "3.2.P.3.2": "m3/32-body-data/32p/32p3-manufacture/32p32-batch-formula",
+    "3.2.P.4.5": (
+        "m3/32-body-data/32p/32p4-control-of-excipients/32p45-excipients-of-human-or-animal-origin"
+    ),
+    "3.2.P.6": "m3/32-body-data/32p/32p6-reference-standards",
+    # 3.2.R is region-specific by definition (its CONTENT comes from the
+    # region profile, see app.ctd.region_profiles.RegionProfile.
+    # regional_information), but its PLACEMENT does not: the DTD declares
+    # m3-2-r-regional-information for every region, and only what goes
+    # inside it varies. So the folder belongs in this common map with the
+    # rest of Module 3.
+    "3.2.R": "m3/32-body-data/32r-regional-information",
     "3.2.A": "m3/32-body-data/32a-appendices",
     # ONE statement for the whole of Module 4, not one per 4.1/4.2/4.3 --
     # the source dossier files a single "Module 4 is not applicable" page,
@@ -73,45 +90,118 @@ MODULE_2_5_FOLDERS: dict[str, str] = {
 }
 
 
-# Sections repeated per drug substance live under a per-substance folder,
-# because "32s1-general-information" is not a unique location once a product
-# has two actives. The substance name is in the path for the same reason the
-# eCTD DTD puts it in a required attribute: an assessor must be able to tell
-# which substance a folder holds without opening it.
-DRUG_SUBSTANCE_FOLDERS: dict[str, str] = {
-    "3.2.S.1": "32s1-general-information",
-    "3.2.S.4.1": "32s4-control-of-drug-substance/32s41-specification",
-    # P18: uploaded per-substance artifacts. An elucidation-of-structure
-    # report is about ONE active -- filing ampicillin's spectra under a
-    # number that means "the drug substance" would put the wrong molecule in
-    # front of an assessor, which is the whole reason instances.py exists.
-    "3.2.S.2.5": "32s2-manufacture/32s25-process-validation",
-    "3.2.S.3.1": "32s3-characterisation/32s31-elucidation-of-structure",
-    "3.2.S.4.3": "32s4-control-of-drug-substance/32s43-validation-of-analytical-procedures",
+# Sections repeated along an axis live under a per-subject folder, because
+# "32s1-general-information" is not a unique location once a product has two
+# actives -- nor is "32p7-container-closure-system" once it ships in three
+# pack sizes. The subject's name is in the path for the same reason the eCTD
+# DTD puts it in a required attribute: an assessor must be able to tell which
+# substance, site or pack a folder holds without opening it.
+
+
+@dataclass(frozen=True)
+class RepeatFolders:
+    """Where one repeat axis' instances live.
+
+    The path is `base / f"{prefix}-{slug}" / tail`, with an empty tail
+    dropped. Splitting it that way rather than storing whole paths keeps the
+    per-subject segment in ONE place per axis: it is the segment that has to
+    be identical across rebuilds for the checksums to hold, and a copy of it
+    per section is a copy that can drift.
+    """
+
+    base: str
+    prefix: str
+    # section number -> the path BELOW the per-subject folder. Empty for an
+    # axis whose sections are single leaves (a pack has no sub-structure).
+    tails: dict[str, str]
+
+
+REPEAT_FOLDERS: dict[str, RepeatFolders] = {
+    "drug_substance": RepeatFolders(
+        base="m3/32-body-data/32s",
+        prefix="32s",
+        tails={
+            "3.2.S.1": "32s1-general-information",
+            "3.2.S.4.1": "32s4-control-of-drug-substance/32s41-specification",
+            # P18: uploaded per-substance artifacts. An elucidation-of-
+            # structure report is about ONE active -- filing ampicillin's
+            # spectra under a number that means "the drug substance" would
+            # put the wrong molecule in front of an assessor, which is the
+            # whole reason instances.py exists.
+            "3.2.S.2.5": "32s2-manufacture/32s25-process-validation",
+            "3.2.S.3.1": "32s3-characterisation/32s31-elucidation-of-structure",
+            "3.2.S.4.3": (
+                "32s4-control-of-drug-substance/32s43-validation-of-analytical-procedures"
+            ),
+            # P19.
+            "3.2.S.2.1": "32s2-manufacture/32s21-manufacturer",
+            "3.2.S.5": "32s5-reference-standards",
+            "3.2.S.6": "32s6-container-closure-system",
+        },
+    ),
+    "manufacturing_site": RepeatFolders(
+        base="m3/32-body-data/32p/32p3-manufacture/32p31-manufacturers",
+        prefix="site",
+        tails={"3.2.P.3.1": ""},
+    ),
+    "pack": RepeatFolders(
+        base="m3/32-body-data/32p/32p7-container-closure-system",
+        prefix="pack",
+        tails={"3.2.P.7": ""},
+    ),
 }
+
+
+def repeatable_section_numbers() -> set[str]:
+    """Every section number that has a per-subject folder, on any axis.
+
+    Exists so callers that only need "can a repeated instance of this leaf
+    be placed?" -- the upload endpoint, the target-TOC check -- ask one
+    question instead of iterating the axis maps themselves.
+    """
+    return {number for folders in REPEAT_FOLDERS.values() for number in folders.tails}
 
 
 def folder_for_section_instance(number: str, subject_slug: str | None) -> str:
     """The CTD folder for one section INSTANCE (app/templating/instances.py).
 
     Identical to `folder_for_section` for every section that appears once;
-    repeated sections get a `32s-<substance>` folder of their own.
+    a repeated section gets a folder of its own per subject.
 
     Takes the slug rather than the instance object on purpose: this keeps
     P08's folder map from importing P07's assembly types, and means the
     only thing the CTD layer needs to know about repetition is "which
     subject, by name".
+
+    WHY it does not also take the axis name: the section number already
+    determines it -- 3.2.S.1 repeats per substance and nothing else -- and
+    a second parameter would be a second thing every caller has to thread
+    through and could get wrong. A number mapped on two axes would be a
+    contradiction, which `_folders_for` refuses rather than resolves.
     """
     if subject_slug is None:
         return folder_for_section(number)
-    try:
-        tail = DRUG_SUBSTANCE_FOLDERS[number]
-    except KeyError:
+    folders = _folders_for(number)
+    tail = folders.tails[number]
+    parts = [folders.base, f"{folders.prefix}-{subject_slug}"]
+    if tail:
+        parts.append(tail)
+    return "/".join(parts)
+
+
+def _folders_for(number: str) -> RepeatFolders:
+    matches = [folders for folders in REPEAT_FOLDERS.values() if number in folders.tails]
+    if not matches:
         raise KeyError(
-            f"No drug-substance CTD folder mapped for section {number!r} -- "
-            f"add it to DRUG_SUBSTANCE_FOLDERS before registering it in SECTIONS."
+            f"No per-subject CTD folder mapped for section {number!r} -- add it to the "
+            f"right axis in REPEAT_FOLDERS before registering it as a repeating section."
         )
-    return f"m3/32-body-data/32s/32s-{subject_slug}/{tail}"
+    if len(matches) > 1:
+        # A number on two axes cannot be placed: "3.2.P.7 for ampicillin" and
+        # "3.2.P.7 for the blister" would be two different paths for one
+        # leaf. Raising here is the same call the miss above makes.
+        raise KeyError(f"Section {number!r} is mapped on more than one repeat axis.")
+    return matches[0]
 
 
 def folder_for_section(number: str) -> str:

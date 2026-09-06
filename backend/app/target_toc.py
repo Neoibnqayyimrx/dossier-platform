@@ -64,6 +64,11 @@ class TargetLeaf:
     production: str
     condition: str | None = None
     not_applicable_reason: str | None = None
+    # P19: the axis this leaf repeats along, or None. Lifted out because
+    # `test_registry_repeat_axes_match_the_target` holds the registry's
+    # `SectionSpec.repeat` and this to the same string -- a contract that
+    # only exists if both sides can be read from code.
+    repeat: str | None = None
 
     @property
     def is_na_statement(self) -> bool:
@@ -102,6 +107,7 @@ def load_target_leaves() -> tuple[TargetLeaf, ...]:
             production=entry["production"],
             condition=entry.get("condition"),
             not_applicable_reason=entry.get("not_applicable_reason"),
+            repeat=entry.get("repeat"),
         )
         for entry in document["sections"]
     )

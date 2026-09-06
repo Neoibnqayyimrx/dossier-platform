@@ -67,7 +67,7 @@ def producible_keys(sections: list[dict]) -> set[str]:
     """
     try:
         from app.ctd.region_profiles import NAFDAC_PROFILE
-        from app.ctd.structure import DRUG_SUBSTANCE_FOLDERS, MODULE_2_5_FOLDERS
+        from app.ctd.structure import MODULE_2_5_FOLDERS, repeatable_section_numbers
         from app.templating.certificates import render_certificate_placeholder  # noqa: F401
         from app.templating.declarations import render_declaration  # noqa: F401
         from app.templating.registry import SECTIONS
@@ -110,13 +110,14 @@ def producible_keys(sections: list[dict]) -> set[str]:
     # leaf read `placeholder` rather than `missing`, and only a real
     # attachment in a real project makes it `done`.
     module1_document_leaves = {slot.section_number for slot in NAFDAC_PROFILE.document_slots}
+    per_subject_leaves = repeatable_section_numbers()
     for entry in sections:
         if entry["production"] != "uploaded":
             continue
         number = entry["number"]
         if (
             number in MODULE_2_5_FOLDERS
-            or number in DRUG_SUBSTANCE_FOLDERS
+            or number in per_subject_leaves
             or number in module1_document_leaves
         ):
             keys.add(entry.get("registry_key") or number)

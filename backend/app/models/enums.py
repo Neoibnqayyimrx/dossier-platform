@@ -167,6 +167,27 @@ class GMPStatus(str, enum.Enum):
     NOT_CERTIFIED = "not certified"
 
 
+class PackagingRole(str, enum.Enum):
+    """WHICH material a packaging row describes — the finished product, or
+    the drug substance as it is shipped and stored (P19).
+
+    WHY this had to exist before 3.2.S.6 and 3.2.P.7 could both be built:
+    they are the same question asked about two different materials. An API
+    travels in a fibre drum with a double LDPE liner; the tablets travel in
+    an alu/PVC blister inside a printed carton. One `Packaging` model with
+    no role would have answered both leaves with the same rows, which is
+    not an approximation of the truth -- it is a container closure system
+    filed against a material it was never qualified for.
+
+    Nothing infers this from `component`: a PRIMARY pack is primary for
+    whatever it holds, and the drum is as primary to the API as the blister
+    is to the tablet.
+    """
+
+    DRUG_PRODUCT = "drug product"
+    DRUG_SUBSTANCE = "drug substance"
+
+
 class PackagingComponent(str, enum.Enum):
     PRIMARY = "primary"
     SECONDARY = "secondary"
@@ -174,6 +195,35 @@ class PackagingComponent(str, enum.Enum):
     LABEL = "label"
     LEAFLET = "leaflet"
     CARTON = "carton"
+
+
+class ExcipientOrigin(str, enum.Enum):
+    """Where an excipient's material comes from (P19).
+
+    Exists for one leaf and one rule: 3.2.P.4.5 "Excipients of human or
+    animal origin" is a TSE/BSE statement, and it cannot be generated from
+    a list of excipient names -- lactose (bovine milk), gelatin (bovine or
+    porcine hide/bone) and magnesium stearate (which may be vegetable OR
+    animal) are indistinguishable by name. The filer has to say.
+
+    None (the column is nullable) means NOT STATED, which is different from
+    SYNTHETIC: rule R21 can only speak about what has been declared, and a
+    statement covering an excipient nobody classified would be a claim the
+    filer never made.
+    """
+
+    SYNTHETIC = "synthetic"
+    MINERAL = "mineral"
+    PLANT = "plant"
+    ANIMAL = "animal"
+    HUMAN = "human"
+
+
+# The origins that put an excipient inside the scope of the TSE/BSE
+# statement at 3.2.P.4.5 -- and so of rule R21. Single source of truth so
+# the rule and the rendered statement cannot disagree about which
+# excipients they are talking about.
+TSE_RELEVANT_ORIGINS = frozenset({ExcipientOrigin.ANIMAL, ExcipientOrigin.HUMAN})
 
 
 class StabilityStudyType(str, enum.Enum):
@@ -223,6 +273,11 @@ class CertificateType(str, enum.Enum):
     INCORPORATION = "certificate-of-incorporation"  # 1.2.3, the company itself
     PHARMACIST_LICENCE = "superintendent-pharmacist-licence"  # 1.2.11, annual
     PREMISES_REGISTRATION = "premises-registration"  # 1.2.12, the site's own
+    # P19: the supplier's declaration that a material of animal origin is
+    # sourced and processed so as to be free of TSE/BSE risk. It is a
+    # CERTIFICATE and not a declaration for the ordinary reason -- the
+    # applicant cannot write it, the material's supplier must.
+    TSE_BSE = "tse-bse-certificate"
 
 
 class DeclarationType(str, enum.Enum):

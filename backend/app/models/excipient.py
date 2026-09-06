@@ -9,7 +9,7 @@ from sqlalchemy import String, ForeignKey, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
-from app.models.enums import CompendialStatus, ExcipientFunction
+from app.models.enums import CompendialStatus, ExcipientFunction, ExcipientOrigin
 
 if TYPE_CHECKING:
     from app.models.product import Product
@@ -29,5 +29,11 @@ class Excipient(Base):
     compendial_status: Mapped[CompendialStatus | None] = mapped_column(
         SAEnum(CompendialStatus), nullable=True
     )
+    # P19: what the material is made from, which is what 3.2.P.4.5 asks and
+    # rule R21 checks. Nullable, and nullable MEANS SOMETHING here: "not
+    # stated" is not "synthetic". See ExcipientOrigin's docstring -- an
+    # excipient's name does not reveal its origin, so this is one of the
+    # few facts in Module 3 that only the filer can supply.
+    origin: Mapped[ExcipientOrigin | None] = mapped_column(SAEnum(ExcipientOrigin), nullable=True)
 
     product: Mapped["Product"] = relationship(back_populates="excipients")

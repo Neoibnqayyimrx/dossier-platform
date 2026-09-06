@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, get_db, require_project_owner
 from app.core.storage import get_storage_client
 from app.ctd.region_profiles import get_region_profile
-from app.ctd.structure import DRUG_SUBSTANCE_FOLDERS, MODULE_2_5_FOLDERS
+from app.ctd.structure import MODULE_2_5_FOLDERS, repeatable_section_numbers
 from app.documents.ingest import UnsupportedDocumentError, ingest_document
 from app.models import Project, SectionDocument, User
 from app.target_toc import target_leaves_by_number
@@ -75,10 +75,11 @@ def _assert_attachable(region, section_number: str, subject_slug: str) -> None:
         )
 
     if subject_slug:
-        # A per-substance leaf is placeable only if it has a per-substance
+        # A per-subject leaf is placeable only if it has a per-subject
         # folder -- "3.2.S.3.1 for ampicillin" and "3.2.S.3.1" are different
         # paths, and only the former is right once a product has two actives.
-        placeable = section_number in DRUG_SUBSTANCE_FOLDERS
+        # P19: asked of every repeat axis, not only the drug substance.
+        placeable = section_number in repeatable_section_numbers()
     else:
         placeable = (
             section_number in MODULE_2_5_FOLDERS

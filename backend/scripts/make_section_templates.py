@@ -1,4 +1,4 @@
-"""Generate the 3.2.S drug-substance docxtpl templates.
+"""Generate the docxtpl templates that contain loops or generated text.
 
 WHY this script exists (and the earlier templates have no equivalent): the
 `.docx` templates are binary artifacts committed to the repo. Every edit to
@@ -13,7 +13,7 @@ the code here and re-run:
 
     uv run python -m scripts.make_section_templates
 
-It is idempotent: it overwrites both files from scratch every time.
+It is idempotent: it overwrites every file it owns from scratch each time.
 
 The older templates (cover letter, 1.2, 3.2.P.1, 3.2.P.8.1, 2.3) are
 deliberately NOT regenerated here -- they were authored by hand and carry
@@ -166,6 +166,231 @@ def build_na_statement() -> Path:
     return path
 
 
+# ---- P19: the data-ready sections ------------------------------------------
+#
+# All nine are generated here rather than authored in Word, and the reason
+# is the one this module opens with: every one of them is a table or a list,
+# and a loop is where the mistakes live.
+
+
+def build_3_2_s_2_1() -> Path:
+    """3.2.S.2.1 Name and address of the drug substance manufacturer.
+
+    One document per drug substance, because the answer differs per
+    substance -- a combination product may buy its two actives from two
+    companies, which is exactly why the eCTD DTD makes `manufacturer` a
+    required attribute of each `m3-2-s-drug-substance` element.
+    """
+    doc = Document()
+    doc.add_heading("3.2.S.2.1 Manufacturer", level=1)
+    doc.add_paragraph("Drug substance: {{ substance.inn_name }}")
+    _looping_table(
+        doc,
+        ["Item", "Value"],
+        ["{{ item.label }}", "{{ item.value }}"],
+        loop="item in manufacturer_details",
+    )
+    note = doc.add_paragraph()
+    note.add_run(
+        "Each site listed above is responsible for the manufacture of the drug "
+        "substance named in this section. GMP evidence for the site is filed in "
+        "Module 1."
+    ).font.size = Pt(9)
+    path = TEMPLATES_DIR / "section_3_2_s_2_1.docx"
+    doc.save(path)
+    return path
+
+
+def build_3_2_s_5() -> Path:
+    """3.2.S.5 Reference standards or materials, per drug substance."""
+    doc = Document()
+    doc.add_heading("3.2.S.5 Reference Standards or Materials", level=1)
+    doc.add_paragraph("Drug substance: {{ substance.inn_name }}")
+    doc.add_paragraph("{{ standard_statement }}")
+    note = doc.add_paragraph()
+    note.add_run(
+        "Reference standards are cited, not reproduced: pharmacopoeial monographs "
+        "and their reference substances are copyrighted material (see 3.2.S.4.1)."
+    ).font.size = Pt(9)
+    path = TEMPLATES_DIR / "section_3_2_s_5.docx"
+    doc.save(path)
+    return path
+
+
+def build_3_2_s_6() -> Path:
+    """3.2.S.6 Container closure system OF THE DRUG SUBSTANCE.
+
+    Not 3.2.P.7 with different words: this describes how the API is shipped
+    and stored between its manufacture and its use in the formulation.
+    """
+    doc = Document()
+    doc.add_heading("3.2.S.6 Container Closure System", level=1)
+    doc.add_paragraph("Drug substance: {{ substance.inn_name }}")
+    _looping_table(
+        doc,
+        ["Component", "Description", "Material"],
+        ["{{ pack.component.value }}", "{{ pack.description }}", "{{ pack.material or '—' }}"],
+        loop="pack in packaging",
+    )
+    doc.add_paragraph("{{ storage_statement }}")
+    path = TEMPLATES_DIR / "section_3_2_s_6.docx"
+    doc.save(path)
+    return path
+
+
+def build_3_2_p_3_1() -> Path:
+    """3.2.P.3.1 Manufacturer of the DRUG PRODUCT -- one per site."""
+    doc = Document()
+    doc.add_heading("3.2.P.3.1 Manufacturers", level=1)
+    doc.add_paragraph("Site: {{ site.name }}")
+    _looping_table(
+        doc,
+        ["Item", "Value"],
+        ["{{ item.label }}", "{{ item.value }}"],
+        loop="item in site_details",
+    )
+    path = TEMPLATES_DIR / "section_3_2_p_3_1.docx"
+    doc.save(path)
+    return path
+
+
+def build_3_2_p_3_2() -> Path:
+    """3.2.P.3.2 Batch formula -- the same rows as 3.2.P.1's composition
+    table, scaled to a batch.
+
+    WHY the batch quantity is COMPUTED here rather than typed: it is
+    quantity-per-unit times batch size, an arithmetic a reviewer redoes by
+    hand, and rule R04 already reconciles the declared value against it. A
+    table where one column is data and the next is prose about that data is
+    how the two come to disagree.
+    """
+    doc = Document()
+    doc.add_heading("3.2.P.3.2 Batch Formula", level=1)
+    doc.add_paragraph("Product: {{ product.brand_name }}")
+    doc.add_paragraph("Batch size: {{ batch_size }}")
+    _looping_table(
+        doc,
+        ["Component", "Standard", "Quantity per unit (mg)", "Quantity per batch (kg)", "Function"],
+        [
+            "{{ line.component }}",
+            "{{ line.spec }}",
+            "{{ line.qty_per_unit_mg }}",
+            "{{ line.batch_qty_kg }}",
+            "{{ line.role }}",
+        ],
+        loop="line in batch_formula",
+    )
+    note = doc.add_paragraph()
+    note.add_run(
+        "Quantities per batch are computed from the quantity per unit and the batch "
+        "size; they are not entered independently. The composition of a single unit "
+        "is stated in 3.2.P.1."
+    ).font.size = Pt(9)
+    path = TEMPLATES_DIR / "section_3_2_p_3_2.docx"
+    doc.save(path)
+    return path
+
+
+def build_3_2_p_4_5() -> Path:
+    """3.2.P.4.5 Excipients of human or animal origin -- the TSE/BSE leaf.
+
+    The two cases are one template because they are one claim with two
+    values: either no excipient in the formulation is of human or animal
+    origin, or these are, and here is what supports them. The context
+    decides which sentence is true; the template never guesses.
+    """
+    doc = Document()
+    doc.add_heading("3.2.P.4.5 Excipients of Human or Animal Origin", level=1)
+    doc.add_paragraph("Product: {{ product.brand_name }}")
+    doc.add_paragraph("{{ origin_statement }}")
+    _looping_table(
+        doc,
+        ["Excipient", "Function", "Declared origin", "TSE/BSE evidence"],
+        [
+            "{{ row.name }}",
+            "{{ row.function }}",
+            "{{ row.origin }}",
+            "{{ row.evidence }}",
+        ],
+        loop="row in excipients_of_concern",
+    )
+    doc.add_paragraph("{{ undeclared_statement }}")
+    path = TEMPLATES_DIR / "section_3_2_p_4_5.docx"
+    doc.save(path)
+    return path
+
+
+def build_3_2_p_6() -> Path:
+    """3.2.P.6 Reference standards used in finished-product testing."""
+    doc = Document()
+    doc.add_heading("3.2.P.6 Reference Standards or Materials", level=1)
+    doc.add_paragraph("Product: {{ product.brand_name }}")
+    _looping_table(
+        doc,
+        ["Material", "Standard claimed", "Reference standard used"],
+        ["{{ row.material }}", "{{ row.claimed }}", "{{ row.standard }}"],
+        loop="row in reference_standards",
+    )
+    path = TEMPLATES_DIR / "section_3_2_p_6.docx"
+    doc.save(path)
+    return path
+
+
+def build_3_2_p_7() -> Path:
+    """3.2.P.7 Container closure system of the FINISHED PRODUCT, one
+    document per pack."""
+    doc = Document()
+    doc.add_heading("3.2.P.7 Container Closure System", level=1)
+    doc.add_paragraph("Product: {{ product.brand_name }}")
+    doc.add_paragraph("Pack: {{ pack.component.value }}")
+    _looping_table(
+        doc,
+        ["Item", "Value"],
+        ["{{ item.label }}", "{{ item.value }}"],
+        loop="item in pack_details",
+    )
+    doc.add_paragraph("{{ storage_statement }}")
+    path = TEMPLATES_DIR / "section_3_2_p_7.docx"
+    doc.save(path)
+    return path
+
+
+def build_3_2_r() -> Path:
+    """3.2.R Regional information -- whatever THIS region asks for.
+
+    The items come from the region profile, so the same template serves a
+    NAFDAC filing and (once its profile is filled in) an EU one.
+    """
+    doc = Document()
+    doc.add_heading("3.2.R Regional Information", level=1)
+    doc.add_paragraph("Region: {{ region }}")
+    doc.add_paragraph("{{ regional_statement }}")
+    _looping_table(
+        doc,
+        ["Item", "Where it is filed"],
+        ["{{ item.title }}", "{{ item.guidance }}"],
+        loop="item in regional_information",
+    )
+    path = TEMPLATES_DIR / "section_3_2_r.docx"
+    doc.save(path)
+    return path
+
+
+P19_BUILDERS = (
+    build_3_2_s_2_1,
+    build_3_2_s_5,
+    build_3_2_s_6,
+    build_3_2_p_3_1,
+    build_3_2_p_3_2,
+    build_3_2_p_4_5,
+    build_3_2_p_6,
+    build_3_2_p_7,
+    build_3_2_r,
+)
+
+
 if __name__ == "__main__":
-    for built in (build_3_2_s_1(), build_3_2_s_4_1(), build_na_statement()):
+    built_paths = [build_3_2_s_1(), build_3_2_s_4_1(), build_na_statement()]
+    built_paths.extend(builder() for builder in P19_BUILDERS)
+    for built in built_paths:
         print(f"wrote {built}")

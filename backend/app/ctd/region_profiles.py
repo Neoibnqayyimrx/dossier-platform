@@ -66,6 +66,27 @@ class DocumentSlot:
     certificate_type: CertificateType | None = None
 
 
+@dataclass(frozen=True)
+class RegionalInformationItem:
+    """One entry of 3.2.R Regional Information (P19).
+
+    WHY this lives in the region profile and not in the section registry,
+    unlike every other Module 3 section: 3.2.R is the one part of Module 3
+    that is regional BY DEFINITION. ICH M4Q leaves its contents to each
+    region -- executed batch records for one authority, a medical-device
+    annex for another -- so a common table could only ever hold one
+    region's answer and call it the truth. The registry still holds the
+    SECTION (it renders like any other); this holds what the section says.
+
+    `guidance` is descriptive, never a regulatory claim: it says where the
+    item is expected to come from, so an assessor reading the leaf knows
+    what was and was not filed.
+    """
+
+    title: str
+    guidance: str
+
+
 class Applicability(str, enum.Enum):
     """What a submission type says about one section (P17).
 
@@ -188,6 +209,13 @@ class RegionProfile:
     # region whose Module 1 has not been modelled (EU), which means "we do
     # not know where these go", not "they cannot be uploaded".
     document_slots: tuple[DocumentSlot, ...] = ()
+
+    # P19: what this region asks for at 3.2.R. Empty means "this region
+    # declares no additional regional information", which the rendered leaf
+    # says in as many words rather than shipping a blank page -- an empty
+    # 3.2.R reads to an assessor as a packaging failure, exactly as an empty
+    # Module 4 folder does (P17's reasoning, applied one section down).
+    regional_information: tuple[RegionalInformationItem, ...] = ()
 
     def document_slot(self, section_number: str) -> DocumentSlot | None:
         return next(
@@ -365,9 +393,33 @@ NAFDAC_DOCUMENT_SLOTS: tuple[DocumentSlot, ...] = (
 )
 
 
+# NAFDAC's 3.2.R, per the WHO/ICH CTD structure NAFDAC's guideline adopts.
+# CAUTION, and the same one the target TOC's `confirmed_against_guideline:
+# null` records: this list has not been re-confirmed against NAFDAC's
+# current guidance. It is config precisely so that confirming it is an edit
+# to one table rather than a change to the builder.
+NAFDAC_REGIONAL_INFORMATION: tuple[RegionalInformationItem, ...] = (
+    RegionalInformationItem(
+        title="Executed production documents",
+        guidance=(
+            "The executed batch manufacturing record for the batches described in "
+            "3.2.P.3.2 and 3.2.P.5.4, filed with this application."
+        ),
+    ),
+    RegionalInformationItem(
+        title="Analytical procedures and validation information",
+        guidance=(
+            "Cross-reference: the procedures are stated in 3.2.S.4.2 and 3.2.P.5.2, "
+            "and their validation in 3.2.S.4.3 and 3.2.P.5.3."
+        ),
+    ),
+)
+
+
 NAFDAC_PROFILE = RegionProfile(
     region=Region.NAFDAC,
     document_slots=NAFDAC_DOCUMENT_SLOTS,
+    regional_information=NAFDAC_REGIONAL_INFORMATION,
     applicability={
         SubmissionType.MULTISOURCE_GENERIC: _multisource_applicability(),
         SubmissionType.NEW_CHEMICAL_ENTITY: _new_chemical_entity_applicability(),
@@ -411,6 +463,9 @@ NAFDAC_PROFILE = RegionProfile(
                 CertificateType.INCORPORATION,
                 CertificateType.PHARMACIST_LICENCE,
                 CertificateType.PREMISES_REGISTRATION,
+                # P19: the supplier's TSE/BSE certificate for an excipient
+                # of animal origin, which rule R21 requires before export.
+                CertificateType.TSE_BSE,
             ),
         ),
         Module1Slot(
@@ -480,6 +535,9 @@ EU_PROFILE = RegionProfile(
                 CertificateType.INCORPORATION,
                 CertificateType.PHARMACIST_LICENCE,
                 CertificateType.PREMISES_REGISTRATION,
+                # P19: the supplier's TSE/BSE certificate for an excipient
+                # of animal origin, which rule R21 requires before export.
+                CertificateType.TSE_BSE,
             ),
         ),
         Module1Slot(

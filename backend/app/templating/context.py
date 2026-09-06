@@ -15,9 +15,15 @@ which would raise a Jinja Undefined error instead of rendering a placeholder.
 
 from __future__ import annotations
 
-from app.ctd.region_profiles import resolve_applicability
+from app.ctd.region_profiles import REGION_PROFILES, resolve_applicability
+from app.models.enums import CertificateType, PackagingRole, TSE_RELEVANT_ORIGINS
 from app.models.project import Project
 from app.templating.registry import get_section
+
+# What a context prints where a fact should be but is not. Shared rather
+# than retyped per branch: it is the string a reader scans a rendered
+# section for, so it must be one string.
+MISSING = "[[NOT YET ON FILE]]"
 
 
 def build_context(
@@ -26,9 +32,10 @@ def build_context(
     narrative: dict[str, str] | None = None,
     subject=None,
 ) -> dict:
-    """`subject` is the drug substance this copy is about, for sections that
-    repeat per drug substance (3.2.S). None for every once-per-project
-    section -- see app/templating/instances.py."""
+    """`subject` is the row this copy is about, for a section that repeats:
+    a drug substance for 3.2.S, a manufacturing site for 3.2.P.3.1, a pack
+    for 3.2.P.7. None for every once-per-project section -- see
+    app/templating/instances.py."""
     section = get_section(section_number)
     narrative = {
         slot: narrative.get(slot) if narrative else None for slot in section.narrative_slots
@@ -77,8 +84,7 @@ def build_context(
 
     if section_number == "1.2":
         applicant = project.applicant
-        _MISSING = "[[NOT YET ON FILE]]"
-        authorized_representative = _MISSING
+        authorized_representative = MISSING
         if applicant and applicant.authorized_representative_name:
             title = applicant.authorized_representative_title
             authorized_representative = (
@@ -92,14 +98,14 @@ def build_context(
                 product.registration_type.value if product.registration_type else None
             ),
             "product": product,
-            "applicant_name": applicant.company_name if applicant else _MISSING,
-            "applicant_address": applicant.address if applicant and applicant.address else _MISSING,
-            "applicant_country": applicant.country if applicant and applicant.country else _MISSING,
+            "applicant_name": applicant.company_name if applicant else MISSING,
+            "applicant_address": applicant.address if applicant and applicant.address else MISSING,
+            "applicant_country": applicant.country if applicant and applicant.country else MISSING,
             "contact_name": (
-                applicant.contact_name if applicant and applicant.contact_name else _MISSING
+                applicant.contact_name if applicant and applicant.contact_name else MISSING
             ),
             "contact_email": (
-                applicant.contact_email if applicant and applicant.contact_email else _MISSING
+                applicant.contact_email if applicant and applicant.contact_email else MISSING
             ),
             "authorized_representative": authorized_representative,
         }
@@ -158,6 +164,166 @@ def build_context(
             "narrative": narrative,
         }
 
+    if section_number == "3.2.S.2.1":
+        # WHY this renders a marker instead of raising when the manufacturer
+        # is absent, where instances.drug_substance_info raises: this is a
+        # human-readable page, and a page that says the maker is not on file
+        # is reviewable evidence of a gap. The backbone is machine-read by
+        # an agency's software and has nowhere to put that sentence, so it
+        # must not be built at all. Rule R17 blocks the export either way.
+        manufacturer = subject.manufacturer
+        if manufacturer is None:
+            rows = [("Manufacturer", MISSING)]
+        else:
+            rows = [
+                ("Name", manufacturer.name),
+                ("Site address", manufacturer.site_address or MISSING),
+                ("Country", manufacturer.country or MISSING),
+                ("Responsibility", "Manufacture of the drug substance"),
+                (
+                    "GMP status",
+                    manufacturer.gmp_status.value if manufacturer.gmp_status else MISSING,
+                ),
+                ("Manufacturing licence", manufacturer.manufacturing_licence or MISSING),
+            ]
+            if subject.dmf_number:
+                rows.append(("DMF number", subject.dmf_number))
+            if subject.cep_number:
+                rows.append(("CEP number", subject.cep_number))
+        return {
+            "product": product,
+            "substance": subject,
+            "manufacturer_details": [{"label": label, "value": value} for label, value in rows],
+        }
+
+    if section_number == "3.2.S.5":
+        return {
+            "product": product,
+            "substance": subject,
+            "standard_statement": _reference_standard_statement(
+                subject.inn_name, subject.compendial_std
+            ),
+        }
+
+    if section_number == "3.2.S.6":
+        # The DRUG SUBSTANCE's packaging, never the finished product's --
+        # `role` is what makes those two answerable from one model (P19).
+        # A pack that names no substance applies to every substance: the
+        # single-API case, and the combination whose actives ship alike.
+        packs = [
+            pack
+            for pack in product.packaging
+            if pack.role is PackagingRole.DRUG_SUBSTANCE
+            and (pack.active_ingredient is None or pack.active_ingredient is subject)
+        ]
+        return {
+            "product": product,
+            "substance": subject,
+            "packaging": packs,
+            "storage_statement": (
+                f"{subject.inn_name} is stored in the container closure system described "
+                f"above under the conditions stated in 3.2.S.7.1."
+                if packs
+                else "[[NO DRUG SUBSTANCE PACKAGING ON FILE -- 3.2.S.6 cannot be completed]]"
+            ),
+        }
+
+    if section_number == "3.2.P.3.1":
+        rows = [
+            ("Name", subject.name),
+            ("Site address", subject.site_address or MISSING),
+            ("Country", subject.country or MISSING),
+            # The role IS the responsibility, which is what 3.2.P.3.1 asks
+            # for: an assessor needs to know which site does what, not just
+            # that four companies are involved.
+            ("Responsibility", subject.role.value),
+            ("GMP status", subject.gmp_status.value if subject.gmp_status else MISSING),
+            ("Manufacturing licence", subject.manufacturing_licence or MISSING),
+            ("WHO-GMP", "Yes" if subject.who_gmp else "No"),
+            ("PIC/S", "Yes" if subject.pic_s else "No"),
+        ]
+        return {
+            "product": product,
+            "site": subject,
+            "site_details": [{"label": label, "value": value} for label, value in rows],
+        }
+
+    if section_number == "3.2.P.3.2":
+        # Reads product.batch_formula -- the SAME rows 3.2.P.1's composition
+        # table reads. Two sections showing the same numbers cannot disagree
+        # if neither has its own copy of them, which is what
+        # test_batch_formula_cannot_disagree_with_the_composition_table pins.
+        lines = list(product.batch_formula)
+        return {
+            "product": product,
+            "batch_size": _batch_size(lines),
+            "batch_formula": [
+                {
+                    "component": line.component,
+                    "spec": line.spec,
+                    "qty_per_unit_mg": line.qty_per_unit_mg,
+                    # Computed, never read from declared_batch_qty_kg: that
+                    # field is the filer's CLAIM, and rule R04 exists to
+                    # check it against this arithmetic. Printing the claim
+                    # here would file the unchecked number.
+                    "batch_qty_kg": _batch_quantity_kg(line),
+                    "role": "Active" if line.is_active else "Excipient",
+                }
+                for line in lines
+            ],
+        }
+
+    if section_number == "3.2.P.4.5":
+        return _excipient_origin_context(product)
+
+    if section_number == "3.2.P.6":
+        return {
+            "product": product,
+            "reference_standards": [
+                {
+                    "material": api.inn_name,
+                    "claimed": api.compendial_std.value if api.compendial_std else MISSING,
+                    "standard": _reference_standard_for(api.compendial_std),
+                }
+                for api in product.apis
+            ],
+        }
+
+    if section_number == "3.2.P.7":
+        rows = [
+            ("Component", subject.component.value),
+            ("Description", subject.description),
+            ("Material", subject.material or MISSING),
+            ("Artwork reference", subject.artwork_ref or MISSING),
+            ("Pack size", product.pack_size or MISSING),
+        ]
+        return {
+            "product": product,
+            "pack": subject,
+            "pack_details": [{"label": label, "value": value} for label, value in rows],
+            "storage_statement": (
+                f"The product is stored in this container closure system under the "
+                f"conditions stated on the label: "
+                f"{product.storage_condition or MISSING}"
+            ),
+        }
+
+    if section_number == "3.2.R":
+        profile = REGION_PROFILES.get(project.region)
+        items = profile.regional_information if profile is not None else ()
+        return {
+            "region": project.region.value,
+            "regional_information": items,
+            "regional_statement": (
+                f"The following regional information is filed for {project.region.value}."
+                if items
+                else (
+                    f"No additional regional information is declared for "
+                    f"{project.region.value} in this platform's region profile."
+                )
+            ),
+        }
+
     if section_number == "2.3":
         # NOTE: `structure` (the chemical-structure image slot) is NOT set
         # here -- it's injected by render.py, which is the one place that
@@ -170,3 +336,123 @@ def build_context(
         }
 
     raise ValueError(f"No context builder for section {section_number!r}")
+
+
+def _batch_quantity_kg(line) -> float:
+    """Quantity per unit (mg) x batch size (units), in kilograms.
+
+    mg -> kg is a factor of 1e6. Rounded to four decimals because that is
+    the precision the column is stored at (`Numeric(12, 4)`), and a
+    rendered number longer than its stored one is a number that cannot be
+    reproduced from the data.
+    """
+    return round(float(line.qty_per_unit_mg) * line.batch_size_units / 1e6, 4)
+
+
+def _batch_size(lines) -> str:
+    """The batch size the formula is stated for.
+
+    Every line carries its own `batch_size_units`, which SHOULD all agree.
+    Where they do not, this says so rather than picking the first: two
+    batch sizes in one formula is a real, and serious, data error -- it
+    means the columns do not add up to one batch -- and the leaf should
+    show it rather than hide it behind whichever row happened to sort
+    first.
+    """
+    sizes = {line.batch_size_units for line in lines}
+    if not sizes:
+        return MISSING
+    if len(sizes) > 1:
+        stated = ", ".join(f"{size:,}" for size in sorted(sizes))
+        return f"[[INCONSISTENT BATCH SIZES ON FILE: {stated} units]]"
+    return f"{sizes.pop():,} units"
+
+
+def _reference_standard_for(compendial_std) -> str:
+    """Which reference standard follows from the standard a material is
+    claimed against.
+
+    Deterministic and derived, not invented: claiming BP means using the BP
+    reference substance for that monograph, and claiming in-house means a
+    characterised working standard whose characterisation has to be filed.
+    The one thing this must never do is name a catalogue number nobody
+    entered.
+    """
+    if compendial_std is None:
+        return MISSING
+    if compendial_std.value == "in-house":
+        return (
+            "Characterised in-house working standard; characterisation filed in 3.2.S.3.1 "
+            "and qualified against the specification in 3.2.S.4.1"
+        )
+    return f"{compendial_std.value} reference substance for the corresponding monograph"
+
+
+def _reference_standard_statement(name: str, compendial_std) -> str:
+    if compendial_std is None:
+        return f"[[NO COMPENDIAL STANDARD ON FILE for {name} -- 3.2.S.5 cannot be completed]]"
+    return (
+        f"{name} is controlled against {compendial_std.value}. "
+        f"Reference standard: {_reference_standard_for(compendial_std)}."
+    )
+
+
+def _excipient_origin_context(product) -> dict:
+    """3.2.P.4.5: the TSE/BSE claim, generated from `Excipient.origin`.
+
+    Three groups, and the third is the one that matters. Excipients of
+    human or animal origin owe evidence; excipients declared otherwise are
+    covered by the blanket statement; excipients NOBODY CLASSIFIED are
+    named separately and explicitly, because a statement that no material
+    is of animal origin, made over a list where three materials have no
+    origin recorded, is a claim the filer never made. Rule R21 is the
+    blocking half of the same fact.
+    """
+    of_concern = [e for e in product.excipients if e.origin in TSE_RELEVANT_ORIGINS]
+    undeclared = [e for e in product.excipients if e.origin is None]
+
+    # One TSE/BSE certificate on the product satisfies the whole list. WHY
+    # not per excipient: `Certificate` has no excipient FK, so the platform
+    # cannot yet tell which material a certificate covers -- recorded as a
+    # known limitation in the P19 build-log entry rather than papered over
+    # by pretending the link exists.
+    has_certificate = any(
+        certificate.certificate_type is CertificateType.TSE_BSE
+        for certificate in product.certificates
+    )
+    evidence = (
+        "TSE/BSE certificate on file (Module 1)"
+        if has_certificate
+        else "[[NO TSE/BSE CERTIFICATE ON FILE -- see rule R21]]"
+    )
+
+    if of_concern:
+        origin_statement = (
+            "The following excipients are of human or animal origin. Evidence of "
+            "compliance with the current TSE/BSE guidance is filed for each."
+        )
+    else:
+        origin_statement = (
+            "No excipient used in the manufacture of this product is of human or animal origin."
+        )
+
+    return {
+        "product": product,
+        "origin_statement": origin_statement,
+        "excipients_of_concern": [
+            {
+                "name": excipient.name,
+                "function": excipient.function.value if excipient.function else MISSING,
+                "origin": excipient.origin.value,
+                "evidence": evidence,
+            }
+            for excipient in of_concern
+        ],
+        "undeclared_statement": (
+            "Origin not yet declared for: "
+            + ", ".join(sorted(excipient.name for excipient in undeclared))
+            + ". The statement above does not cover these materials."
+            if undeclared
+            else ""
+        ),
+    }

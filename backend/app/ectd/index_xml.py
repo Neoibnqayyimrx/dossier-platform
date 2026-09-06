@@ -156,6 +156,48 @@ ICH_HEADING_PATH: dict[str, tuple[str, ...]] = {
         "m3-2-p-5-3-validation-of-analytical-procedures",
     ),
     "3.3": ("m3-quality", "m3-3-literature-references"),
+    # P19: the data-ready generated leaves. 3.2.P.3.1 and 3.2.P.7 REPEAT
+    # (per manufacturing site, per pack) and yet appear here rather than in
+    # a per-subject table like the drug substance's: the DTD declares
+    # `m3-2-p-3-1-manufacturers` and `m3-2-p-7-container-closure-system`
+    # ONCE each, with `leaf*` content -- so three packs are three leaves
+    # under one heading, not three headings. Only 3.2.S has a repeating
+    # heading ELEMENT, because only there does the spec demand the subject
+    # be named in an attribute.
+    "3.2.P.3.1": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-3-manufacture",
+        "m3-2-p-3-1-manufacturers",
+    ),
+    "3.2.P.3.2": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-3-manufacture",
+        "m3-2-p-3-2-batch-formula",
+    ),
+    "3.2.P.4.5": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-4-control-of-excipients",
+        "m3-2-p-4-5-excipients-of-human-or-animal-origin",
+    ),
+    "3.2.P.6": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-6-reference-standards-or-materials",
+    ),
+    "3.2.P.7": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-7-container-closure-system",
+    ),
+    "3.2.R": ("m3-quality", "m3-2-body-of-data", "m3-2-r-regional-information"),
     "5.3.1.1": (
         "m5-clinical-study-reports",
         "m5-3-clinical-study-reports",
@@ -196,6 +238,10 @@ DRUG_SUBSTANCE_HEADING_PATH: dict[str, tuple[str, ...]] = {
         "m3-2-s-4-control-of-drug-substance",
         "m3-2-s-4-3-validation-of-analytical-procedures",
     ),
+    # P19.
+    "3.2.S.2.1": ("m3-2-s-2-manufacture", "m3-2-s-2-1-manufacturer"),
+    "3.2.S.5": ("m3-2-s-5-reference-standards-or-materials",),
+    "3.2.S.6": ("m3-2-s-6-container-closure-system",),
 }
 
 # The DTD's real declared child order, keyed by parent element name
@@ -422,7 +468,13 @@ def build_index_xml(
         if info is not None:
             _place_drug_substance_leaf(root_node, section_key, leaf, info)
             continue
-        path = ICH_HEADING_PATH.get(section_key)
+        # P19: a key may now be "3.2.P.7-pack-blister" as well as a bare
+        # number -- packs and manufacturing sites repeat too. A section
+        # number never contains a hyphen, so the subject suffix strips
+        # cleanly; `_place_drug_substance_leaf` has always split it this
+        # way. A Module 1 key (or a "certificate:<uuid>" one) still fails
+        # the lookup and is still skipped, which is the intended path.
+        path = ICH_HEADING_PATH.get(section_key.split("-", 1)[0])
         if path is None:
             continue
         node = root_node

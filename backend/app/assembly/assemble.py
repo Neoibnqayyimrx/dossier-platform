@@ -23,7 +23,7 @@ from app.assembly.pdf import convert_docx_to_pdf
 from app.core.storage import StorageClient, get_storage_client
 from app.models.project import Project
 from app.narrative.context import get_approved_narrative
-from app.templating.instances import expand_sections, slugify_subject
+from app.templating.instances import expand_sections
 from app.target_toc import target_leaves_by_number
 from app.templating.render import render_section
 import app.validation.rules  # noqa: F401  registers every rule on import
@@ -122,11 +122,7 @@ async def assemble_project(
                     section=instance.key,
                     title=instance.title,
                     section_number=instance.number,
-                    subject_slug=(
-                        slugify_subject(instance.subject.inn_name)
-                        if instance.subject is not None
-                        else None
-                    ),
+                    subject_slug=instance.subject_slug,
                     storage_path=document.storage_key,
                     md5=document.md5,
                     filename=f"{instance.key}.pdf",
@@ -159,11 +155,7 @@ async def assemble_project(
                 section=instance.key,
                 title=instance.title,
                 section_number=instance.number,
-                subject_slug=(
-                    slugify_subject(instance.subject.inn_name)
-                    if instance.subject is not None
-                    else None
-                ),
+                subject_slug=instance.subject_slug,
                 storage_path=pdf_key,
                 md5=md5,
                 filename=filename,

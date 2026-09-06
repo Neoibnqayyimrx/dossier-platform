@@ -32,12 +32,14 @@ from app.models import (
     RegistrationType,
     Region,
     ExcipientFunction,
+    ExcipientOrigin,
     ManufacturerRole,
     CompendialStatus,
     CertificateType,
     DeclarationType,
     GMPStatus,
     PackagingComponent,
+    PackagingRole,
     StabilityStudyType,
     ClinicalKind,
 )
@@ -176,18 +178,29 @@ def build_lamox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Projec
                 function=ExcipientFunction.DILUENT,
                 grade="BP",
                 compendial_status=CompendialStatus.BP,
+                origin=ExcipientOrigin.PLANT,
             ),
             Excipient(
                 name="Magnesium Stearate",
                 function=ExcipientFunction.LUBRICANT,
                 grade="BP",
                 compendial_status=CompendialStatus.BP,
+                # Vegetable-sourced, and SAID so: magnesium stearate is the
+                # textbook case where the same excipient name covers both a
+                # plant and an animal material, which is why P19 put origin
+                # on the row rather than inferring it from the name.
+                origin=ExcipientOrigin.PLANT,
             ),
             Excipient(
                 name="Gelatin capsule shell",
                 function=ExcipientFunction.CAPSULE_SHELL,
                 grade="BP",
                 compendial_status=CompendialStatus.BP,
+                # Bovine/porcine gelatin -- an excipient of animal origin,
+                # so this fixture owes a TSE/BSE certificate (rule R21) and
+                # its 3.2.P.4.5 statement is the "these are, and here is the
+                # evidence" variant rather than the blanket one.
+                origin=ExcipientOrigin.ANIMAL,
             ),
         ]
     )
@@ -204,6 +217,16 @@ def build_lamox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Projec
             Packaging(
                 component=PackagingComponent.CARTON,
                 description="7-ply corrugated shipper",
+            ),
+            # P19: how the API is shipped and stored, which is 3.2.S.6 and
+            # is NOT the finished product's packaging. Before the role
+            # existed, one of these two sections had to be answered with the
+            # other's data.
+            Packaging(
+                role=PackagingRole.DRUG_SUBSTANCE,
+                component=PackagingComponent.PRIMARY,
+                description="Double LDPE liner in an HDPE-lined fibre drum",
+                material="LDPE / fibreboard",
             ),
         ]
     )
@@ -228,6 +251,18 @@ def build_lamox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Projec
             issuing_authority="NAFDAC",
             certificate_number="NAFDAC/CPP/2026/LAMOX-001",
             issue_date=date(2026, 1, 15),
+            expiry_date=date.today().replace(year=date.today().year + 2),
+        )
+    )
+    # P19: the supplier's evidence for the gelatin capsule shell. Rule R21
+    # makes an animal-origin excipient with no such certificate an ERROR --
+    # this fixture files a complete dossier, so it has one.
+    product.certificates.append(
+        Certificate(
+            certificate_type=CertificateType.TSE_BSE,
+            issuing_authority="Capsule shell supplier",
+            certificate_number="TSE/LAMOX/2026-001",
+            issue_date=date(2026, 1, 10),
             expiry_date=date.today().replace(year=date.today().year + 2),
         )
     )

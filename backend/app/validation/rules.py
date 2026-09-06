@@ -22,10 +22,13 @@ from app.ctd.region_profiles import (
 from app.validation.engine import Finding, Severity, rule
 from app.models import (
     DECLARATIONS_REQUIRING_NOTARIZATION,
+    TSE_RELEVANT_ORIGINS,
+    CertificateType,
     DosageForm,
     GMPStatus,
     ManufacturerRole,
     PackagingComponent,
+    PackagingRole,
     Region,
 )
 
@@ -391,7 +394,17 @@ def pack_size_matches_packaging(project) -> list[Finding]:
     product = project.product
     if not product.pack_size:
         return []
-    relevant = [p for p in product.packaging if p.component in _PACKAGING_LABEL_COMPONENTS]
+    # P19: the drug substance's own packaging is excluded. An API drum's
+    # label is not where the finished product's pack size is printed, and
+    # once `role` existed, leaving it out of this filter would have let a
+    # drum silently satisfy -- or silently fail -- a check about the
+    # medicine's carton.
+    relevant = [
+        p
+        for p in product.packaging
+        if p.component in _PACKAGING_LABEL_COMPONENTS
+        and p.role is not PackagingRole.DRUG_SUBSTANCE
+    ]
     if not relevant:
         return []
     if any(product.pack_size.lower() in (p.description or "").lower() for p in relevant):
@@ -709,3 +722,54 @@ def no_applicable_leaf_ships_a_placeholder(project) -> list[Finding]:
             )
         )
     return out
+
+
+@rule("R21")
+def animal_origin_excipient_has_tse_evidence(project) -> list[Finding]:
+    """An excipient of human or animal origin, with no TSE/BSE certificate.
+
+    The regulatory fact: gelatin, lactose, magnesium stearate and stearic
+    acid are routinely of animal origin, and a filing that uses one owes
+    evidence that the material complies with the current TSE/BSE guidance --
+    which only the material's SUPPLIER can issue. That is why the evidence
+    is a `Certificate` (a third party's document) and not a `Declaration`
+    (one the applicant signs).
+
+    ERROR, and for R20's reason rather than R19's: the platform is not
+    guessing here. The filer has positively declared the origin as animal
+    or human, and the certificate is either on file or it is not. A rule
+    certain about a fatal defect should gate.
+
+    WHY silence when NO origin is declared at all: an excipient with a null
+    origin has not been classified, and this rule cannot tell a synthetic
+    material from an unclassified animal one. Erroring there would block
+    every legacy project on data nobody has been asked for yet; the honest
+    place for that gap is the rendered 3.2.P.4.5 leaf, which names the
+    unclassified materials and says the statement does not cover them.
+
+    KNOWN LIMITATION: `Certificate` has no excipient foreign key, so one
+    TSE/BSE certificate satisfies every animal-origin excipient on the
+    product. A dossier with gelatin capsules and bovine lactose from two
+    suppliers owes two certificates and this rule sees one. Recorded in the
+    P19 build-log entry; fixing it is a migration, not a rule change.
+    """
+    of_concern = [e for e in project.product.excipients if e.origin in TSE_RELEVANT_ORIGINS]
+    if not of_concern:
+        return []
+    if any(
+        certificate.certificate_type is CertificateType.TSE_BSE
+        for certificate in project.product.certificates
+    ):
+        return []
+
+    named = ", ".join(f"{e.name} ({e.origin.value})" for e in of_concern)
+    return [
+        Finding(
+            "R21",
+            Severity.ERROR,
+            "completeness",
+            f"Excipients of human or animal origin are declared ({named}) but no TSE/BSE "
+            f"certificate is on file -- 3.2.P.4.5 cannot make its statement without one.",
+            section="3.2.P.4.5",
+        )
+    ]

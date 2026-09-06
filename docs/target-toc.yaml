@@ -184,10 +184,13 @@ capabilities:
   repeat_axis_generalisation:
     summary: Generalise section repetition beyond drug substance.
     detail: >
-      templating/instances.py repeats per active ingredient via a
-      REPEAT_PER_DRUG_SUBSTANCE constant. Sections below need repetition per
-      excipient (3.2.P.4.x), per manufacturing site (3.2.P.3.1), and per pack
-      (3.2.P.7). Make the repeat axis a field on SectionSpec.
+      LANDED IN P19. templating/instances.py used to repeat per active
+      ingredient via a REPEAT_PER_DRUG_SUBSTANCE constant; the axis is now a
+      field on SectionSpec (`repeat`, spelled the same as the key below) and
+      resolved through instances.REPEAT_AXES. All four axes named here exist:
+      drug_substance, manufacturing_site, pack, excipient. The excipient axis
+      has no section yet -- 3.2.P.4.1 still waits on spec_polymorphic_owner --
+      but adding one is now a registry entry rather than a new branch.
 
   per_module_toc:
     summary: Generate 1.1 / 2.1 / 3.1 / 5.1 by walking the built package.
@@ -605,7 +608,7 @@ sections:
     production: generated
     repeat: drug_substance
     data_sources: [Manufacturer, ActiveIngredient]
-    notes: DATA READY — needs only a SectionSpec, folder mapping and template.
+    notes: Built in P19.
     status: unknown
 
   - number: "3.2.S.2.2"
@@ -728,8 +731,9 @@ sections:
     repeat: drug_substance
     notes: >
       Distinct from 3.2.P.7 — this is how the API is shipped and stored, not
-      how the finished product is packed. Do not let one Packaging model serve
-      both without an explicit role field.
+      how the finished product is packed. P19 gave Packaging an explicit
+      `role`, plus an optional link to the substance so a combination
+      product's two actives can ship differently.
     status: unknown
 
   - number: "3.2.S.7.1"
@@ -823,8 +827,9 @@ sections:
     production: generated
     repeat: manufacturing_site
     data_sources: [Manufacturer]
-    blocked_by: [repeat_axis_generalisation]
-    notes: DATA READY apart from the repeat axis.
+    notes: >
+      Built in P19, one document per site playing any role except API
+      manufacturer -- the API site is named in 3.2.S.2.1 instead.
     status: unknown
 
   - number: "3.2.P.3.2"
@@ -834,9 +839,10 @@ sections:
     production: generated
     data_sources: [BatchFormulaLine, ActiveIngredient, Excipient]
     notes: >
-      DATA READY — cheapest remaining Module 3 leaf. BatchFormulaLine already
-      backs the composition table in 3.2.P.1 and the salt_base_batch_arithmetic
-      rule. Needs only a SectionSpec, a folder mapping and a template.
+      Built in P19. Reads the same BatchFormulaLine rows as 3.2.P.1's
+      composition table, so the two cannot disagree, and computes the batch
+      quantity rather than printing the filer's declared one (that is what
+      the salt_base_batch_arithmetic rule checks it against).
     status: unknown
 
   - number: "3.2.P.3.3"
@@ -867,7 +873,7 @@ sections:
     applicable: true
     production: generated
     repeat: excipient
-    blocked_by: [spec_polymorphic_owner, repeat_axis_generalisation]
+    blocked_by: [spec_polymorphic_owner]
     status: unknown
 
   - number: "3.2.P.4.2"
@@ -899,10 +905,10 @@ sections:
     applicable: true
     production: generated
     notes: >
-      A TSE/BSE statement. Generated from an origin field on Excipient —
-      which does not exist yet. Cheap to add and a natural validation rule
-      (an excipient of animal origin with no supporting certificate is an
-      ERROR).
+      A TSE/BSE statement, generated in P19 from Excipient.origin. Rule R21
+      makes an excipient of animal or human origin with no TSE/BSE
+      certificate an ERROR; an excipient whose origin nobody declared is
+      named in the leaf as NOT covered by the statement.
     status: unknown
 
   - number: "3.2.P.4.6"
@@ -975,10 +981,10 @@ sections:
     production: generated
     repeat: pack
     data_sources: [Packaging]
-    blocked_by: [repeat_axis_generalisation]
     notes: >
-      DATA READY apart from the repeat axis. The existing
-      pack_size_matches_packaging rule already reads this data.
+      Built in P19, one document per drug-product pack. Packaging.role is
+      what keeps this leaf and 3.2.S.6 from answering with each other's data;
+      the existing pack_size_matches_packaging rule already reads it.
     status: unknown
 
   - number: "3.2.P.8.1"
@@ -1020,8 +1026,9 @@ sections:
     applicable: true
     production: generated
     notes: >
-      Region-specific by definition — belongs in the region profile alongside
-      the Module 1 slots, not in the common section table.
+      Region-specific by definition. Built in P19: the SECTION is registered
+      like any other, but its CONTENT comes from
+      RegionProfile.regional_information, beside the Module 1 slots.
     status: unknown
 
   - number: "3.3"

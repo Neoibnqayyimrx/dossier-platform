@@ -47,13 +47,21 @@ class SectionSpec:
     # per active, not one for "the product". The template loops; the
     # single-API case is just a list of length one.
     structure_images_slot: str | None = None
-    # P13: sections that are REPEATED per subject rather than appearing
-    # once. "drug_substance" means one rendered document per active
-    # ingredient -- 3.2.S is repeated per drug substance, and the ICH DTD
-    # says so itself: `m3-2-s-drug-substance*` is starred, with `substance`
-    # and `manufacturer` both #REQUIRED. None means the section appears
-    # exactly once for the project, which is every section built before P13.
-    repeat_per: str | None = None
+    # P13/P19: the AXIS this section repeats along -- the name of a
+    # collection on the project, resolved by `app.templating.instances`'
+    # REPEAT_AXES table. "drug_substance" means one rendered document per
+    # active ingredient, and the ICH DTD says so itself:
+    # `m3-2-s-drug-substance*` is starred, with `substance` and
+    # `manufacturer` both #REQUIRED. None means the section appears exactly
+    # once for the project.
+    #
+    # WHY a field naming an axis rather than P13's module-level
+    # REPEAT_PER_DRUG_SUBSTANCE constant and its `if`: 3.2.S was simply the
+    # first repeating section, not a special one. 3.2.P.3.1 repeats per
+    # manufacturing site, 3.2.P.7 per pack, 3.2.P.4.1 per excipient. The
+    # spelling matches the `repeat:` key the target TOC already uses for
+    # each of those leaves, and a test asserts the two agree.
+    repeat: str | None = None
     # P17: True when this section's entire content is a statement that the
     # section does not apply. Such a section is registered like any other --
     # so assembly, folder placement, the TOC and the eCTD backbone pick it
@@ -108,7 +116,7 @@ SECTIONS: dict[str, SectionSpec] = {
         narrative_slots=["general_properties"],
         grounding_query="drug substance nomenclature structure general properties",
         structure_images_slot="structures",
-        repeat_per="drug_substance",
+        repeat="drug_substance",
     ),
     "3.2.S.4.1": SectionSpec(
         number="3.2.S.4.1",
@@ -119,7 +127,89 @@ SECTIONS: dict[str, SectionSpec] = {
         # the LLM to draft -- same reasoning as the registration form (1.2).
         narrative_slots=[],
         grounding_query=None,
-        repeat_per="drug_substance",
+        repeat="drug_substance",
+    ),
+    # ---- P19: the sections whose data the platform already held --------
+    #
+    # Every one of these is backed by a model that existed before this
+    # phase and by rules that already read it: BatchFormulaLine backs the
+    # 3.2.P.1 composition table and R04's salt-to-base arithmetic, Packaging
+    # backs R12, Manufacturer backs R08/R09/R17. What was missing was not
+    # data but a place to put it.
+    "3.2.S.2.1": SectionSpec(
+        number="3.2.S.2.1",
+        title="Name and Address of Manufacturer (Drug Substance)",
+        template_filename="section_3_2_s_2_1.docx",
+        # No narrative slots: a name and an address are facts on file. See
+        # 1.2's WHY -- not every section has prose for the LLM to draft.
+        narrative_slots=[],
+        grounding_query=None,
+        repeat="drug_substance",
+    ),
+    "3.2.S.5": SectionSpec(
+        number="3.2.S.5",
+        title="Reference Standards or Materials (Drug Substance)",
+        template_filename="section_3_2_s_5.docx",
+        narrative_slots=[],
+        grounding_query=None,
+        repeat="drug_substance",
+    ),
+    "3.2.S.6": SectionSpec(
+        number="3.2.S.6",
+        title="Container Closure System (Drug Substance)",
+        template_filename="section_3_2_s_6.docx",
+        narrative_slots=[],
+        grounding_query=None,
+        repeat="drug_substance",
+    ),
+    "3.2.P.3.1": SectionSpec(
+        number="3.2.P.3.1",
+        title="Manufacturer (Drug Product)",
+        template_filename="section_3_2_p_3_1.docx",
+        narrative_slots=[],
+        grounding_query=None,
+        repeat="manufacturing_site",
+    ),
+    "3.2.P.3.2": SectionSpec(
+        number="3.2.P.3.2",
+        title="Batch Formula",
+        template_filename="section_3_2_p_3_2.docx",
+        narrative_slots=[],
+        grounding_query=None,
+    ),
+    "3.2.P.4.5": SectionSpec(
+        number="3.2.P.4.5",
+        title="Excipients of Human or Animal Origin",
+        # NOT a P17 statement leaf, though it reads like one: `is_statement`
+        # means "this section does not apply to this filing", and 3.2.P.4.5
+        # always applies. What it says -- that no excipient is of human or
+        # animal origin, or that these are and here is their TSE/BSE
+        # evidence -- is generated FROM DATA either way.
+        template_filename="section_3_2_p_4_5.docx",
+        narrative_slots=[],
+        grounding_query=None,
+    ),
+    "3.2.P.6": SectionSpec(
+        number="3.2.P.6",
+        title="Reference Standards or Materials (Drug Product)",
+        template_filename="section_3_2_p_6.docx",
+        narrative_slots=[],
+        grounding_query=None,
+    ),
+    "3.2.P.7": SectionSpec(
+        number="3.2.P.7",
+        title="Container Closure System (Drug Product)",
+        template_filename="section_3_2_p_7.docx",
+        narrative_slots=[],
+        grounding_query=None,
+        repeat="pack",
+    ),
+    "3.2.R": SectionSpec(
+        number="3.2.R",
+        title="Regional Information",
+        template_filename="section_3_2_r.docx",
+        narrative_slots=[],
+        grounding_query=None,
     ),
     "2.3": SectionSpec(
         number="2.3",

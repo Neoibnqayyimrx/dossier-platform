@@ -49,6 +49,22 @@ STATUS_PLACEHOLDER = "placeholder"
 STATUS_OUTSTANDING = "outstanding"
 
 
+class SectionCopyRead(BaseModel):
+    """One COPY of a repeated section (P19).
+
+    WHY the screen needs these at all: a product with two actives owes two
+    complete 3.2.S.1 documents, and a list showing one row per section
+    number tells the filer their dossier is half the size it is. The
+    package builder has always known this (app.templating.instances); the
+    screen did not, which is precisely the "the screen and the built
+    package describe different dossiers" failure this router exists to
+    prevent.
+    """
+
+    key: str
+    subject: str
+
+
 class SectionStatusRead(BaseModel):
     number: str
     module: int
@@ -62,6 +78,12 @@ class SectionStatusRead(BaseModel):
     answer: bool | None = None
     # Present iff the leaf is being filed as a not-applicable statement.
     citation: str | None = None
+    # P19. `repeat` names the axis (the same string the target TOC uses);
+    # `copies` is what this project actually owes along it. Empty for a
+    # section that appears once -- the common case, and the one where a
+    # list of one copy would be noise.
+    repeat: str | None = None
+    copies: list[SectionCopyRead] = Field(default_factory=list)
 
 
 class ConditionAnswersUpdate(BaseModel):
@@ -100,9 +122,17 @@ def _section_statuses(project: Project) -> list[SectionStatusRead]:
     # too, which is why `owes_statement` is checked first above -- it is
     # both produced AND not applicable, and "not applicable" is the more
     # informative of the two.
-    produced = {
-        instance.number for instance in expand_sections(project) if not instance.spec.is_statement
-    }
+    instances = [i for i in expand_sections(project) if not i.spec.is_statement]
+    produced = {instance.number for instance in instances}
+
+    copies: dict[str, list[SectionCopyRead]] = {}
+    for instance in instances:
+        if instance.subject is None:
+            continue
+        copies.setdefault(instance.number, []).append(
+            SectionCopyRead(key=instance.key, subject=instance.subject_name)
+        )
+    repeats = {instance.number: instance.spec.repeat for instance in instances}
 
     return [
         SectionStatusRead(
@@ -118,6 +148,8 @@ def _section_statuses(project: Project) -> list[SectionStatusRead]:
                 if resolved.section.production == NA_STATEMENT_PRODUCTION
                 else None
             ),
+            repeat=repeats.get(resolved.number),
+            copies=copies.get(resolved.number, []),
         )
         for resolved in resolve_applicability(project).values()
     ]
