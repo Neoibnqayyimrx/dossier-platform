@@ -135,6 +135,7 @@ Full field definitions and relationships are specified in Phase 01.
 - [x] P16 — Target TOC as a checked contract (coverage in CI; baseline 9/98 leaves)
 - [x] P17 — Applicability as declared config + generated not-applicable statements (23/98 leaves)
 - [x] P18 — The upload path: real documents as leaves, placeholders blocked at export
+- [x] P19 — Module 3 data-ready sections + generalised repeat axis (32/98 leaves)
 - [ ] P12 — eCTD v4.0 (RPS) — future
 
 ## 8. How to work through the prompts

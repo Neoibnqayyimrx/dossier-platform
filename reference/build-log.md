@@ -31,6 +31,230 @@ Newest entry at the top.
 
 ---
 
+## P19 — The sections the data already supported (2026-09-06)
+
+**Platform capability: 23/98 → 32/98 leaves.** Nine sections, all of them
+backed by models and rules that already existed. The phase is cheap
+coverage on purpose, and it buys something the expensive phases need: the
+repeat machinery, exercised on three axes instead of one, before
+`spec_polymorphic_owner` and `stability_timepoints` lean on it.
+
+### The data model was ahead of the section registry
+
+`BatchFormulaLine` had backed 3.2.P.1's composition table and rule R04's
+salt-to-base arithmetic since the vertical slice, and 3.2.P.3.2 *is* that
+table scaled to a batch — it simply did not exist. `Packaging` had backed
+R12 since P06 and 3.2.P.7 did not exist. `Manufacturer` was fully modelled,
+with roles, and neither 3.2.S.2.1 nor 3.2.P.3.1 existed.
+
+What blocked them was not data. It was that `instances.py` repeated along
+exactly one axis, hard-coded in a module constant.
+
+### What generalising the axis actually broke
+
+The prompt asked for the assumptions the drug-substance implementation had
+encoded. There were six, and none of them was visible before writing the
+second axis — which is the general lesson: a single-case implementation
+does not look like it is making assumptions, because with one case every
+assumption is true.
+
+**1. "Has a subject" meant "repeats per drug substance".** `drug_substance_
+info()` — which the eCTD backbone calls to fill the DTD's required
+`substance` and `manufacturer` attributes — iterated every instance with a
+subject and asked it for `.inn_name`. The moment a pack became a subject,
+that function was one build away from asking a blister for its INN. It now
+tests the axis explicitly. This is the general shape of the bug: a
+predicate that was an identity when there was one axis becomes a wrong
+guess when there are two.
+
+**2. Subjects were assumed to have distinct names.** Two actives of one
+product cannot share an INN, so `3.2.S.1-ampicillin` could not collide with
+its sibling and nothing ever checked. Two PRIMARY packs with no material
+recorded both slugify to `pack-primary` — one folder, one filename, and the
+second document silently overwriting the first on the way into the package.
+`_reject_colliding_subjects` now raises, in the same spirit as
+`folder_for_section`: a leaf lost at build time is a leaf nobody notices is
+missing until an assessor does. **How it announced itself:** it did not.
+The three-pack test passed with four packs and would have passed with three
+had two of them collided; the collision was found by reading the label
+function, not by a red test. The test came second.
+
+**3. The folder map assumed the `32s/` shape.** `DRUG_SUBSTANCE_FOLDERS`
+held path tails and `folder_for_section_instance` hard-coded the prefix
+around them. `RepeatFolders` (base + prefix + tails) makes the per-subject
+segment one string per axis — which matters because that segment is inside
+MD5-checksummed paths, so a second copy of it is a second thing that can
+drift.
+
+**4. `index.xml` looked up heading paths by the whole instance key.** That
+worked while the only repeating sections were the ones routed through
+`substance_info`. A `3.2.P.7-pack-hdpe` key would have found no heading
+path and been *silently skipped* — written to disk, checksummed, listed in
+the CTD table of contents, and invisible to the agency's software. Exactly
+the P18 failure mode, arriving by a new route. The lookup now strips the
+subject suffix (a section number never contains a hyphen).
+
+**5. Nothing guaranteed the ORDER subjects came back in.** No relationship
+on `Product` declares an `order_by`, so the order is whatever the database
+returns — and in PostgreSQL an UPDATE physically moves a row, so a project
+edited between two builds can hand its packs back in a different order. The
+paths would survive that (they carry the subject's name, not an index), but
+the package's file order would not, and **a zip whose entries move is not
+byte-identical** — which is AGENTS.md §5's rule and the thing the eCTD
+lifecycle's diff model rests on. `expand_sections` now sorts subjects by the
+same slug that names their folder, so the two orders are one order.
+
+**6. A Python-side column default is applied at FLUSH, not at
+construction.** `Packaging.role` defaults to DRUG_PRODUCT, so an in-memory
+object — a seed, a test fixture, an API create before the flush — has `role
+is None`. Filtering 3.2.P.7's packs with `role is DRUG_PRODUCT` therefore
+dropped every pack from a dossier built before a commit: a container closure
+system silently absent from the package. The filter is now negative
+(`is not DRUG_SUBSTANCE`), which also matches what the migration's
+`server_default` says about rows written before the column existed. 3.2.S.6
+keeps the positive test on purpose — "this drum holds the API" is a claim
+about a material, and a claim must be made, not defaulted into.
+
+### Only 3.2.S repeats as an ELEMENT; the rest repeat as leaves
+
+Worth writing down because it looks like an inconsistency and is not.
+`m3-2-s-drug-substance*` is starred in the ICH DTD with two #REQUIRED
+attributes, so two actives are two heading elements. But
+`m3-2-p-7-container-closure-system` and `m3-2-p-3-1-manufacturers` are each
+declared once, with `leaf*` content — so three packs are three leaves under
+one heading. The CTD folder tree still gives each its own folder (a pack per
+folder is how a human navigates it); the backbone does not, because the DTD
+says otherwise. Placement and folders answer to different authorities.
+
+### One Packaging model, two sections: role, plus a link
+
+The prompt was explicit: do not let one `Packaging` serve 3.2.S.6 and
+3.2.P.7. `PackagingRole` (DRUG_PRODUCT / DRUG_SUBSTANCE) is the answer to
+that, and it cannot be inferred from `component` — a fibre drum is as
+PRIMARY to an API as a blister is to a tablet.
+
+The role alone was not enough, and this only became visible once 3.2.S.6 was
+built as a *per-substance* section: with a product-scoped Packaging table,
+every API's 3.2.S.6 would list every API's drums. So `Packaging` also gained
+a nullable `active_ingredient_id`. Null means "applies to every substance",
+which is the ordinary case (one API, or two shipped alike) and preserves
+every existing row's meaning.
+
+### A rule that predated the role had to be told which material it meant
+
+R12 (declared pack size appears on some artwork/label/carton) was written
+when `Packaging` could only mean the finished product. The moment it could
+mean two things, the rule was reading rows it had never been asked about --
+an API drum's label is not where the medicine's pack size is printed, and
+a drum whose description happens to contain the pack size would have
+satisfied a check about a carton the product may not even have. It now
+excludes drug-substance rows. Worth noting as a category: **adding a
+dimension to a model quietly changes every query that predates it**, and
+those queries do not fail, they just answer a subtly different question.
+
+### 3.2.R lives in the region profile, and the leaf still lives in the registry
+
+3.2.R is the one part of Module 3 that is regional by definition, so a
+common table could only ever hold one region's answer. The split: the
+SECTION is registered like any other (assembly, folders, the backbone and
+the section list pick it up with no special case), and its CONTENT comes
+from `RegionProfile.regional_information`. An empty list produces a leaf
+that says the region declares no additional regional information — the same
+call P17 made about empty folders. **The NAFDAC list is unconfirmed against
+the current guideline and says so in a comment**, matching the target TOC's
+own `confirmed_against_guideline: null`.
+
+### 3.2.P.4.5 and R21: a statement generated from a field that had to exist
+
+An excipient's origin cannot be derived from its name. Lactose is bovine
+milk, gelatin is bovine or porcine, and magnesium stearate is vegetable in
+one plant and tallow-derived in the next. Hence `ExcipientOrigin` on the row
+and rule **R21**: an excipient declared of human or animal origin with no
+TSE/BSE certificate on file is an ERROR that blocks export.
+
+Three deliberate calls in that one rule:
+
+- **A null origin says nothing.** "Not stated" is not "synthetic". Erroring
+  on unclassified excipients would block every project that predates the
+  field, on data nobody has been asked for. The rendered leaf names those
+  materials instead and says the statement does not cover them — a claim the
+  filer never made must not appear in their dossier.
+- **ERROR, not WARNING** — R20's reasoning, not R19's. The platform is not
+  guessing: the filer positively declared animal origin, and the certificate
+  is either on file or it is not.
+- **KNOWN LIMITATION: one certificate satisfies every animal-origin
+  excipient.** `Certificate` has no excipient foreign key. A dossier with
+  gelatin capsules and bovine lactose from two suppliers owes two
+  certificates and this rule sees one. There is a test pinning that
+  behaviour so it reads as a decision rather than a surprise; fixing it is a
+  migration, not a rule change.
+
+`CertificateType.TSE_BSE` also has **no `DocumentSlot`**, which means R20
+(no applicable leaf ships a placeholder) cannot cover it. That is not an
+oversight: NAFDAC's Module 1, as recorded in the target TOC, has no declared
+leaf number for a TSE/BSE certificate, and inventing one would put a
+fabricated leaf number in a package. R21 gates the certificate's existence;
+placement waits for a confirmed leaf.
+
+### Reference standards without a reference-standard model
+
+3.2.S.5 and 3.2.P.6 have no data source in the target TOC and no model here.
+Rather than defer them or invent catalogue numbers, both are DERIVED from
+`compendial_std`, which is a fact already on file: claiming BP means using
+the BP reference substance for that monograph; claiming in-house means a
+characterised working standard, cross-referenced to where its
+characterisation is filed. Deterministic, truthful, and it names no
+catalogue number nobody entered.
+
+### The batch formula cannot disagree with the composition table
+
+Both read `product.batch_formula`. Neither holds a copy. `test_batch_formula
+_cannot_disagree_with_the_composition_table` fails the moment someone
+"fixes" one of them by typing the numbers in. The batch column is computed
+(qty/unit × batch size), never read from `declared_batch_qty_kg` — that
+field is the filer's claim, and R04 exists to check it against exactly this
+arithmetic. Printing the claim would file the unchecked number.
+
+### Scope calls
+
+- **The `excipient` axis is registered and unused.** 3.2.P.4.1 still waits
+  on `spec_polymorphic_owner`. The axis is here because the target TOC names
+  it and a test holds the two together — adding that section is now a
+  registry entry rather than another branch in `instances.py`.
+- **3.2.P.4.1's `blocked_by` lost `repeat_axis_generalisation` but keeps
+  `spec_polymorphic_owner`**, so it correctly still reads `blocked`.
+- **Uploaded per-substance leaves still do not reach `index.xml`.**
+  `drug_substance_info` only covers registered sections, so an uploaded
+  3.2.S.3.1 gets a folder but no backbone entry. Pre-existing (P18), not
+  introduced here, and worth its own fix.
+
+### What you learned
+
+**Software**
+- A hard-coded branch and a lookup table are the same code until the second
+  case arrives; the table is what makes the second case an edit to data.
+- When one axis becomes many, the bugs are in the predicates that used to be
+  identities ("has a subject" ⇒ "is a drug substance") — those fail silently
+  because they were never wrong before.
+- Uniqueness that came free from the domain (INN names) has to be enforced
+  explicitly the moment the domain changes (packs).
+
+**Regulatory**
+- 3.2.S.6 and 3.2.P.7 are the same question about different materials, and a
+  container closure system filed against a material it was not qualified for
+  is a real defect, not a formatting one.
+- 3.2.P.3.1 is about the drug product: the API site belongs in 3.2.S.2.1, and
+  putting it in both names the wrong company as the maker of the medicine.
+- A TSE/BSE statement is a claim about materials, so it can only be as good
+  as the origin data behind it — which is why an unclassified excipient has
+  to be named rather than swept into the statement.
+
+**Next:** P20 (specifications and batch analyses), which needs
+`spec_polymorphic_owner` — the capability that unblocks five leaves,
+including the excipient axis registered but unused here.
+
+---
+
 ## P18 — The upload path (2026-09-04)
 
 **Platform capability: 23/98 done, and the 22 `upload_path` leaves move from

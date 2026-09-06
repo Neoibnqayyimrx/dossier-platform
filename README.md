@@ -65,10 +65,13 @@ Python 3.11 · FastAPI · Pydantic v2 · SQLAlchemy 2.x (async) · Alembic · Po
 
 ## Coverage against a real dossier
 
-**23/98 leaves** of a filed NAFDAC multisource dossier (Me Cure, Amlodipine
+**32/98 leaves** of a filed NAFDAC multisource dossier (Me Cure, Amlodipine
 Tablets 5 mg) are produced from data today — including the fourteen sections
 the dossier declares *not applicable*, which are filed as generated
-statements citing the guideline that excuses them, not omitted. A further
+statements citing the guideline that excuses them, not omitted. Sections that
+repeat do so along whichever axis they belong to: a combination product owes
+one 3.2.S per active, a three-pack product one 3.2.P.7 per pack, each in its
+own folder named after its subject rather than an index. A further
 **22 leaves accept an uploaded document** (a regulator's CPP, a CRO's study
 report — paper no software can author), and the build refuses to export while
 any of them is still a placeholder.
