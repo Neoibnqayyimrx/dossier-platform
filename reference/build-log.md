@@ -31,6 +31,199 @@ Newest entry at the top.
 
 ---
 
+## P21 — Stability as data, not a paragraph (2026-09-07)
+
+**Platform capability: 43/98 → 48/98 leaves.** Six sections registered
+(3.2.S.7.1/.2/.3 and 3.2.P.8.1/.2/.3), one existing section rewired, and a
+validation rule upgraded from arithmetic about the wrong thing into a real
+out-of-specification check.
+
+The phase brief predicted four new leaves. It landed five, because
+3.2.S.7.1 turned out never to have been registered at all — only the drug
+PRODUCT's summary existed, since a stability study could not belong to a
+substance. The sixth section, 3.2.P.8.1, already counted as done and was
+rebuilt underneath rather than added.
+
+### What was actually wrong
+
+`StabilityStudy` carried `study_type`, `condition`, `duration_months`,
+`protocol` and a free-text `result_summary`, hanging off the Product.
+Three separate defects, and each of them was a section the dossier owes:
+
+1. **Drug-product only.** 3.2.S.7 is the drug substance's stability, filed
+   per substance. One `product_id` could only ever answer 3.2.P.8, so a
+   combination product's two actives had nowhere to put their data.
+2. **The study's real axes were flattened.** A stability study is run on a
+   named BATCH, at a storage CONDITION, in a specific PACK PRESENTATION.
+   3.2.P.8.3's tables are organised along exactly those axes — an assessor
+   reads "batch X, 30C/65%RH, blister" as one column — and a model
+   carrying only the condition cannot produce them.
+3. **The results were prose.** "Within specification through 24 months"
+   cannot be rendered as the timepoint × test table the section IS, and —
+   the part that matters — cannot be checked. It can say "within
+   specification" while dissolution at 12 months was 68 % against an
+   NLT 80 % limit, and nothing in the platform would know.
+
+### The axes, which are the part hardest to change later
+
+The owner is the same two-owner polymorphism `BatchAnalysis` uses
+(`app/models/spec_owner.py`): a study is a study OF the drug substance or
+OF the finished product, and the CTD has no third place to file one.
+
+The batch is a **foreign key to `BatchAnalysis`**, not a re-typed batch
+number. ICH Q1A(R2) asks for stability data on the same primary batches
+whose analysis is filed in 3.2.S.4.4 / 3.2.P.5.4, and an assessor
+cross-references those numbers between the two sections. A string would let
+the two sections name different batches with nothing to notice.
+
+The pack is a foreign key to `Packaging`, because "in the container closure
+system proposed for marketing" is a requirement rather than a detail — a
+shelf life supported in a drum does not support a blister.
+
+`result_summary` was **renamed to `notes`, not dropped**. The migration will
+not throw away a filer's text, but the text stops being the section's
+answer: 3.2.S.7.1 and 3.2.P.8.1 are now built from the timepoint results.
+
+### The deviation from the brief, stated plainly
+
+The brief asks the result model to carry "whether it meets the criterion".
+It does — as a **derived property, not a stored column**. A stored boolean
+is a second copy of a judgement the acceptance criterion already
+determines, and the two can disagree: edit the limit and the stored verdict
+is silently stale, which is exactly the failure the foreign key one level
+down exists to prevent. Deriving it costs a regex per read and makes the
+disagreement unrepresentable.
+
+### The rule that justifies the whole phase
+
+R23 (`stability_results_within_specification`) is R22's sibling: the limit
+is reached through `result.specification_test`, never copied. Tighten a
+limit in 3.2.P.5.1 and every timepoint already on file is re-judged with
+nothing re-entered — there is a test for exactly that.
+
+R05 was upgraded, and the upgrade exposed **two latent bugs that had been
+there since P06**:
+
+- It compared the claim against `duration_months` — how long the study
+  RAN. A 24-month study that failed dissolution at 6 months read as 24
+  months of support. The arithmetic was right and the question was wrong.
+- Its `max()` ran over *every* study on file, so a six-month accelerated
+  study counted as six months of shelf-life support. It does not:
+  accelerated conditions detect significant change and support
+  extrapolation, never the shelf life itself. R24 now says so separately,
+  as a WARNING — R05 gates on the arithmetic, R24 surfaces a judgement
+  about study design, and a rule that is inferring should not gate.
+
+### The subtlest decision: max reach, global cap
+
+How many months does a set of studies support?
+
+**Reach has to be the MAXIMUM across studies.** Primary batches go on
+stability as they are made: one batch at 24 months and two at 12 because
+they started later is an ordinary ongoing programme. Taking the minimum
+would report a normal filing as unsupported.
+
+**A failure anywhere has to CAP it.** A shelf life is a claim about the
+product, not about the luckiest batch. If one primary batch goes out of
+specification at 12 months, "two of three held" is not a shelf life, it is
+a deviation investigation.
+
+The first version of this took the maximum only, and the AMPICLOX fixture
+caught it immediately: with a planted failure at 12 months in batch one,
+3.2.P.8.1 still cheerfully rendered "Shelf life: 24 months" because batches
+two and three reached 24. That is precisely the defect the phase exists to
+remove, so the combination — max reach, earliest failure caps it — is what
+shipped. `supported_months` lives on the model layer for the same reason:
+the renderer and the rule must not each compute their own.
+
+### The summary cannot overstate the data
+
+3.2.P.8.1's old template printed `{{ product.shelf_life_months }}` beside
+`{{ study.result_summary }}` — a claimed period next to a typed sentence,
+with nothing able to tell whether either matched the data. The page now
+assembles its load-bearing sentence in the context builder, precisely so
+that when the claim exceeds what the data supports it renders
+
+```
+[[SHELF LIFE NOT SUPPORTED: 24 months is claimed, but the long-term data
+support 6 months (the last timepoint before the first out-of-specification
+result, which is at 12 months). ...]]
+```
+
+instead of the claim. A template printing the two fields separately could
+not make that choice, which is why the sentence is built in code.
+
+### P21b: a grid, and what deviating cost
+
+Every other collection in the wizard is a list of rows entered through one
+generic form driven by `wizard-steps.ts`'s field specs. Stability is where
+that stops working, and the reason is arithmetic: a real study is five
+timepoints across eight tests — forty trips round an "add row" form, each
+asking again which test and which timepoint this value is for. Those are
+exactly the two questions a grid answers by POSITION.
+
+**What the deviation costs, recorded rather than waved past:**
+
+1. A second entry idiom to learn — everything else is add-a-row, this is
+   fill-a-table.
+2. `wizard-steps.ts` is no longer a complete answer to "what does the
+   wizard ask for". It is an answer with a footnote, so the footnote lives
+   in `ChildStepSpec.customEditor` where the next person adding a field
+   will actually look, and a test asserts every step has either fields or
+   a custom editor.
+3. A second place validation is drawn — mitigated the same way the batch
+   screen's is: same `src/lib/acceptance` module, advisory only, R23 is the
+   gate.
+
+**The paste is the feature.** Every stability dataset starts life in Excel.
+`src/lib/paste-table.ts` is a separate module from the grid so the risky
+half is testable without a browser, and three things the naive
+`split("\n").map(l => l.split("\t"))` gets wrong all showed up in real
+pastes: a quoted cell containing a newline tears one row into two; Windows
+line endings leave a `\r` on the last cell of every row so "24" never
+matches anything; and the trailing newline every spreadsheet adds produces
+a phantom empty row. Anything unmatched is **reported, never guessed at** —
+guessing which test a value answers is guessing which limit it will be
+judged against.
+
+### Two things only visible once it ran
+
+- **`MissingGreenlet`, again, and from a new direction.** Six
+  `test_module1_api` tests failed on `POST /projects` — nowhere near
+  stability. `ProductRead` nests `stability`, and `StabilityStudyRead` now
+  nests `results`, each of which derives `meets_criterion` through its
+  specification test. That is three levels deep where the eager-load in
+  `PRODUCT_CHILD_OPTIONS` was one. P20's build log recorded 53 tests
+  failing this way; the lesson did not transfer because the *new*
+  relationship was on a schema that already existed. Adding a nested field
+  to a `*Read` schema is an eager-loading change, even when the model is
+  untouched.
+- **The router factory grew dotted load paths** rather than a second
+  bespoke router, because `nested_collections=("results.specification_test",)`
+  is the general form of the problem above. `db.refresh` still takes
+  attribute names, so it gets the first segment of each path.
+
+### Incidental fix
+
+The finished product's control data had no home in the wizard. P20 built
+3.2.P.5.1 and 3.2.P.5.4 and mounted the editor only under a drug substance
+and an excipient, so a filer could not enter the drug product's own
+specification at all — and without it the stability grid has no limits to
+check against and no rows to offer. The stability step now mounts the same
+`OwnerControlPanel` the API rows use.
+
+### Contract bookkeeping
+
+`stability_timepoints` is marked LANDED. Two leaves still cited it —
+1.4.2 (QIS) and 2.3 (QOS) — and their blocker was **re-pointed, not
+removed**, to a new `derived_document_assembly` capability. The data they
+were waiting on now exists; the assembly is P24's job. Removing the blocker
+would have flipped 2.3 to done, and its own note in the target warns
+against exactly that: it is registered and rendering but is a thin
+overview, and crediting it would launder the gap.
+
+---
+
 ## P20 — One specification, three owners (2026-09-06)
 
 **Platform capability: 32/98 → 43/98 leaves.** Eleven sections, and one
