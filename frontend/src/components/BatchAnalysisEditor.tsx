@@ -71,6 +71,7 @@ export function BatchAnalysisEditor({
   ownerId,
   ownerName,
   specification,
+  onBatchesChange,
 }: {
   owner: BatchOwner;
   ownerId: string;
@@ -81,6 +82,11 @@ export function BatchAnalysisEditor({
    * "the result answers a test that is in the spec" is the invariant this
    * screen exists to hold. */
   specification: SpecificationTest[];
+  /** P21: lets the stability grid beside this one offer THESE batches --
+   * a study is run on a batch, and the batch it names has to be one the
+   * dossier actually files in 3.2.S.4.4 / 3.2.P.5.4. Same reasoning as
+   * `SpecificationEditor.onRowsChange`: two fetches could disagree. */
+  onBatchesChange?: (batches: BatchAnalysis[]) => void;
 }) {
   const [batches, setBatches] = useState<BatchAnalysis[]>([]);
   const [draft, setDraft] = useState(EMPTY_BATCH);
@@ -91,6 +97,14 @@ export function BatchAnalysisEditor({
     () => new Map(specification.map((test) => [test.id, test])),
     [specification],
   );
+
+  // Published from an EFFECT, not from inside the state updater. Calling a
+  // parent's setState from within this component's updater is a state
+  // change during render -- React warns about it, and under StrictMode the
+  // updater runs twice, so the parent would be told twice about one edit.
+  useEffect(() => {
+    onBatchesChange?.(batches);
+  }, [batches, onBatchesChange]);
 
   useEffect(() => {
     let cancelled = false;

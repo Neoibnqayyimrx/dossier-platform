@@ -20,9 +20,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { api, ApiError, type ProductChildResource } from "@/lib/api";
-import type { Applicant, SpecificationTest, Vocabularies } from "@/lib/types";
+import type {
+  Applicant,
+  BatchAnalysis,
+  SpecificationTest,
+  Vocabularies,
+} from "@/lib/types";
 import { BatchAnalysisEditor } from "@/components/BatchAnalysisEditor";
 import { SpecificationEditor } from "@/components/SpecificationEditor";
+import { StabilityGrid } from "@/components/StabilityGrid";
 import {
   CHILD_STEPS,
   PRODUCT_FIELDS,
@@ -134,6 +140,32 @@ function ChildStep({
     }
   }
 
+  if (step.customEditor === "drug-product-control") {
+    // P21. The one step that is not the generic add-a-row form -- see
+    // `ChildStepSpec.customEditor` for why, and StabilityGrid for what the
+    // deviation costs.
+    //
+    // It also gives the FINISHED PRODUCT's control data its first home in
+    // the wizard. P20 built 3.2.P.5.1 and 3.2.P.5.4 and mounted the editor
+    // only under a drug substance and an excipient, so a filer could not
+    // enter the drug product's own specification at all -- and without it
+    // the stability grid has no limits to check against and nothing to
+    // offer as rows. The panel is the same component the API rows use.
+    return (
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600 dark:text-slate-400">{step.blurb}</p>
+        <Card>
+          <OwnerControlPanel
+            owner="drug-product"
+            ownerId={productId}
+            ownerName="this product"
+            withBatches
+          />
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-600 dark:text-slate-400">{step.blurb}</p>
@@ -146,7 +178,7 @@ function ChildStep({
               className="rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
             >
               <div className="flex items-center justify-between">
-                <span>{step.summarise(row)}</span>
+                <span>{step.summarise?.(row)}</span>
                 <button
                   type="button"
                   onClick={() => remove(String(row.id))}
@@ -230,6 +262,7 @@ function OwnerControlPanel({
   withBatches?: boolean;
 }) {
   const [specification, setSpecification] = useState<SpecificationTest[]>([]);
+  const [batches, setBatches] = useState<BatchAnalysis[]>([]);
   return (
     <>
       <SpecificationEditor
@@ -239,12 +272,29 @@ function OwnerControlPanel({
         onRowsChange={setSpecification}
       />
       {withBatches && (
-        <BatchAnalysisEditor
-          owner={owner}
-          ownerId={ownerId}
-          ownerName={ownerName}
-          specification={specification}
-        />
+        <>
+          <BatchAnalysisEditor
+            owner={owner}
+            ownerId={ownerId}
+            ownerName={ownerName}
+            specification={specification}
+            onBatchesChange={setBatches}
+          />
+          {/* P21. The three screens are one component for one reason: a
+              stability result answers a specification test and a study is
+              run on a batch, so the grid needs both lists to be provably
+              the same rows the editors above are showing. Fetching them
+              again here could disagree, and "this result answers a test in
+              the spec, at a batch in the dossier" is the invariant the
+              whole panel exists to hold. */}
+          <StabilityGrid
+            owner={owner}
+            ownerId={ownerId}
+            ownerName={ownerName}
+            specification={specification}
+            batches={batches}
+          />
+        </>
       )}
     </>
   );

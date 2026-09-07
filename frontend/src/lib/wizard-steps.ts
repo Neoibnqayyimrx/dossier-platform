@@ -55,9 +55,34 @@ export interface ChildStepSpec {
    */
   addLabel: string;
   blurb: string;
-  /** How one saved row is summarised in the list. */
-  summarise: (row: Record<string, unknown>) => string;
+  /** How one saved row is summarised in the list. Absent for a step with
+   * a `customEditor`, which renders no such list -- a summariser nothing
+   * calls is a summariser that quietly goes stale. */
+  summarise?: (row: Record<string, unknown>) => string;
   fields: FieldSpec[];
+  /**
+   * P21: this step is NOT the generic add-a-row form.
+   *
+   * Everything else in this file is a list of field specs, and that shape
+   * has paid off five times over -- adding a field is a one-line edit and
+   * six collections share one component. Stability is the one place it
+   * stops working, and the reason is arithmetic: a real study is five
+   * timepoints across eight tests, and forty trips round an "add row" form
+   * is unusable. The two questions such a form would have to ask on every
+   * value -- which test, which timepoint -- are exactly the two a grid
+   * answers by POSITION.
+   *
+   * This flag exists so that this file stays a complete answer to "what
+   * does the wizard ask for". Before it, the field specs WERE the whole
+   * wizard; now they are the wizard with a footnote, and the footnote has
+   * to be visible where the next person adding a field will look.
+   *
+   * See src/components/StabilityGrid.tsx for the full cost of the
+   * deviation. It is worth making exactly once, here, because the shape of
+   * the DATA is a table -- it is not a licence to hand-write the next
+   * screen.
+   */
+  customEditor?: "drug-product-control";
 }
 
 export const PRODUCT_FIELDS: FieldSpec[] = [
@@ -285,41 +310,15 @@ export const CHILD_STEPS: ChildStepSpec[] = [
   },
   {
     id: "stability",
-    title: "Stability studies",
+    title: "Drug product control and stability",
     addLabel: "Add stability study",
     blurb:
-      "The shelf life you claimed on step 1 has to be supported by a long-term study of at least that duration.",
-    summarise: (row) =>
-      `${row.study_type} — ${row.condition}, ${row.duration_months} months`,
-    fields: [
-      {
-        name: "study_type",
-        label: "Study type",
-        type: "select",
-        vocabulary: "stability_study_type",
-        required: true,
-      },
-      {
-        name: "condition",
-        label: "Condition",
-        type: "text",
-        required: true,
-        placeholder: "30 °C / 65 % RH",
-      },
-      {
-        name: "duration_months",
-        label: "Duration (months)",
-        type: "number",
-        required: true,
-      },
-      {
-        name: "result_summary",
-        label: "Result summary",
-        type: "textarea",
-        required: true,
-        placeholder: "Within specification through 24 months.",
-      },
-    ],
+      "The finished product's specification (3.2.P.5.1), the batches measured against it (3.2.P.5.4), and the stability studies that justify the shelf life you claimed on step 1 (3.2.P.8). Enter the stability results as a table — paste one straight from your spreadsheet.",
+    // A grid, not a form -- see `customEditor` above. The field specs are
+    // empty rather than describing a form nobody renders: a spec list that
+    // does not drive anything is a list that quietly goes stale.
+    customEditor: "drug-product-control",
+    fields: [],
   },
   {
     id: "clinical",

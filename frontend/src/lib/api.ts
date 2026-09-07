@@ -33,6 +33,9 @@ import type {
   BatchAnalysisResult,
   SpecificationOwnerKind,
   SpecificationTest,
+  StabilityOwnerKind,
+  StabilityResult,
+  StabilityStudy,
   User,
   ValidationOverride,
   UserRole,
@@ -435,6 +438,71 @@ export const api = {
   deleteBatchResult(batchId: string, resultId: string) {
     return request<void>(`/batches/${batchId}/results/${resultId}`, {
       method: "DELETE",
+    });
+  },
+
+  /**
+   * Stability studies (3.2.S.7 / 3.2.P.8). Mounted at two parents for the
+   * same reason batches are: a study is a study OF the drug substance or
+   * OF the finished product, and the CTD has no third place to file one.
+   */
+  listStabilityStudies(owner: StabilityOwnerKind, ownerId: string) {
+    return request<StabilityStudy[]>(
+      `/${SPECIFICATION_PARENT[owner]}/${ownerId}/stability`,
+    );
+  },
+
+  createStabilityStudy(
+    owner: StabilityOwnerKind,
+    ownerId: string,
+    payload: {
+      study_type: string;
+      condition: string;
+      duration_months: number;
+      batch_analysis_id?: string | null;
+      packaging_id?: string | null;
+      protocol?: string | null;
+    },
+  ) {
+    return request<StabilityStudy>(
+      `/${SPECIFICATION_PARENT[owner]}/${ownerId}/stability`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  },
+
+  deleteStabilityStudy(
+    owner: StabilityOwnerKind,
+    ownerId: string,
+    studyId: string,
+  ) {
+    return request<void>(
+      `/${SPECIFICATION_PARENT[owner]}/${ownerId}/stability/${studyId}`,
+      { method: "DELETE" },
+    );
+  },
+
+  /**
+   * Replace a study's whole result set -- the grid's save, and where a
+   * spreadsheet paste lands.
+   *
+   * A PUT rather than N POSTs, and the reason is the grid: forty cells
+   * saved one request at a time is forty chances to half-save the table,
+   * and a half-saved stability table is worse than none because it looks
+   * complete. The backend validates the whole payload before deleting
+   * anything, so a paste naming one unknown test leaves the existing
+   * table exactly as it was.
+   */
+  replaceStabilityResults(
+    studyId: string,
+    results: Array<{
+      specification_test_id: string;
+      timepoint_months: number;
+      result: string;
+    }>,
+  ) {
+    return request<StabilityResult[]>(`/stability/${studyId}/results`, {
+      method: "PUT",
+      body: JSON.stringify(results),
     });
   },
 

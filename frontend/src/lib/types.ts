@@ -434,10 +434,56 @@ export interface Packaging {
   material: string | null;
 }
 
+/** One stability study (3.2.S.7 / 3.2.P.8).
+ *
+ * P21 gave it the axes a real study has. Before, it was one row per
+ * product with a free-text `result_summary`; now it is a study OF
+ * something (`owner_kind`), run on a BATCH, stored in a PACK, with its
+ * results as data. `result_summary` is gone -- what replaced it is
+ * `results` below, plus a `notes` field that is never rendered as the
+ * section's conclusion. */
 export interface StabilityStudy {
   id: string;
   study_type: string;
   condition: string;
   duration_months: number;
-  result_summary: string;
+  batch_analysis_id: string | null;
+  packaging_id: string | null;
+  protocol: string | null;
+  notes: string | null;
+  owner_kind?: StabilityOwnerKind;
+  results: StabilityResult[];
+  /** How far the study actually holds: the last timepoint before its first
+   * out-of-specification result, or the last one on file if nothing
+   * failed. Derived on the backend from the same function rule R05 checks
+   * against -- `null` means no timepoint data has been entered. */
+  longest_passing_timepoint: number | null;
 }
+
+/** One test, at one timepoint, in one study. `specification_test_id` is a
+ * foreign key, not a test name typed again: a stability result cannot be
+ * recorded for a test that is not in the specification, because there
+ * would be no id to send. */
+export interface StabilityResult {
+  id: string;
+  stability_study_id: string;
+  specification_test_id: string;
+  timepoint_months: number;
+  result: string;
+  sort_order: number;
+  /** Derived on the backend, never stored. `null` is a third state and
+   * never means "passed". */
+  meets_criterion: boolean | null;
+}
+
+/** The two things the CTD asks for stability data of: 3.2.S.7 of each drug
+ * substance, 3.2.P.8 of the finished product. No excipient leaf exists,
+ * which is why this is narrower than SpecificationOwnerKind. */
+export type StabilityOwnerKind = "drug-substance" | "drug-product";
+
+/** Which section an owner's stability data renders into. Shown in the grid
+ * so the filer can see which page they are filling in. */
+export const STABILITY_SECTION: Record<StabilityOwnerKind, string> = {
+  "drug-substance": "3.2.S.7.3",
+  "drug-product": "3.2.P.8.3",
+};

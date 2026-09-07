@@ -3,6 +3,19 @@ import { describe, expect, it } from "vitest";
 import { CHILD_STEPS, PRODUCT_FIELDS, RUNTIME_VOCABULARIES } from "@/lib/wizard-steps";
 
 describe("wizard step specs", () => {
+  it("gives every step with a row list an editor of some kind", () => {
+    // The one deviation from the generic shape is deliberate and is
+    // declared, not inferred: a step either has field specs to render a
+    // form from, or names a custom editor. Neither would be a step that
+    // renders nothing.
+    for (const step of CHILD_STEPS) {
+      expect(
+        step.fields.length > 0 || step.customEditor !== undefined,
+        `${step.title} has no fields and no customEditor`,
+      ).toBe(true);
+    }
+  });
+
   it("gives every child step a hand-written add label", () => {
     // Regression: deriving the singular with `.replace(/s$/, "")` turned
     // "Stability studies" into "Add stability studie". English plurals
@@ -27,13 +40,16 @@ describe("wizard step specs", () => {
   });
 
   it("summarises a row without leaking 'undefined' when optional fields are blank", () => {
-    for (const step of CHILD_STEPS) {
+    // A step with a `customEditor` renders no row list and therefore has
+    // no summariser -- see ChildStepSpec.customEditor for why exactly one
+    // step is allowed to leave the generic shape.
+    for (const step of CHILD_STEPS.filter((s) => s.summarise)) {
       const required = Object.fromEntries(
         step.fields
           .filter((f) => f.required)
           .map((f) => [f.name, f.type === "number" ? 1 : "x"]),
       );
-      expect(step.summarise(required)).not.toContain("undefined");
+      expect(step.summarise!(required)).not.toContain("undefined");
     }
   });
 });
