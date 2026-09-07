@@ -194,9 +194,18 @@ class SectionInstance:
         leaf filename stem, and the eCTD section key. Equal to the bare
         section number when the section doesn't repeat, so every pre-P13
         section keeps exactly the identity it already had -- no migration
-        of stored narratives or sequence leaves is needed."""
+        of stored narratives or sequence leaves is needed.
+
+        P22 adds one more way to differ from the bare number: a section
+        that ACCOMPANIES an uploaded document carries a suffix, so the
+        rendered leaf and the uploaded leaf are two files under one
+        heading rather than one silently replacing the other. See
+        SectionSpec.leaf_suffix.
+        """
         if self.subject is None:
-            return self.number
+            if self.spec.leaf_suffix is None:
+                return self.number
+            return f"{self.number}-{self.spec.leaf_suffix}"
         return f"{self.number}-{self.subject_slug}"
 
     @property
@@ -239,6 +248,22 @@ def expand_sections(project: "Project") -> list[SectionInstance]:
             if resolved is not None and resolved.owes_statement:
                 instances.append(SectionInstance(spec=spec))
             continue
+        if spec.only_when_applicable:
+            # P22: the mirror of the statement branch above. A leaf the
+            # filing does not owe must not appear in the package -- a
+            # biowaiver request in a dossier that files an in vivo study
+            # is a claim nobody made, and it is the claim that decides
+            # how the whole application is assessed.
+            #
+            # An UNANSWERED conditional emits nothing, exactly as an
+            # unanswered statement leaf does: silence is not a "yes" any
+            # more than it is a "no", and R19 is what says so out loud.
+            # A region with no applicability table (EU today) reaches the
+            # same place -- nothing is declared, so nothing is claimed.
+            resolved = applicability.get(spec.number)
+            if resolved is None or not resolved.is_applicable:
+                continue
+
         if spec.repeat is None:
             instances.append(SectionInstance(spec=spec))
             continue

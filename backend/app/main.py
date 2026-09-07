@@ -14,6 +14,7 @@ from app.api.routers.enums import router as enums_router
 from app.api.routers.kb import router as kb_router
 from app.api.routers.narrative import router as narrative_router
 from app.api.routers.batch_results import router as batch_results_router
+from app.api.routers.bioequivalence_results import router as bioequivalence_results_router
 from app.api.routers.stability_results import router as stability_results_router
 from app.api.routers.nested import NESTED_ROUTERS
 from app.api.routers.products import router as products_router
@@ -60,6 +61,7 @@ app.include_router(documents_router)
 app.include_router(artifacts_router)
 app.include_router(batch_results_router)
 app.include_router(stability_results_router)
+app.include_router(bioequivalence_results_router)
 for nested_router in NESTED_ROUTERS:
     app.include_router(nested_router)
 

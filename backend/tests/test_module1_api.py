@@ -36,6 +36,12 @@ async def _complete_nafdac_project(client) -> dict:
                 "legal_status": "prescription-only",
                 "registration_type": "new",
                 "country": "Nigeria",
+                # P22/R26: the comparator the APPLICATION declares, printed
+                # at 1.2 and 2.3. The study below names its own, and the
+                # rule refuses to let the two disagree -- so both have to
+                # be entered, exactly as a real filer enters them.
+                "reference_product_name": "Amoxil 500 mg capsules",
+                "reference_product_manufacturer": "Innovator Pharmaceuticals Ltd",
             },
         )
     ).json()
@@ -115,14 +121,51 @@ async def _complete_nafdac_project(client) -> dict:
         },
     )
 
-    # R06: a generic filing has to show bioequivalence.
-    await client.post(
-        f"/products/{product_id}/clinical",
-        json={
-            "kind": "bioequivalence",
-            "reference_product": "Amoxil 500 mg capsules",
-            "summary": "Single-dose crossover; 90% CI within 80-125%.",
-        },
+    # R06: a multisource filing has to take exactly one bioequivalence
+    # route, and P22 made that route real data rather than a row of prose.
+    #
+    # Three calls, because the shape of the evidence is three things: the
+    # comparator is its own row (two studies routinely dose the same batch,
+    # and 1.4.1 prints its batch and expiry), the study points at it, and
+    # the confidence intervals go up as a SET -- a study holding two of its
+    # three intervals is worse than one holding none, because it looks
+    # answered.
+    comparator = (
+        await client.post(
+            f"/products/{product_id}/reference-products",
+            json={
+                "name": "Amoxil 500 mg capsules",
+                "manufacturer": "Innovator Pharmaceuticals Ltd",
+                "strength": "500 mg",
+                "country_of_origin": "United Kingdom",
+                "batch_number": "REF/24/1180",
+                "expiry_date": str(date.today() + timedelta(days=365)),
+            },
+        )
+    ).json()
+    study = (
+        await client.post(
+            f"/products/{product_id}/bioequivalence",
+            json={
+                "study_identifier": "FULLMOX/BE/2025-01",
+                "design": "crossover",
+                "fed_state": "fasting",
+                "dose_regimen": "single dose",
+                "subjects_enrolled": 36,
+                "subjects_completed": 34,
+                "analyte": "Amoxicillin in human plasma",
+                "cro_name": "Accord Clinical Research Ltd",
+                "reference_product_id": comparator["id"],
+            },
+        )
+    ).json()
+    await client.put(
+        f"/bioequivalence/{study['id']}/results",
+        json=[
+            {"parameter": "Cmax", "ci_lower": "91.30", "ci_upper": "106.10"},
+            {"parameter": "AUC(0-t)", "ci_lower": "95.80", "ci_upper": "106.80"},
+            {"parameter": "AUC(0-inf)", "ci_lower": "95.40", "ci_upper": "106.70"},
+        ],
     )
 
     # R13: a CPP that is on file AND unexpired -- the date matters, not

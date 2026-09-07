@@ -232,6 +232,77 @@ class StabilityStudyType(str, enum.Enum):
     INTERMEDIATE = "intermediate"
 
 
+class BEStudyDesign(str, enum.Enum):
+    """How the bioequivalence study was laid out.
+
+    A crossover gives every subject both formulations with a washout
+    between, so each subject is their own control -- which is why it is the
+    default design for an ordinary immediate-release generic and why far
+    fewer subjects are needed. A parallel design is what you fall back to
+    when the drug's half-life makes a washout impractical (or the
+    comparison is in patients), and it costs statistical power. Replicate
+    designs dose one or both formulations twice, and exist to estimate
+    within-subject variability -- the evidence a highly-variable drug needs
+    before a widened acceptance window can be argued for at all.
+    """
+
+    CROSSOVER = "crossover"
+    PARALLEL = "parallel"
+    REPLICATE_CROSSOVER = "replicate crossover"
+
+
+class BEFedState(str, enum.Enum):
+    """Fasting or fed. Not a detail: for a product whose label requires
+    administration with food, a fasting study answers a question nobody
+    asked, and for a modified-release product an agency generally wants
+    both."""
+
+    FASTING = "fasting"
+    FED = "fed"
+
+
+class BEDoseRegimen(str, enum.Enum):
+    SINGLE_DOSE = "single dose"
+    MULTIPLE_DOSE = "multiple dose"
+
+
+class PKParameter(str, enum.Enum):
+    """The pharmacokinetic parameters a bioequivalence conclusion rests on.
+
+    Cmax is the peak concentration -- the rate of absorption. AUC is the
+    area under the concentration-time curve -- the extent of absorption,
+    measured both to the last quantifiable timepoint (0-t) and extrapolated
+    to infinity (0-inf). An agency reads the 90 % confidence interval of
+    the test/reference ratio for each of these, and all of them have to sit
+    inside the acceptance window; passing on two out of three is not a
+    partial result, it is a failed study.
+
+    Spelled as the pharmacopoeial shorthand rather than a code, because
+    this string is PRINTED on the BTI form (1.4.1) and in the tabular
+    listing (5.2), where an assessor expects to read "AUC(0-t)".
+    """
+
+    CMAX = "Cmax"
+    AUC_0_T = "AUC(0-t)"
+    AUC_0_INF = "AUC(0-inf)"
+
+
+class BiowaiverKind(str, enum.Enum):
+    """The two ways a multisource filing avoids an in vivo study.
+
+    A BCS-based biowaiver (leaf 1.2.17) argues from the Biopharmaceutics
+    Classification System: a highly soluble, highly permeable drug in a
+    rapidly dissolving immediate-release product does not need a human
+    study to prove it behaves like the comparator. An additional-strength
+    biowaiver (leaf 1.2.18) argues from proportionality: the study was run
+    at one strength, and the other strengths are compositionally
+    proportional with similar dissolution profiles.
+    """
+
+    BCS_BASED = "BCS-based"
+    ADDITIONAL_STRENGTH = "additional strength"
+
+
 class ClinicalKind(str, enum.Enum):
     BIOEQUIVALENCE = "bioequivalence"
     LITERATURE = "literature"

@@ -1,4 +1,4 @@
-"""Attach stand-in documents to a seeded project (P18).
+"""Attach stand-in documents to a seeded project (P18, extended in P22).
 
 WHY the fixtures needed this the moment R20 existed: every seed models a
 COMPLETE filing -- that is what makes them useful for testing assembly, the
@@ -33,8 +33,8 @@ from app.models.project import Project
 from app.models.section_document import SectionDocument
 
 
-# The smallest thing that is genuinely a PDF: header, one empty page, a real
-# cross-reference table, trailer.
+# The smallest thing that is genuinely a PDF: header, one page WITH A LINE OF
+# REAL TEXT ON IT, a real cross-reference table, trailer.
 #
 # WHY a real (if minimal) PDF rather than b"fake bytes": upload ingestion
 # checks the magic number precisely to stop a file that merely CLAIMS to be a
@@ -46,11 +46,32 @@ from app.models.section_document import SectionDocument
 # and then pypdf could not open it ("startxref not found") the moment a test
 # tried to READ an assembled leaf. A fixture that is only valid enough for
 # the checks you happened to write is a trap for the next check someone adds.
+#
+# WHY THE TEXT WAS ADDED (P22), which is that same trap springing again one
+# check later: the page used to be EMPTY, and eCTD check M11 warns when a
+# leaf's first page has no extractable text, because that is what a scanned
+# image looks like. No fixture had ever tripped it, since the only uploads
+# reaching a built package were Module 1 certificates and the eCTD builder is
+# EU-only, where Module 1 is not modelled. P22 attaches the CRO's study
+# report at 5.3.1.2 -- Module 5, common to every region -- so the blank page
+# reached a package for the first time and M11 correctly flagged it.
+#
+# The fix is the fixture, not the check. M11 is right: a blank page IS what it
+# exists to catch, and a stand-in for a real study report should look like a
+# document rather than like a scan of nothing. Helvetica is one of the 14
+# standard fonts, so it needs no embedding.
 def _minimal_pdf() -> bytes:
+    stream = (
+        b"BT /F1 12 Tf 72 720 Td "
+        b"(Stand-in document. Replace with the real signed file.) Tj ET\n"
+    )
     objects = [
         b"<</Type/Catalog/Pages 2 0 R>>",
         b"<</Type/Pages/Kids[3 0 R]/Count 1>>",
-        b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<<>>>>",
+        b"<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]"
+        b"/Resources<</Font<</F1 5 0 R>>>>/Contents 4 0 R>>",
+        b"<</Length %d>>\nstream\n" % len(stream) + stream + b"endstream",
+        b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
     ]
 
     out = bytearray(b"%PDF-1.4\n")
@@ -77,11 +98,23 @@ def _minimal_pdf() -> bytes:
 MINIMAL_PDF = _minimal_pdf()
 
 
+# P22: the third-party reports a bioequivalence filing turns on, and the
+# leaves they belong at. Neither can be authored here -- a CRO writes both
+# -- so a complete fixture has to ATTACH them, exactly as it attaches a
+# CPP. 5.3.1.2 is the single most important leaf in a multisource dossier;
+# a seeded filing that omitted it would be modelling an incomplete one.
+CRO_DOCUMENTS: tuple[tuple[str, str], ...] = (
+    ("5.3.1.2", "bioequivalence-study-report.pdf"),
+    ("5.3.1.4", "bioanalytical-method-validation-report.pdf"),
+)
+
+
 def attach_certificate_documents(
     project: Project, storage: StorageClient | None = None
 ) -> list[SectionDocument]:
-    """Give every certificate on file a stand-in document, so the seeded
-    project is exportable the way a finished filing is.
+    """Give every certificate on file -- and the CRO's reports -- a stand-in
+    document, so the seeded project is exportable the way a finished filing
+    is.
 
     Returns the rows it created, so a caller holding a session can add them.
     """
@@ -117,6 +150,34 @@ def attach_certificate_documents(
             uploaded_at=datetime.now(timezone.utc),
         )
         created.append(document)
+
+    # P22: the CRO's reports, attached only for a filing that actually has a
+    # bioequivalence study. A filing taking the biowaiver route owes no
+    # study report, and attaching one would put a document in the package
+    # contradicting the route the application claims.
+    if project.product.bioequivalence_studies:
+        for section_number, filename in CRO_DOCUMENTS:
+            ingested = ingest_document(
+                project_id=project.id,
+                instance_key=section_number,
+                data=MINIMAL_PDF,
+                content_type=PDF_CONTENT_TYPE,
+                filename=filename,
+                storage=storage,
+            )
+            created.append(
+                SectionDocument(
+                    project_id=project.id,
+                    section_number=section_number,
+                    subject_slug="",
+                    storage_key=ingested.storage_key,
+                    md5=ingested.md5,
+                    size_bytes=ingested.size_bytes,
+                    original_filename=filename,
+                    content_type=ingested.content_type,
+                    uploaded_at=datetime.now(timezone.utc),
+                )
+            )
 
     # WHY set_committed_value rather than `project.documents.append(...)`:
     # once the project has been flushed, appending to an unloaded collection

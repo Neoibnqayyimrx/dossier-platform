@@ -49,6 +49,7 @@ from app.models import (
     DeclarationType,
     GMPStatus,
 )
+from app.seed.bioequivalence import attach_bioequivalence_data
 from app.seed.stability import attach_stability_data
 from app.seed.specifications import (
     attach_control_data,
@@ -270,11 +271,18 @@ def build_ampiclox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Pro
             ),
         ]
     )
+    # P22: the bioequivalence STUDY is no longer a ClinicalEntry row --
+    # it is structured data attached below by `attach_bioequivalence_data`,
+    # because a sentence cannot carry a confidence interval and 1.4.1 is
+    # generated entirely from those. What stays here is what this table is
+    # genuinely for: the literature the filing relies on (5.4).
     product.clinical.append(
         ClinicalEntry(
-            kind=ClinicalKind.BIOEQUIVALENCE,
-            reference_product="Reference ampicillin/cloxacillin 250mg/250mg capsule",
-            summary="Comparative BA/BE study; bioequivalence demonstrated.",
+            kind=ClinicalKind.LITERATURE,
+            summary=(
+                "Published pharmacokinetic and safety literature for the active "
+                "substances, filed at 5.4."
+            ),
         )
     )
     # Two active batch-formula lines, each linked to ITS OWN API via
@@ -334,5 +342,20 @@ def build_ampiclox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Pro
     # after attach_control_data: every study names a batch and every
     # result names a specification test, and that function creates both.
     attach_stability_data(product, oos=buggy)
+    # P22. AMPICLOX is the fixture that carries planted defects, so its
+    # buggy variant plants the two this phase makes catchable: a Cmax
+    # confidence interval below the acceptance window (R25), and a study
+    # run against a comparator the application does not declare (R26).
+    # Both are ordinary real filing errors, not exotic ones -- a generic
+    # that dissolves slightly slower than the innovator fails on rate, and
+    # a CRO sourcing whatever comparator it can buy is routine.
+    attach_bioequivalence_data(
+        product,
+        comparator_name="Ampiclox 250/250 mg capsules",
+        analyte="Ampicillin and cloxacillin in human plasma",
+        study_identifier="AMPICLOX/BE/2025-01",
+        failing=buggy,
+        comparator_mismatch=buggy,
+    )
 
     return project

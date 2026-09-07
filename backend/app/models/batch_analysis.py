@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from app.models.active_ingredient import ActiveIngredient
     from app.models.manufacturer import Manufacturer
     from app.models.product import Product
+    from app.models.bioequivalence import BioequivalenceStudy
     from app.models.specification import SpecificationTest
     from app.models.stability import StabilityStudy
 
@@ -124,6 +125,14 @@ class BatchAnalysis(Base, SpecificationOwned):
     # not silently take the study's data with it.
     stability_studies: Mapped[list["StabilityStudy"]] = relationship(
         back_populates="batch_analysis"
+    )
+
+    # P22: the bioequivalence studies run on this batch. Same reasoning as
+    # `stability_studies` above -- an assessor cross-references the BE
+    # study's test batch number against 3.2.P.5.4, and a foreign key is
+    # what stops the two sections naming different material.
+    bioequivalence_studies: Mapped[list["BioequivalenceStudy"]] = relationship(
+        back_populates="test_batch"
     )
 
 

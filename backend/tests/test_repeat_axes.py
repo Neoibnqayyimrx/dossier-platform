@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from app.ctd.region_profiles import NAFDAC_PROFILE
 from app.ctd.structure import REPEAT_FOLDERS, folder_for_section_instance
 from app.models import (
     Base,
@@ -33,6 +34,20 @@ from app.templating.context import build_context
 from app.templating.instances import REPEAT_AXES, expand_sections, get_repeat_axis
 from app.templating.registry import SECTIONS
 from app.validation.engine import run_all
+
+# Module 1's placement is REGIONAL: those leaves are placed by the region
+# profile's slots, not by the common folder map, and they belong to the
+# regional backbone rather than to index.xml.
+#
+# WHY this is derived from the profile rather than written out as a tuple of
+# numbers: it used to be `("1.0", "1.2")` in two tests, and P22 broke both by
+# registering three more Module 1 sections (1.4.1 and the two biowaiver
+# requests). A hard-coded list here is a third place the set of Module 1
+# rendered leaves is recorded, and it goes stale the next time one is added.
+# The profile already knows.
+MODULE_1_RENDERED = {
+    slot.section_number for slot in NAFDAC_PROFILE.module1_slots if slot.section_number
+}
 
 
 def _load(builder, **kwargs):
@@ -225,7 +240,7 @@ def test_two_expansions_of_one_project_produce_identical_keys_and_paths():
                 i.title,
                 (
                     folder_for_section_instance(i.number, i.subject_slug)
-                    if i.number not in ("1.0", "1.2")
+                    if i.number not in MODULE_1_RENDERED
                     else None
                 ),
             )
@@ -459,7 +474,7 @@ def test_every_new_section_reaches_the_ectd_backbone():
     project = _load(build_ampiclox)
     leaves = {}
     for instance in expand_sections(project):
-        if instance.number in ("1.0", "1.2"):
+        if instance.number in MODULE_1_RENDERED:
             continue  # Module 1 belongs to the regional backbone, by design
         folder = folder_for_section_instance(instance.number, instance.subject_slug)
         leaves[instance.key] = Leaf(

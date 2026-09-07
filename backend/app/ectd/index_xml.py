@@ -273,6 +273,10 @@ ICH_HEADING_PATH: dict[str, tuple[str, ...]] = {
         "m3-2-p-8-3-stability-data",
     ),
     "3.2.R": ("m3-quality", "m3-2-body-of-data", "m3-2-r-regional-information"),
+    # P22. Element name verbatim from ich-ectd-3-2.dtd; it is a direct
+    # child of m5, not of m5-3, and `_CHILD_ORDER` below already declares
+    # it first among m5's children.
+    "5.2": ("m5-clinical-study-reports", "m5-2-tabular-listing-of-all-clinical-studies"),
     "5.3.1.1": (
         "m5-clinical-study-reports",
         "m5-3-clinical-study-reports",

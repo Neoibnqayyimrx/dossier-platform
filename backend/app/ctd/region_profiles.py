@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from app.models.enums import CertificateType, DeclarationType, Region, SubmissionType
@@ -85,6 +86,88 @@ class RegionalInformationItem:
 
     title: str
     guidance: str
+
+
+@dataclass(frozen=True)
+class BioequivalenceWindow:
+    """The 90 % confidence interval a bioequivalence study must fall inside.
+
+    ## Why this is configuration and not a constant in the rule
+
+    It is a REGULATORY PARAMETER, and every property of one applies. It is
+    written into guidance rather than derived; agencies do not all state the
+    same one; and it changes -- the widening of the Cmax window for
+    highly-variable drugs is a live example of a number that moved after
+    the arithmetic around it was already written. A rule with `80.0` typed
+    into its body is a rule that has to be edited, re-reviewed and
+    re-tested when an agency republishes a table, and the person who knows
+    the guidance changed is not the person who reads Python.
+
+    It sits beside `required_certificate_types` and the applicability table
+    for exactly the reason those are here (see this module's opening
+    docstring): a regulatory fact must be re-confirmable against the
+    agency's guideline by someone reading ONE file.
+
+    ## Why there are two of them
+
+    The ordinary window is 80.00-125.00 % -- asymmetric because it is
+    symmetric on the LOG scale, which is where the statistics are done:
+    1/1.25 = 0.80. For a narrow-therapeutic-index drug, where a 20 %
+    difference in exposure is a clinically different dose, the window
+    tightens to 90.00-111.11 % (again 1/1.1111 = 0.90). Which of the two
+    applies is a property of the molecule, so the PRODUCT carries the flag
+    (`Product.narrow_therapeutic_index`) and the REGION carries the pair.
+    """
+
+    lower: Decimal
+    upper: Decimal
+
+    @property
+    def label(self) -> str:
+        """How the window is written in a guideline, and printed on the BTI
+        form: "80.00 - 125.00 %"."""
+        return f"{self.lower:.2f} - {self.upper:.2f} %"
+
+
+# WHO/ICH's ordinary window, adopted by NAFDAC's bioequivalence guidance
+# and by every ICH region: the 90 % CI of the test/reference ratio of Cmax
+# and AUC must lie within 80.00-125.00 %.
+DEFAULT_BE_WINDOW = BioequivalenceWindow(lower=Decimal("80.00"), upper=Decimal("125.00"))
+
+# The narrow-therapeutic-index window. Tighter because a 20 % swing in
+# exposure to warfarin, digoxin, levothyroxine, lithium or phenytoin is a
+# clinically different dose rather than a measurement difference.
+NARROW_THERAPEUTIC_INDEX_BE_WINDOW = BioequivalenceWindow(
+    lower=Decimal("90.00"), upper=Decimal("111.11")
+)
+
+
+@dataclass(frozen=True)
+class TestBatchRule:
+    """How large the bioequivalence test batch has to be.
+
+    WHO TRS 992 Annex 7 (and the equivalent EMA and FDA positions): the
+    batch used in the bioequivalence study should be at least **one tenth**
+    of the proposed commercial batch, or **100 000 units**, whichever is
+    the greater. The reasoning is that a study run on a laboratory-scale
+    batch says nothing about the material a patient will actually receive,
+    so the biobatch has to be representative of production.
+
+    Config for the same reason the window above is: two numbers stated in
+    guidance, re-confirmable by reading this file.
+    """
+
+    minimum_fraction: Decimal
+    minimum_units: int
+
+    def required_units(self, commercial_units: int) -> int:
+        """The larger of the two thresholds, for a given commercial batch."""
+        return max(int(Decimal(commercial_units) * self.minimum_fraction), self.minimum_units)
+
+
+DEFAULT_TEST_BATCH_RULE = TestBatchRule(
+    minimum_fraction=Decimal("0.1"), minimum_units=100_000
+)
 
 
 class Applicability(str, enum.Enum):
@@ -216,6 +299,33 @@ class RegionProfile:
     # 3.2.R reads to an assessor as a packaging failure, exactly as an empty
     # Module 4 folder does (P17's reasoning, applied one section down).
     regional_information: tuple[RegionalInformationItem, ...] = ()
+
+    # P22: the bioequivalence acceptance criteria. Defaulted rather than
+    # left empty, unlike the lists above, and the asymmetry is deliberate:
+    # an empty certificate list honestly means "this region's Module 1 is
+    # not modelled", while an empty acceptance window would mean "no
+    # bioequivalence criterion applies", which is true of no agency
+    # anywhere. The ICH/WHO window is the one every region starts from, so
+    # a region that has not been researched inherits it and rule R25 keeps
+    # working; a region that differs overrides it here.
+    bioequivalence_window: BioequivalenceWindow = DEFAULT_BE_WINDOW
+    narrow_therapeutic_index_window: BioequivalenceWindow = (
+        NARROW_THERAPEUTIC_INDEX_BE_WINDOW
+    )
+    test_batch_rule: TestBatchRule = DEFAULT_TEST_BATCH_RULE
+
+    def window_for(self, product) -> BioequivalenceWindow:
+        """Which window this product is judged against.
+
+        The join between a regional parameter and a property of the
+        molecule. One function, so the rule that CHECKS the interval and
+        the BTI form that PRINTS the window cannot pick different ones --
+        the same reasoning that put `supported_months` on the model layer
+        in P21.
+        """
+        if getattr(product, "narrow_therapeutic_index", False):
+            return self.narrow_therapeutic_index_window
+        return self.bioequivalence_window
 
     def document_slot(self, section_number: str) -> DocumentSlot | None:
         return next(
@@ -441,6 +551,36 @@ NAFDAC_PROFILE = RegionProfile(
             title="Application / Registration Form",
             folder="m1/12-administrative-information",
             section_number="1.2",
+        ),
+        # ---- P22: the three Module 1 leaves built from Module 5 data ----
+        #
+        # The BTI form is the clearest single demonstration of this
+        # platform's premise: a MODULE 1 document generated with no prose
+        # at all, entirely out of MODULE 5 numbers. A filer who retypes the
+        # study's confidence intervals onto an agency form is doing the one
+        # thing the whole architecture exists to remove.
+        #
+        # The two biowaiver requests sit in the administrative folder
+        # beside 1.2.13 and 1.2.16, which is where the rest of 1.2 lives.
+        # They are CONDITIONAL leaves, so they only reach the package when
+        # the filer has answered "yes" -- see SectionSpec.only_when_applicable.
+        Module1Slot(
+            slot_id="bioequivalence-trial-information",
+            title="Bioequivalence Trial Information form",
+            folder="m1/14-bioequivalence-trial-information",
+            section_number="1.4.1",
+        ),
+        Module1Slot(
+            slot_id="bcs-biowaiver-request",
+            title="Biowaiver request — BCS-based",
+            folder="m1/12-administrative-information",
+            section_number="1.2.17",
+        ),
+        Module1Slot(
+            slot_id="additional-strength-biowaiver-request",
+            title="Biowaiver request — additional strength",
+            folder="m1/12-administrative-information",
+            section_number="1.2.18",
         ),
         Module1Slot(
             slot_id="certificates",

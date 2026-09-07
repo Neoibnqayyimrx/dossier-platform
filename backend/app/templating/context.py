@@ -18,7 +18,7 @@ from __future__ import annotations
 from app.ctd.region_profiles import REGION_PROFILES, resolve_applicability
 from app.models.enums import CertificateType, PackagingRole, TSE_RELEVANT_ORIGINS
 from app.models.project import Project
-from app.templating import quality_control, stability
+from app.templating import bioequivalence, quality_control, stability
 from app.templating.registry import get_section
 
 # What a context prints where a fact should be but is not. Shared rather
@@ -163,6 +163,26 @@ def build_context(
     # different answers to "what owns this section", resolved once here.
     if section_number in _QUALITY_CONTROL_SECTIONS:
         return _quality_control_context(section, project, subject, narrative)
+
+    # ---- P22: the bioequivalence documents ------------------------------
+    #
+    # Four leaves across three modules, all built from the same study
+    # rows -- see app/templating/bioequivalence.py. They take the PROJECT
+    # rather than an owner, unlike the quality-control table above,
+    # because two of them are Module 1 documents: a BTI form names the
+    # applicant and a biowaiver request is a claim the filing makes, and
+    # neither is a fact about a material.
+    if section_number == "1.4.1":
+        return bioequivalence.bti_context(section, project)
+
+    if section_number == "5.2":
+        return bioequivalence.clinical_listing_context(section, project)
+
+    if section_number == "5.3.1.2":
+        return bioequivalence.be_study_summary_context(section, project)
+
+    if section_number in ("1.2.17", "1.2.18"):
+        return bioequivalence.biowaiver_context(section, project, narrative)
 
     if section_number == "3.2.S.2.1":
         # WHY this renders a marker instead of raising when the manufacturer

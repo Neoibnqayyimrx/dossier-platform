@@ -6,6 +6,11 @@ from app.models.enums import DosageForm, LegalStatus, RegistrationType
 from app.schemas.active_ingredient import ActiveIngredientRead
 from app.schemas.base import ReadMixin
 from app.schemas.batch_formula import BatchFormulaLineRead
+from app.schemas.bioequivalence import (
+    BioequivalenceStudyRead,
+    BiowaiverRead,
+    ReferenceProductRead,
+)
 from app.schemas.clinical import ClinicalEntryRead
 from app.schemas.excipient import ExcipientRead
 from app.schemas.manufacturer import ManufacturerRead
@@ -25,6 +30,11 @@ class ProductBase(BaseModel):
     legal_status: LegalStatus | None = None
     registration_type: RegistrationType | None = None
     country: str | None = None
+    # P22: the comparator the APPLICATION declares, printed at 1.2 and
+    # 2.3 and reconciled against what each study actually dosed (R26).
+    reference_product_name: str | None = None
+    reference_product_manufacturer: str | None = None
+    narrow_therapeutic_index: bool = False
 
 
 class ProductCreate(ProductBase):
@@ -43,6 +53,9 @@ class ProductUpdate(BaseModel):
     legal_status: LegalStatus | None = None
     registration_type: RegistrationType | None = None
     country: str | None = None
+    reference_product_name: str | None = None
+    reference_product_manufacturer: str | None = None
+    narrow_therapeutic_index: bool | None = None
 
 
 class ProductRead(ProductBase, ReadMixin):
@@ -59,4 +72,10 @@ class ProductRead(ProductBase, ReadMixin):
     packaging: list[PackagingRead] = []
     stability: list[StabilityStudyRead] = []
     clinical: list[ClinicalEntryRead] = []
+    # P22. The studies are nested for the same reason stability is:
+    # the wizard's bioequivalence step draws the whole set in one read,
+    # and a study without its confidence intervals is a protocol.
+    bioequivalence_studies: list[BioequivalenceStudyRead] = []
+    reference_products: list[ReferenceProductRead] = []
+    biowaivers: list[BiowaiverRead] = []
     batch_formula: list[BatchFormulaLineRead] = []

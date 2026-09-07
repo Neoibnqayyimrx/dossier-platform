@@ -18,6 +18,8 @@ from app.models import (
     BatchAnalysis,
     BatchAnalysisResult,
     BatchFormulaLine,
+    BioequivalenceStudy,
+    Biowaiver,
     Excipient,
     Product,
     Project,
@@ -41,6 +43,15 @@ PRODUCT_CHILD_OPTIONS = (
     .selectinload(StabilityStudy.results)
     .selectinload(StabilityResult.specification_test),
     selectinload(Product.clinical),
+    # P22. ProductRead nests the bioequivalence studies, and each study
+    # nests its confidence intervals -- so this is two levels, and the
+    # comparator and the test batch are a third that BioequivalenceStudy's
+    # own derived fields do not touch but every renderer does. The lesson
+    # P21's log recorded and P20's before it: adding a nested field to a
+    # *Read schema is an eager-loading change.
+    selectinload(Product.bioequivalence_studies).selectinload(BioequivalenceStudy.results),
+    selectinload(Product.reference_products),
+    selectinload(Product.biowaivers),
     selectinload(Product.batch_formula),
 )
 
@@ -57,6 +68,12 @@ PROJECT_CHILD_OPTIONS = (
     .selectinload(StabilityStudy.results)
     .selectinload(StabilityResult.specification_test),
     selectinload(Project.product).selectinload(Product.clinical),
+    # P22, the same three collections through the project.
+    selectinload(Project.product)
+    .selectinload(Product.bioequivalence_studies)
+    .selectinload(BioequivalenceStudy.results),
+    selectinload(Project.product).selectinload(Product.reference_products),
+    selectinload(Project.product).selectinload(Product.biowaivers),
     selectinload(Project.product).selectinload(Product.batch_formula),
     selectinload(Project.sequences),
     # P15a: ProjectRead nests these two, so every project read has to load
@@ -151,4 +168,24 @@ READINESS_LOAD_OPTIONS = PROJECT_CHILD_OPTIONS + (
     .selectinload(Product.apis)
     .selectinload(ActiveIngredient.stability)
     .selectinload(StabilityStudy.packaging),
+    # P22. R25 walks study -> results, R26 walks study -> reference
+    # product, and R27 walks study -> test batch; the BTI form (1.4.1) and
+    # the tabular listing (5.2) walk all three. Every one of those is a
+    # relationship that did not exist when this list was last written, and
+    # the failure mode is the one this module's docstring describes:
+    # MissingGreenlet, raised deep inside a synchronous rule, nowhere near
+    # the query that forgot to load it.
+    selectinload(Project.product)
+    .selectinload(Product.bioequivalence_studies)
+    .selectinload(BioequivalenceStudy.reference_product),
+    selectinload(Project.product)
+    .selectinload(Product.bioequivalence_studies)
+    .selectinload(BioequivalenceStudy.test_batch),
+    # The biowaiver's supporting study, which 1.2.18 PRINTS by identifier:
+    # a request citing a study the dossier does not contain is precisely
+    # what the foreign key exists to prevent, and printing it is what makes
+    # the link visible to an assessor.
+    selectinload(Project.product)
+    .selectinload(Product.biowaivers)
+    .selectinload(Biowaiver.supporting_study),
 )

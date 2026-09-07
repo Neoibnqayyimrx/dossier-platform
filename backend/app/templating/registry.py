@@ -70,6 +70,38 @@ class SectionSpec:
     # section is emitted for every project, which is exactly the assumption
     # P17 removed.
     is_statement: bool = False
+    # P22: emit this section ONLY for a project whose applicability says it
+    # applies. The default is False, which is the pre-P22 behaviour --
+    # every registered section is emitted for every project.
+    #
+    # WHY this is not the same flag as `is_statement`: a statement leaf is
+    # emitted when the section does NOT apply, and this is its mirror --
+    # emitted when it DOES. Both read the same resolution
+    # (app.ctd.region_profiles.resolve_applicability), which is what makes
+    # the biowaiver decision in the wizard actually change the package:
+    # answering "yes" to 1.2.17 is not a preference recorded somewhere, it
+    # is a document appearing in Module 1.
+    #
+    # It is also what keeps a NAFDAC-only Module 1 leaf out of an EU
+    # package. The EU applicability table is empty, meaning "not modelled",
+    # so nothing is claimed and nothing is emitted -- rather than the eCTD
+    # builder raising on a leaf it has no folder for.
+    only_when_applicable: bool = False
+    # P22: this rendered document ACCOMPANIES an uploaded one at the same
+    # section, rather than being the section's only leaf.
+    #
+    # WHY it is needed at all: assembly keys leaves by instance key, and an
+    # uploaded file WINS over a rendered one at the same key (see
+    # app/assembly/assemble.py) -- which is right, because a generated
+    # stand-in for a signed certificate is not an improvement on the
+    # certificate. 5.3.1.2 is the case where it is wrong: the CRO's study
+    # report and a structured summary of the study data are two DIFFERENT
+    # documents that both belong under that heading, and the eCTD DTD
+    # agrees -- `m5-3-1-2-...` has a `leaf*` content model, not one leaf.
+    # Without a distinct key the summary would be silently dropped the
+    # moment the report was attached, which is precisely the "looks
+    # complete, is not" failure this platform exists to prevent.
+    leaf_suffix: str | None = None
 
     @property
     def template_path(self) -> Path:
@@ -301,6 +333,69 @@ SECTIONS: dict[str, SectionSpec] = {
         template_filename="justification_of_specification.docx",
         narrative_slots=["justification"],
         grounding_query="justification of specification acceptance criteria ICH Q6A",
+    ),
+    # ---- P22: bioequivalence -------------------------------------------
+    #
+    # Four documents built from one set of study data, and the spread
+    # across modules is the point. 1.4.1 is a MODULE 1 form; 5.2 is a
+    # MODULE 5 table; the summary sits with the study report in 5.3.1.2.
+    # A filer entering the confidence intervals once is the only way those
+    # three can be guaranteed to agree, and they are exactly the three an
+    # assessor cross-reads.
+    "1.4.1": SectionSpec(
+        number="1.4.1",
+        title="Bioequivalence Trial Information (BTI) form",
+        template_filename="bti_form.docx",
+        # NO NARRATIVE SLOTS, and this one is emphatic. The target TOC's
+        # own note on this leaf reads "Derived entirely from the BE study
+        # data. No prose." A form an agency reads field-by-field has no
+        # place for a drafted paragraph, and a slot here would be a slot
+        # that could state a confidence interval the results table
+        # disproves.
+        narrative_slots=[],
+        grounding_query=None,
+        only_when_applicable=True,
+    ),
+    "5.2": SectionSpec(
+        number="5.2",
+        title="Tabular Listing of All Clinical Studies",
+        template_filename="clinical_study_listing.docx",
+        narrative_slots=[],
+        grounding_query=None,
+    ),
+    "5.3.1.2": SectionSpec(
+        number="5.3.1.2",
+        title="Bioequivalence Study Summary",
+        template_filename="be_study_summary.docx",
+        narrative_slots=[],
+        grounding_query=None,
+        # Ships BESIDE the CRO's uploaded report rather than instead of it.
+        leaf_suffix="summary",
+    ),
+    "1.2.17": SectionSpec(
+        number="1.2.17",
+        title="Biowaiver Request — BCS-based Bioavailability Study",
+        template_filename="biowaiver_request.docx",
+        # HYBRID: the BCS class, the solubility and permeability claim and
+        # the f2 similarity factor are data; the argument that ties them
+        # together is the applicant's own and is genuinely theirs to write.
+        narrative_slots=["justification"],
+        grounding_query=(
+            "biowaiver BCS biopharmaceutics classification solubility permeability "
+            "dissolution similarity f2"
+        ),
+        only_when_applicable=True,
+    ),
+    "1.2.18": SectionSpec(
+        number="1.2.18",
+        title="Biowaiver Request — Additional Strength",
+        template_filename="biowaiver_request.docx",
+        narrative_slots=["justification"],
+        grounding_query=(
+            "biowaiver additional strength proportional composition dissolution profile "
+            "comparison"
+        ),
+        only_when_applicable=True,
     ),
     # ---- P19: the sections whose data the platform already held --------
     #

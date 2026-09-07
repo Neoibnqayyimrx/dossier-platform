@@ -13,6 +13,10 @@ from __future__ import annotations
 
 from app.models.base import Base
 from app.models.enums import (
+    BEDoseRegimen,
+    BEFedState,
+    BEStudyDesign,
+    BiowaiverKind,
     CertificateType,
     ClinicalKind,
     CompendialStatus,
@@ -31,6 +35,7 @@ from app.models.enums import (
     NarrativeStatus,
     PackagingComponent,
     PackagingRole,
+    PKParameter,
     Region,
     RegistrationType,
     SpecificationOwnerKind,
@@ -44,6 +49,12 @@ from app.models.excipient import Excipient
 from app.models.packaging import Packaging
 from app.models.stability import StabilityResult, StabilityStudy
 from app.models.clinical import ClinicalEntry
+from app.models.bioequivalence import (
+    BioequivalenceResult,
+    BioequivalenceStudy,
+    Biowaiver,
+    ReferenceProduct,
+)
 from app.models.batch_formula import BatchFormulaLine
 from app.models.specification import SpecificationTest
 from app.models.batch_analysis import BatchAnalysis, BatchAnalysisResult
@@ -65,6 +76,10 @@ __all__ = [
     "SpecificationTest",
     "SectionDocument",
     # enums
+    "BEDoseRegimen",
+    "BEFedState",
+    "BEStudyDesign",
+    "BiowaiverKind",
     "CertificateType",
     "ClinicalKind",
     "CompendialStatus",
@@ -83,6 +98,7 @@ __all__ = [
     "NarrativeStatus",
     "PackagingComponent",
     "PackagingRole",
+    "PKParameter",
     "Region",
     "RegistrationType",
     "SpecificationOwnerKind",
@@ -97,6 +113,10 @@ __all__ = [
     "StabilityStudy",
     "StabilityResult",
     "ClinicalEntry",
+    "BioequivalenceStudy",
+    "BioequivalenceResult",
+    "Biowaiver",
+    "ReferenceProduct",
     "BatchFormulaLine",
     "BatchAnalysis",
     "BatchAnalysisResult",

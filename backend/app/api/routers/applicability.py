@@ -123,7 +123,13 @@ def _section_statuses(project: Project) -> list[SectionStatusRead]:
     # both produced AND not applicable, and "not applicable" is the more
     # informative of the two.
     instances = [i for i in expand_sections(project) if not i.spec.is_statement]
-    produced = {instance.number for instance in instances}
+    # P22: a leaf that ACCOMPANIES an upload does not make its section
+    # produced. 5.3.1.2's structured summary renders for every project,
+    # and the leaf an assessor is looking for there is the CRO's study
+    # report -- reporting the section as produced because the summary
+    # exists would be the same green tick for a missing document that
+    # `scripts/check_target_toc.py` refuses to award.
+    produced = {i.number for i in instances if i.spec.leaf_suffix is None}
 
     copies: dict[str, list[SectionCopyRead]] = {}
     for instance in instances:

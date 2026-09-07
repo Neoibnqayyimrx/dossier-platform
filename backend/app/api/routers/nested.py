@@ -25,6 +25,8 @@ from app.api.routers.product_children import build_child_router
 from app.models import (
     ActiveIngredient,
     BatchAnalysis,
+    BioequivalenceStudy,
+    Biowaiver,
     BatchFormulaLine,
     Certificate,
     ClinicalEntry,
@@ -34,6 +36,7 @@ from app.models import (
     Manufacturer,
     Packaging,
     Project,
+    ReferenceProduct,
     SpecificationTest,
     StabilityStudy,
 )
@@ -51,6 +54,17 @@ from app.schemas.batch_formula import (
     BatchFormulaLineCreate,
     BatchFormulaLineRead,
     BatchFormulaLineUpdate,
+)
+from app.schemas.bioequivalence import (
+    BioequivalenceStudyCreate,
+    BioequivalenceStudyRead,
+    BioequivalenceStudyUpdate,
+    BiowaiverCreate,
+    BiowaiverRead,
+    BiowaiverUpdate,
+    ReferenceProductCreate,
+    ReferenceProductRead,
+    ReferenceProductUpdate,
 )
 from app.schemas.certificate import CertificateCreate, CertificateRead, CertificateUpdate
 from app.schemas.clinical import ClinicalEntryCreate, ClinicalEntryRead, ClinicalEntryUpdate
@@ -129,6 +143,43 @@ NESTED_ROUTERS = [
         order_by="condition",
         nested_collections=("results.specification_test",),
         owner_via="product",
+    ),
+    # ---- P22: bioequivalence -------------------------------------------
+    #
+    # Three product-scoped collections. The comparator is mounted
+    # separately from the study, and deliberately: two studies (a fasting
+    # one and a fed one) routinely dose the SAME comparator batch, so
+    # nesting the reference product inside the study would mean entering
+    # it twice and getting it different once -- which is the drift rule
+    # R26 exists to catch, built into the API instead.
+    #
+    # The RESULTS inside a study are not a factory router: a study's three
+    # confidence intervals are transcribed off one page of the report and
+    # are entered as a set. See app/api/routers/bioequivalence_results.py.
+    build_child_router(
+        resource="reference-products",
+        model=ReferenceProduct,
+        create_schema=ReferenceProductCreate,
+        update_schema=ReferenceProductUpdate,
+        read_schema=ReferenceProductRead,
+        order_by="name",
+    ),
+    build_child_router(
+        resource="bioequivalence",
+        model=BioequivalenceStudy,
+        create_schema=BioequivalenceStudyCreate,
+        update_schema=BioequivalenceStudyUpdate,
+        read_schema=BioequivalenceStudyRead,
+        order_by="study_identifier",
+        nested_collections=("results",),
+    ),
+    build_child_router(
+        resource="biowaivers",
+        model=Biowaiver,
+        create_schema=BiowaiverCreate,
+        update_schema=BiowaiverUpdate,
+        read_schema=BiowaiverRead,
+        order_by="strength",
     ),
     build_child_router(
         resource="clinical",

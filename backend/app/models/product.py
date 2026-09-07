@@ -30,7 +30,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Integer, Enum as SAEnum
+from sqlalchemy import Boolean, ForeignKey, String, Integer, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -39,6 +39,7 @@ from app.models.enums import DosageForm, LegalStatus, RegistrationType
 if TYPE_CHECKING:
     from app.models.active_ingredient import ActiveIngredient
     from app.models.batch_formula import BatchFormulaLine
+    from app.models.bioequivalence import Biowaiver, BioequivalenceStudy, ReferenceProduct
     from app.models.certificate import Certificate
     from app.models.clinical import ClinicalEntry
     from app.models.batch_analysis import BatchAnalysis
@@ -75,6 +76,35 @@ class Product(Base):
     )
     country: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
+    # ---- P22: what the APPLICATION claims about its comparator ----------
+    #
+    # These two are printed on the registration form (1.2) and in the
+    # quality overall summary (2.3) -- they are the filing's claim, in the
+    # filing's own words. The comparator a study actually dosed is a
+    # `ReferenceProduct` row hanging off the study (app/models/
+    # bioequivalence.py), and rule R26 refuses to let the two disagree.
+    #
+    # WHY they are not one field with the study's row: this is exactly the
+    # shape `shelf_life_months` has against the stability data. The claim
+    # lives on the product and the evidence lives in the data, because the
+    # real filing error -- the dossier names one brand throughout and the
+    # CRO dosed another -- has to stay REPRESENTABLE in order to be
+    # catchable. Collapse them and R26 becomes a check that a field equals
+    # itself.
+    reference_product_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    reference_product_manufacturer: Mapped[str | None] = mapped_column(
+        String(200), nullable=True
+    )
+    # WHY this is on the product and not in the rule: the acceptance window
+    # for a narrow-therapeutic-index drug is tighter (90.00-111.11 % rather
+    # than 80.00-125.00 %), and which drugs those are is a property of the
+    # MOLECULE -- warfarin, digoxin, levothyroxine, lithium, phenytoin --
+    # not of the region. The region owns the two windows (config); the
+    # product owns which of them applies to it. Rule R25 asks both.
+    narrow_therapeutic_index: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0"
+    )
+
     # ---- children (Product has many of each — AGENTS.md §6) --------------
     manufacturers: Mapped[list["Manufacturer"]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
@@ -98,6 +128,25 @@ class Product(Base):
     )
     clinical: Mapped[list["ClinicalEntry"]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
+    )
+    # P22: the structured bioequivalence evidence that replaces the
+    # free-text ClinicalEntry row for the one kind of clinical entry a
+    # multisource filing actually turns on. `clinical` keeps the others --
+    # literature and other clinical studies still belong there.
+    bioequivalence_studies: Mapped[list["BioequivalenceStudy"]] = relationship(
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by="BioequivalenceStudy.study_identifier",
+    )
+    reference_products: Mapped[list["ReferenceProduct"]] = relationship(
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by="ReferenceProduct.name",
+    )
+    biowaivers: Mapped[list["Biowaiver"]] = relationship(
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by="Biowaiver.strength",
     )
     batch_formula: Mapped[list["BatchFormulaLine"]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
@@ -127,6 +176,32 @@ class Product(Base):
 
     # ---- reverse side of Project -> Product (many Projects per Product) --
     projects: Mapped[list["Project"]] = relationship(back_populates="product")
+
+    def __init__(self, **kwargs) -> None:
+        """Start P22's collections LOADED and empty.
+
+        Exactly the trap `Project.__init__` documents for `documents`, met
+        again from a new direction and worth naming precisely: rule R06
+        reads `product.biowaivers`, and on a Product that was BUILT in
+        Python and then committed, that collection has never been loaded --
+        so the attribute access goes to the database. Under the async
+        engine, IO from a plain attribute access does not merely block, it
+        raises MissingGreenlet, deep inside a synchronous rule and nowhere
+        near a query.
+
+        Every other collection here escapes it only by accident: the seeds
+        happen to append to all of them, and appending marks a collection
+        loaded. `biowaivers` is the first one a complete filing legitimately
+        leaves empty -- a filing that ran an in vivo study claims no
+        biowaiver -- which is why it is the first to fail.
+
+        (Objects loaded from a query are unaffected: SQLAlchemy does not
+        call `__init__` when it materialises a row, and app/api/loading.py
+        is what eager-loads them there.)
+        """
+        for collection in ("bioequivalence_studies", "reference_products", "biowaivers"):
+            kwargs.setdefault(collection, [])
+        super().__init__(**kwargs)
 
     @property
     def strength_display(self) -> str:

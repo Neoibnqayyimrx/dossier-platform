@@ -41,6 +41,7 @@ from app.models import (
     PackagingRole,
     ClinicalKind,
 )
+from app.seed.bioequivalence import attach_bioequivalence_data
 from app.seed.stability import attach_stability_data
 from app.seed.specifications import (
     attach_control_data,
@@ -236,11 +237,18 @@ def build_lamox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Projec
             ),
         ]
     )
+    # P22: the bioequivalence STUDY is no longer a ClinicalEntry row --
+    # it is structured data attached below by `attach_bioequivalence_data`,
+    # because a sentence cannot carry a confidence interval and 1.4.1 is
+    # generated entirely from those. What stays here is what this table is
+    # genuinely for: the literature the filing relies on (5.4).
     product.clinical.append(
         ClinicalEntry(
-            kind=ClinicalKind.BIOEQUIVALENCE,
-            reference_product="Reference amoxicillin 500 mg capsule",
-            summary="Comparative BA/BE study; bioequivalence demonstrated.",
+            kind=ClinicalKind.LITERATURE,
+            summary=(
+                "Published pharmacokinetic and safety literature for the active "
+                "substance, filed at 5.4."
+            ),
         )
     )
     product.certificates.append(
@@ -303,5 +311,15 @@ def build_lamox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Projec
     # after attach_control_data: every study names a batch and every
     # result names a specification test, and that function creates both.
     attach_stability_data(product)
+    # P22: the study that carries the entire scientific argument for a
+    # multisource approval. Runs after attach_control_data for the same
+    # reason stability does -- the study names the batch 3.2.P.5.4 files,
+    # as a foreign key rather than a re-typed batch number.
+    attach_bioequivalence_data(
+        product,
+        comparator_name="Amoxil 500 mg capsules",
+        analyte="Amoxicillin in human plasma",
+        study_identifier="LAMOX/BE/2025-01",
+    )
 
     return project

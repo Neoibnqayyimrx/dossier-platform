@@ -17,9 +17,11 @@ from datetime import date
 from app.ctd.region_profiles import (
     REGION_PROFILES,
     Applicability,
+    get_region_profile,
     resolve_applicability,
     satisfied_certificate_types,
 )
+from app.models.bioequivalence import BiowaiverKind
 from app.models.stability import supported_months
 from app.validation.acceptance import evaluate
 from app.validation.engine import Finding, Severity, rule
@@ -34,6 +36,7 @@ from app.models import (
     PackagingRole,
     Region,
     StabilityStudyType,
+    SubmissionType,
 )
 
 # Words that denote a dosage form, mapped to the enum member they imply.
@@ -252,21 +255,128 @@ def shelf_life_within_stability(project) -> list[Finding]:
 
 
 @rule("R06")
-def generic_requires_bioequivalence(project) -> list[Finding]:
-    """A generic/renewal must include bioequivalence evidence (Module 5.3.1)."""
+def generic_requires_one_bioequivalence_route(project) -> list[Finding]:
+    """A multisource filing must take EXACTLY ONE bioequivalence route.
+
+    **P22 rewrote this rule, and the rewrite is what the phase unlocks.**
+    Until now it asked whether a `ClinicalEntry` row of kind
+    "bioequivalence" existed -- which is the most a free-text summary can
+    be asked. It could not tell an in vivo study from a biowaiver, could
+    not notice that both had been filed, and could not read a single
+    number out of either.
+
+    The regulatory fact it now enforces: there are two ways for a generic
+    to show it behaves like the comparator, and they are ALTERNATIVES.
+    Either a human study was run (5.3.1.2), or a waiver is claimed on
+    biopharmaceutic grounds (1.2.17) or on proportionality with a strength
+    that was studied (1.2.18). **Neither** is an incomplete dossier.
+    **Both** is a contradiction: the application says at once that a study
+    was necessary and that it was not, and an assessor reading Module 1
+    against Module 5 finds two different accounts of the same product.
+
+    ## Why the claim is read from the applicability answers
+
+    P17 made "is a biowaiver being claimed?" a question the filer answers,
+    because only they can. That answer is what makes leaf 1.2.17 applicable
+    and puts the request in the package -- so it is also what this rule has
+    to read. Reading a `Biowaiver` row instead would let the row exist
+    while the leaf stays out of the dossier, which is a filing where the
+    platform believes a claim the regulator never sees.
+
+    ## Scope
+
+    Multisource filings only. A new chemical entity has no comparator to be
+    equivalent to; asking it for a bioequivalence route would be asking the
+    wrong question of the whole application. Before P22 this rule fired on
+    every project regardless, which was wrong in a way nothing noticed
+    because nothing had built an NCE filing yet.
+    """
+    if project.submission_type is not SubmissionType.MULTISOURCE_GENERIC:
+        return []
+
     product = project.product
-    has_be = any(c.kind == "bioequivalence" for c in product.clinical)
-    if not has_be:
-        return [
+    applicability = resolve_applicability(project)
+    studies = list(product.bioequivalence_studies)
+    claimed = {
+        kind: (applicability.get(number) is not None and applicability[number].answer is True)
+        for kind, number in (
+            (BiowaiverKind.BCS_BASED, "1.2.17"),
+            (BiowaiverKind.ADDITIONAL_STRENGTH, "1.2.18"),
+        )
+    }
+    claimed_kinds = [kind for kind, yes in claimed.items() if yes]
+
+    out: list[Finding] = []
+
+    if not studies and not claimed_kinds:
+        out.append(
             Finding(
                 "R06",
                 Severity.ERROR,
                 "completeness",
-                "No bioequivalence study found, but one is required for this "
-                "generic product (Module 5.3.1).",
+                "This multisource filing shows no bioequivalence route: there is no in "
+                "vivo study on file (5.3.1.2) and no biowaiver has been claimed (1.2.17 "
+                "or 1.2.18). Exactly one of the two is required.",
+                section="5.3.1.2",
             )
-        ]
-    return []
+        )
+
+    if studies and claimed_kinds:
+        # WHY the STUDY is named and not just "a study": with one Project
+        # per strength, "the same strength" is this whole filing, so the
+        # filer needs to be told which of the two claims to withdraw.
+        names = ", ".join(sorted(study.study_identifier for study in studies))
+        for kind in claimed_kinds:
+            number = "1.2.17" if kind is BiowaiverKind.BCS_BASED else "1.2.18"
+            out.append(
+                Finding(
+                    "R06",
+                    Severity.ERROR,
+                    "consistency",
+                    f"A {kind.value} biowaiver is claimed at {number} AND an in vivo "
+                    f"bioequivalence study is filed for the same strength ({names}). "
+                    f"The two routes are mutually exclusive -- withdraw the biowaiver "
+                    f"claim or remove the study.",
+                    section=number,
+                )
+            )
+
+    # A claim with no request data behind it. ERROR rather than a warning:
+    # the leaf IS in the package (the answer is what put it there), and it
+    # would ship as a request naming no strength and citing no evidence.
+    for kind in claimed_kinds:
+        number = "1.2.17" if kind is BiowaiverKind.BCS_BASED else "1.2.18"
+        if not any(waiver.kind is kind for waiver in product.biowaivers):
+            out.append(
+                Finding(
+                    "R06",
+                    Severity.ERROR,
+                    "completeness",
+                    f"A {kind.value} biowaiver is claimed at {number}, but no biowaiver "
+                    f"request data is on file -- the leaf would ship with nothing in it.",
+                    section=number,
+                )
+            )
+
+    # The mirror: data entered, claim never made. WARNING, not ERROR --
+    # nothing incorrect is being filed, but a request the filer believes
+    # they have made is silently absent from the package, which is a
+    # failure they would otherwise discover from the agency.
+    for waiver in product.biowaivers:
+        if not claimed[waiver.kind]:
+            out.append(
+                Finding(
+                    "R06",
+                    Severity.WARNING,
+                    "completeness",
+                    f"A {waiver.kind.value} biowaiver request is on file for "
+                    f"{waiver.strength}, but {waiver.section_number} has not been "
+                    f"answered 'yes', so the request will not be in the package.",
+                    section=waiver.section_number,
+                )
+            )
+
+    return out
 
 
 @rule("R07")
@@ -1170,3 +1280,289 @@ def _study_label(study, owner) -> str:
     if study.packaging is not None:
         parts.append(study.packaging.description)
     return ", ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# P22 -- the rules a structured bioequivalence study makes possible.
+#
+# All three read numbers that did not exist before this phase. Until the
+# study was `kind` + `reference_product` + a paragraph, the only checkable
+# fact about the single most important document in a multisource dossier
+# was that a row existed.
+# ---------------------------------------------------------------------------
+
+
+@rule("R25")
+def confidence_interval_within_acceptance_window(project) -> list[Finding]:
+    """A 90 % confidence interval outside the acceptance window. ERROR --
+    it blocks the export.
+
+    **This is the rule the phase exists for.** For a multisource filing,
+    whether the 90 % CI of the test/reference ratio of Cmax and AUC lies
+    inside the window IS the approval decision -- everything else in the
+    dossier establishes that the product is made consistently, and this
+    establishes that it works. A dossier that ships with a failing interval
+    is not a dossier with a defect in it; it is an application that has
+    answered its own central question in the negative.
+
+    ## What the finding has to say
+
+    The PARAMETER and the BOUND, both. "The study failed" sends a filer
+    back to a hundred-page report. "AUC(0-t): the lower bound is 76.40 %,
+    outside 80.00 - 125.00 %" is a line they can act on -- and the two
+    bounds mean different things, since a low lower bound is a product
+    that under-delivers and a high upper bound is one that over-delivers.
+
+    ## Why the window is not in this function
+
+    It is a regulatory parameter, and it is in the region profile beside
+    the Module 1 slots and the applicability table (see
+    `BioequivalenceWindow`). Three consequences that matter: an agency
+    republishing its table is an edit to config, not to a rule; a narrow-
+    therapeutic-index product is judged against 90.00 - 111.11 % with no
+    branch here at all; and the window this rule checks is the same object
+    the BTI form PRINTS, so a form cannot state a criterion the gate does
+    not apply.
+    """
+    profile = REGION_PROFILES.get(project.region)
+    if profile is None:
+        # An unmodelled region declares no criteria. Same call
+        # `resolve_applicability` makes: nothing declared, nothing claimed
+        # -- and an export must not be blocked by a window nobody set.
+        return []
+
+    window = profile.window_for(project.product)
+    out: list[Finding] = []
+
+    for study in project.product.bioequivalence_studies:
+        for result in study.results:
+            for bound in result.outside(window.lower, window.upper):
+                value = result.ci_lower if bound == "lower" else result.ci_upper
+                out.append(
+                    Finding(
+                        "R25",
+                        Severity.ERROR,
+                        "consistency",
+                        f"Study {study.study_identifier}: the 90 % confidence interval for "
+                        f"{result.parameter.value} has a {bound} bound of {value:.2f} %, "
+                        f"outside the acceptance window {window.label}. Bioequivalence is "
+                        f"not demonstrated.",
+                        section="5.3.1.2",
+                    )
+                )
+    return out
+
+
+@rule("R26")
+def study_comparator_matches_the_declared_reference_product(project) -> list[Finding]:
+    """The comparator the study dosed must be the one the application names.
+
+    **This is the cross-module check the platform was built for.** The
+    reference product is named in Module 1 (the registration form, 1.2), in
+    Module 2 (the quality overall summary, 2.3) and in Module 5 (the study
+    report itself). In a hand-assembled dossier those are three separate
+    typings of one fact, done weeks apart by different people, and the
+    failure is entirely ordinary: the comparator originally planned is not
+    the one the CRO could source, the study is run against what was
+    bought, and Module 1 still names the original.
+
+    An assessor catches it by reading three modules against each other. It
+    is caught here by comparing two fields.
+
+    ## Why the two are stored separately at all
+
+    `Product.reference_product_name` is the CLAIM the application makes;
+    the study's `ReferenceProduct` row is what was actually DOSED. Storing
+    one field and rendering it everywhere would make this rule a check
+    that a value equals itself -- and would make the real error
+    unrepresentable in the model while leaving it perfectly possible in
+    the paperwork. It is the same claim-against-evidence shape R05 uses
+    for the shelf life.
+
+    ## Why the comparison is loose
+
+    Names are typed by humans and case, spacing and punctuation vary
+    ("Amoxil 500mg Capsules" and "Amoxil 500 mg capsules" are the same
+    product). Matching those as different would fire on every filing and
+    teach the filer to ignore the rule -- the failure mode a check must
+    never have. What it will not forgive is a different BRAND: "Amoxil"
+    against "Ospamox" is two products, and no normalisation makes them one.
+    """
+    product = project.product
+    declared = product.reference_product_name
+    out: list[Finding] = []
+
+    for study in product.bioequivalence_studies:
+        reference = study.reference_product
+        if reference is None:
+            out.append(
+                Finding(
+                    "R26",
+                    Severity.ERROR,
+                    "completeness",
+                    f"Study {study.study_identifier} names no reference product. A "
+                    f"comparative bioequivalence study without an identified comparator "
+                    f"cannot be assessed (1.4.1 and 5.2 have nothing to print).",
+                    section="5.3.1.2",
+                )
+            )
+            continue
+
+        if not declared:
+            # WHY a WARNING here and an ERROR below: the study HAS a
+            # comparator, and the application simply has not restated it.
+            # Nothing in the dossier contradicts anything; a field is
+            # empty. The rendered 1.2 will show the marker, and blocking
+            # an export over a field the study can fill would be a gate
+            # with no defect behind it.
+            out.append(
+                Finding(
+                    "R26",
+                    Severity.WARNING,
+                    "completeness",
+                    f"Study {study.study_identifier} was run against {reference.identity}, "
+                    f"but the application declares no reference product, so 1.2 and 2.3 "
+                    f"have nothing to name.",
+                    section="1.2",
+                )
+            )
+            continue
+
+        if _normalise_product_name(reference.name) != _normalise_product_name(declared):
+            out.append(
+                Finding(
+                    "R26",
+                    Severity.ERROR,
+                    "consistency",
+                    f"Study {study.study_identifier} was run against "
+                    f"{reference.identity!r}, but the application declares its reference "
+                    f"product as {declared!r} (printed at 1.2 and 2.3). The dossier gives "
+                    f"two different comparators for one product.",
+                    section="5.3.1.2",
+                )
+            )
+            continue
+
+        declared_maker = product.reference_product_manufacturer
+        if (
+            declared_maker
+            and reference.manufacturer
+            and _normalise_product_name(reference.manufacturer)
+            != _normalise_product_name(declared_maker)
+        ):
+            out.append(
+                Finding(
+                    "R26",
+                    Severity.ERROR,
+                    "consistency",
+                    f"Study {study.study_identifier} used {reference.name} made by "
+                    f"{reference.manufacturer!r}, but the application declares the "
+                    f"reference product's manufacturer as {declared_maker!r}. A generic "
+                    f"is equivalent to a specific innovator product, not to a name.",
+                    section="5.3.1.2",
+                )
+            )
+    return out
+
+
+def _normalise_product_name(name: str) -> str:
+    """Case, spacing and punctuation folded away entirely; the characters
+    that carry meaning kept.
+
+    Spacing is REMOVED rather than merely collapsed, and that is the
+    difference between a rule that works and one everybody switches off:
+    "Amoxil 500mg Capsules" and "Amoxil 500 mg capsules" are the same
+    product, typed by two people, and a rule that reported them as two
+    comparators would fire on every filing.
+
+    It deliberately does NOT strip strengths or dosage forms: "amoxil250mg"
+    and "amoxil500mg" stay different, so a study run against the wrong
+    strength of the right brand is still caught. And no amount of folding
+    turns Amoxil into Ospamox, which is the case that matters.
+    """
+    return re.sub(r"[^a-z0-9]+", "", name.lower())
+
+
+@rule("R27")
+def test_batch_is_representative_of_commercial_scale(project) -> list[Finding]:
+    """The bioequivalence batch must be a defensible fraction of production.
+
+    The regulatory fact (WHO TRS 992 Annex 7, and the same position at EMA
+    and FDA): the batch used in the bioequivalence study should be at least
+    one tenth of the proposed commercial batch, or 100 000 units, whichever
+    is greater. The reasoning is not arbitrary -- a study run on a
+    laboratory-scale batch demonstrates that the laboratory-scale batch is
+    bioequivalent, and says nothing about the material a patient will
+    actually be dispensed. Scale-up changes dissolution.
+
+    ## Why this is cross-module and why that is the point
+
+    The test batch size is in Module 5. The proposed commercial batch size
+    is in Module 3 -- leaf 3.2.P.3.2, the batch formula, where it has been
+    modelled since P01 as `BatchFormulaLine.batch_size_units`. Nobody
+    reading either module alone can see the problem; an assessor holding
+    both open can, and does. This is a genuine regulatory finding that
+    exists only in the space BETWEEN two modules, which is the class of
+    defect a single-source-of-truth platform is uniquely able to catch.
+
+    ## Why the thresholds are config
+
+    Two numbers stated in guidance, re-confirmable by reading one file --
+    the same reasoning as R25's window. See
+    `app.ctd.region_profiles.TestBatchRule`.
+
+    Silent when either figure is absent: a study whose batch size has not
+    been entered is a data-entry gap, not a scale defect, and a rule that
+    guessed here would block filings over an empty field.
+    """
+    try:
+        profile = get_region_profile(project.region)
+    except KeyError:
+        return []
+
+    product = project.product
+    commercial = _commercial_batch_size(product)
+    if commercial is None:
+        return []
+
+    rule_ = profile.test_batch_rule
+    required = rule_.required_units(commercial)
+    out: list[Finding] = []
+
+    for study in product.bioequivalence_studies:
+        size = study.test_batch_size_units
+        if size is None or size >= required:
+            continue
+        out.append(
+            Finding(
+                "R27",
+                Severity.ERROR,
+                "consistency",
+                f"Study {study.study_identifier} was run on a test batch of {size:,} "
+                f"units, but the commercial batch declared in 3.2.P.3.2 is "
+                f"{commercial:,} units. The biobatch must be at least "
+                f"{rule_.minimum_fraction:%} of the commercial batch or "
+                f"{rule_.minimum_units:,} units, whichever is greater -- "
+                f"{required:,} units here.",
+                section="5.3.1.2",
+            )
+        )
+    return out
+
+
+def _commercial_batch_size(product) -> int | None:
+    """The proposed commercial batch size, from the batch formula (3.2.P.3.2).
+
+    Takes the MAXIMUM across the formula's lines. Every line of one batch
+    formula should declare the same batch size, and rule R04's arithmetic
+    is where a disagreement between them belongs -- taking the largest here
+    means this rule states the most demanding threshold the dossier's own
+    numbers imply, rather than picking whichever line happened to sort
+    first.
+    """
+    sizes = [
+        line.batch_size_units
+        for line in product.batch_formula
+        if line.batch_size_units is not None
+    ]
+    return max(sizes) if sizes else None
