@@ -65,7 +65,7 @@ Python 3.11 · FastAPI · Pydantic v2 · SQLAlchemy 2.x (async) · Alembic · Po
 
 ## Coverage against a real dossier
 
-**43/98 leaves** of a filed NAFDAC multisource dossier (Me Cure, Amlodipine
+**52/98 leaves** of a filed NAFDAC multisource dossier (Me Cure, Amlodipine
 Tablets 5 mg) are produced from data today — including the fourteen sections
 the dossier declares *not applicable*, which are filed as generated
 statements citing the guideline that excuses them, not omitted. Sections that
@@ -79,7 +79,19 @@ The specification is one table with three owners — the drug substance
 so the batch analyses in 3.2.S.4.4 and 3.2.P.5.4 are checked against *the*
 limit rather than against a copy of it: a result outside its own acceptance
 criterion blocks the export and names the batch, the test, the result and the
-limit. A further
+limit. Stability is the same idea across time — a shelf life is checked
+against the longest timepoint at which every test still met its criterion,
+and 3.2.P.8.1 prints that figure rather than repeating the claim.
+
+The bioequivalence study is data too, and it is where the single-source
+premise is easiest to see. Leaf **1.4.1**, the Bioequivalence Trial
+Information form, is a *Module 1* document generated with no prose at all out
+of *Module 5* numbers; **5.2**'s tabular listing is walked from the studies
+actually filed, so it cannot name one that is not there. A 90 % confidence
+interval outside the acceptance window blocks the export and names the
+parameter and the bound — and that window lives in the region profile
+alongside the Module 1 slots, because it is a regulatory parameter that
+changes, not a constant. A further
 **22 leaves accept an uploaded document** (a regulator's CPP, a CRO's study
 report — paper no software can author), and the build refuses to export while
 any of them is still a placeholder.

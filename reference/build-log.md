@@ -31,6 +31,275 @@ Newest entry at the top.
 
 ---
 
+## P22 — Bioequivalence as data (2026-09-07)
+
+**Platform capability: 48/98 → 52/98 leaves.** Four sections registered
+(1.4.1, 5.2, 1.2.17, 1.2.18), a fifth rendered as a companion leaf at
+5.3.1.2, four tables added, three rules added and one rewritten.
+
+The phase brief predicted five. It landed four, and the missing one is not
+a shortfall — it is the check refusing to be fooled, which is worth more
+than the number. See "Why the count is four and not five" below.
+
+### What was actually wrong
+
+`ClinicalEntry` was `kind` + `reference_product` + a free-text `summary`,
+hanging off the Product. Rule R06 could therefore check exactly one thing:
+that a row existed.
+
+For a multisource filing that is the weakest place in the whole platform.
+Everything in Module 3 establishes that the product is made consistently
+and to a specification. Only leaf **5.3.1.2** establishes that it works —
+it carries the entire scientific argument for approval, and the question
+it answers is arithmetic: does the 90 % confidence interval of the
+test/reference ratio of Cmax and AUC fall inside the accepted window?
+Nothing could ask that. Nothing could check that the comparator named in
+the study was the one named on the application form. And **leaf 1.4.1, the
+Bioequivalence Trial Information form, is generated entirely from study
+data**, so it could not exist at all — a Module 1 document that a filer
+had to retype out of a Module 5 PDF, which is precisely the work this
+platform exists to delete.
+
+### What replaced it
+
+Four tables, and the split between them is the design.
+
+**`ReferenceProduct` is a reference, not a string.** The comparator has an
+identity (brand, strength, manufacturer, country of origin) and a physical
+instance (the batch bought, and its expiry). An assessor checks that the
+batch was in date when it was dosed and that the brand is the one the
+application claims equivalence to; neither is checkable against a
+sentence. It hangs off the Product rather than off the study because a
+fasting study and a fed study routinely dose the same comparator batch,
+and re-entering it per study is re-entering it wrongly once.
+
+**`BioequivalenceStudy`** carries the design, the conduct, and two
+foreign keys that are the whole point: the comparator, and the test batch
+— a real key to the batch whose analysis 3.2.P.5.4 already files, for the
+same reason `StabilityStudy` points at one. An assessor cross-references
+that batch number between Module 5 and Module 3, and a string would let
+the two sections name different material with nothing to notice.
+
+**`BioequivalenceResult`** is one row per pharmacokinetic parameter, each
+with its geometric mean ratio and both bounds of its 90 % CI. One row per
+parameter rather than six columns on the study, because the verdict is per
+parameter: R25's finding has to name Cmax and the bound that failed, not
+"the study". `Numeric(7, 2)`, never `float` — the window is written to two
+decimals, and a rounding artefact here decides a marketing authorisation.
+
+**`Biowaiver`** is the other route: a BCS-based or additional-strength
+request, which is what 1.2.17 and 1.2.18 are rendered from.
+
+### The claim and the evidence, kept apart deliberately
+
+`Product.reference_product_name` / `.reference_product_manufacturer` are
+what the APPLICATION declares — the comparator printed on the registration
+form (1.2) and in the QOS (2.3). The `ReferenceProduct` row is what the
+STUDY actually dosed. They are stored separately, and rule R26 reconciles
+them.
+
+That looks like duplication and is the opposite of it. It is exactly the
+shape `Product.shelf_life_months` already has against the stability data:
+the claim lives on the product, the evidence lives in the data, and a rule
+refuses to let them disagree. Collapse the two into one field and R26
+becomes a check that a value equals itself — while the real filing error
+stays perfectly possible in the paperwork. The error is ordinary, not
+exotic: the comparator originally planned is not the one the CRO could
+source, the study runs against what was bought, and Module 1 still names
+the original. AMPICLOX's buggy fixture plants exactly that.
+
+### Where the acceptance window lives, and why it is configuration
+
+In `app/ctd/region_profiles.py`, beside the Module 1 slots and the
+applicability table — **not in R25's body**, which the brief was explicit
+about and which is right for reasons worth stating.
+
+It is a regulatory parameter and every property of one applies: it is
+written into guidance rather than derived, agencies do not all state the
+same one, and it moves. A rule with `80.0` typed into it is a rule that
+has to be edited, re-reviewed and re-tested when an agency republishes a
+table — and the person who knows the guidance changed is not the person
+who reads Python. This file already exists to be the place a regulatory
+fact is re-confirmable by someone reading ONE file.
+
+Two windows, because there are two: 80.00–125.00 % ordinarily, and
+90.00–111.11 % for a narrow-therapeutic-index drug, where a 20 % swing in
+exposure to warfarin or levothyroxine is a clinically different dose.
+Both are asymmetric because they are symmetric on the log scale, where the
+statistics are done (1/1.25 = 0.80).
+
+**Which window applies is a property of the MOLECULE, not the region.** So
+the region owns the pair and the product owns the flag
+(`Product.narrow_therapeutic_index`), joined by one function,
+`RegionProfile.window_for(product)`. The rule that CHECKS the interval and
+the BTI form that PRINTS the window call that same function — the same
+discipline `supported_months` enforces between 3.2.P.8.1 and R05, and for
+the same reason: a form stating a criterion the gate does not apply is the
+contradiction class this project exists to remove.
+
+`TestBatchRule` sits beside it for R27, holding WHO TRS 992 Annex 7's two
+numbers (a tenth of the commercial batch, or 100 000 units, whichever is
+greater).
+
+### The rules
+
+- **R25** — a 90 % CI outside the window. ERROR; names the parameter and
+  the bound, because a low lower bound and a high upper bound are
+  different problems with the same product.
+- **R26** — the study's comparator against the one the application
+  declares. The cross-module check the platform was built for. The
+  comparison folds case, spacing and punctuation away ENTIRELY — "Amoxil
+  500mg Capsules" and "Amoxil 500 mg capsules" are one product typed by
+  two people, and a rule that reported them as two comparators would fire
+  on every filing and be switched off. It still separates Amoxil from
+  Ospamox, and 250 mg from 500 mg. (The first version collapsed runs of
+  punctuation to a single space rather than removing it, which read
+  "500mg" and "500 mg" as different products; the test caught it.)
+- **R27** — the test batch against the commercial batch in 3.2.P.3.2. A
+  genuine regulatory finding that exists only in the space BETWEEN two
+  modules: the biobatch size is in Module 5, the commercial batch size is
+  in Module 3, and nobody reading either alone can see the problem.
+- **R06** — rewritten, not duplicated. From "a bioequivalence row exists"
+  to "**exactly one route is filed**": neither an in vivo study nor a
+  biowaiver is an incomplete dossier, and both is a contradiction — the
+  application saying at once that a human study was necessary and that it
+  was not. It also stopped firing on new chemical entities, which was
+  wrong in a way nothing had noticed because nothing had built an NCE
+  filing yet.
+
+R06 reads the biowaiver claim from the **applicability answers**, not from
+the `Biowaiver` row. That is deliberate: P17's answer is what makes the
+leaf applicable and therefore what puts the request in the package, so it
+is the thing that has to be checked. Reading the row instead would let the
+row exist while the leaf stayed out of the dossier — a filing where the
+platform believes a claim the regulator never sees.
+
+### Two new registry capabilities, both forced by real leaves
+
+**`SectionSpec.only_when_applicable`** — emit a section only for a project
+whose applicability says it applies. It is `is_statement`'s mirror (that
+one emits when a section does NOT apply) and both read the same
+resolution. This is what makes the biowaiver decision real: answering
+"yes" to 1.2.17 is not a preference recorded somewhere, it is a document
+appearing in Module 1. It also keeps a NAFDAC-only Module 1 leaf out of an
+EU package — the EU applicability table is empty, meaning "not modelled",
+so nothing is claimed and nothing is emitted, rather than the eCTD builder
+raising on a leaf it has no folder for.
+
+**`SectionSpec.leaf_suffix`** — a rendered document that ACCOMPANIES an
+uploaded one at the same section. This one was forced by a trap worth
+recording. Assembly keys leaves by instance key, and **an uploaded file
+wins over a rendered one at the same key** — which is correct, because a
+generated stand-in for a signed certificate is not an improvement on the
+certificate. 5.3.1.2 is the case where it is wrong: the CRO's report and a
+structured summary of the study data are two different documents that both
+belong under that heading, and the eCTD DTD agrees (`m5-3-1-2-…` has a
+`leaf*` content model). Without the suffix the summary would have been
+silently deleted the moment the report was attached — "looks complete, is
+not", which is the exact failure the platform exists to prevent, arriving
+through the mechanism built to prevent it.
+
+### Why the count is four and not five
+
+The brief expected five leaves, one per `blocked_by: [be_study_model]`
+entry. Four moved. **5.3.1.2 did not, and it should not have.**
+
+It is an `uploaded` leaf, and `resolve_status` credits one as done only
+when a real file has actually been attached in a real project. The
+platform can now render a structured summary there, and crediting the
+section because of that would be laundering the single most important gap
+in a multisource dossier into a green tick — the precise move
+`check_target_toc.py`'s docstring says it exists to refuse. So the leaf
+stays a placeholder in platform mode and goes to `done` in `--project`
+mode once the report is in, which the seeds now attach.
+
+The alternative — reclassifying it as `hybrid` to make the number move —
+was considered and rejected in about ten seconds. A contract that can be
+edited to report progress is not a contract.
+
+### THE SCALE FINDING: a filing cannot span strengths
+
+Recorded either way, as the brief asked, and the answer is the
+uncomfortable one.
+
+**`Project` → one `Product` → strength on its `ActiveIngredient` rows.**
+There is no product family. A filing covers one strength.
+
+Leaf 1.2.18 is "biowaiver request for an ADDITIONAL strength", and it
+presumes exactly the span the model does not have. Amlodipine — the
+dossier this whole target TOC was derived from — files at 5 mg and 10 mg.
+
+What was built: the leaf is reachable. The request renders, names the
+strength it covers, and cites the in vivo study it leans on by foreign
+key. What was not built, and cannot be: `Biowaiver.strength` is a plain
+STRING, and the proportionality checks the leaf actually wants
+(proportional composition, comparable dissolution against the strength
+that WAS studied) are impossible, because the other strength is not in the
+filing at all.
+
+Rather than only writing that down, it is asserted:
+`test_a_biowaiver_records_its_strength_as_text_because_a_filing_is_one_strength`
+fails the day `Product` grows a family, and points whoever is holding it
+at the leaf that was waiting. The field's own comment says the same thing
+where the next person will read it.
+
+Naming it now was the cheap moment. It will resurface — a real generic
+company files a strength range as one application, and the day that lands,
+`Product` needs a family, `Project` needs to point at it, and every
+per-strength section needs a repeat axis it does not have.
+
+### MissingGreenlet, a fourth time, from a fourth direction
+
+Sixteen tests failed on `build_ctd_package`, deep inside R06, nowhere near
+a query. The cause was `product.biowaivers`.
+
+The pattern is now unmistakable and the new instance is instructive.
+P18 recorded it for `Project.documents`; P20 for a batch's results; P21
+for a nested `*Read` field. Here it was a collection **the seeds never
+touch** — and every other collection on `Product` escapes the trap only by
+accident, because the seeds happen to append to all of them and appending
+marks a collection loaded.
+
+`biowaivers` is the first collection a COMPLETE filing legitimately leaves
+empty: a filing that ran an in vivo study claims no biowaiver. So it is
+the first one to fail. The fix is the one `Project.__init__` already
+documents — start the collection loaded and empty at construction — and
+the generalisable lesson is sharper than "eager-load your reads": **a
+collection that a valid object may legitimately never populate cannot be
+left to lazy loading, because nothing in the fixtures will ever load it
+for you.**
+
+### Deviations and costs, recorded rather than waved past
+
+- **A second custom wizard editor.** P21's build log said its grid was
+  "worth making exactly once… not a licence to hand-write the next
+  screen". This is the second, and the justification is different rather
+  than borrowed: the comparator is a row other rows point at (a text field
+  would put back the drift R26 exists to catch), and the results are a
+  fixed three-parameter table saved as a set. A test now pins the
+  exception at exactly two editors, so a third has to argue for itself by
+  failing it.
+- **A third place validation is drawn** (`src/lib/be-window.ts`),
+  mitigated as the other two are: advisory only, R25 is the gate, and the
+  window is passed in rather than hard-coded — this module knows how to
+  compare, not what the limit is.
+- **The test suite got slower.** Every project now renders three more
+  leaves, each through a fresh headless LibreOffice. That is the honest
+  cost of a phase whose deliverable is documents; the fix, if it is ever
+  wanted, is a persistent soffice process rather than fewer sections.
+- **The free-text `ClinicalEntry` bioequivalence row was not converted.**
+  It could not be — the row holds a sentence, and a sentence does not
+  contain a study design, a subject count or a confidence interval.
+  Manufacturing those to fill a table would be putting invented regulatory
+  data in front of an assessor with the platform's authority behind it.
+  The migration copies the one fact the row does hold (the comparator
+  name) onto the product, leaves the row alone, and R06 stops accepting it
+  as evidence. Every pre-P22 project now reports "no bioequivalence
+  route", which is an accurate statement about a dossier whose central
+  document is a paragraph.
+
+---
+
 ## P21 — Stability as data, not a paragraph (2026-09-07)
 
 **Platform capability: 43/98 → 48/98 leaves.** Six sections registered

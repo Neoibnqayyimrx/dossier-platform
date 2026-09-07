@@ -158,13 +158,24 @@ capabilities:
   be_study_model:
     summary: Structured bioequivalence study data.
     detail: >
-      ClinicalEntry is kind + reference_product + free-text summary. For this
-      submission type 5.3.1.2 IS the clinical argument, and 1.4.1 (BTI form)
-      is generated from the same data. Needs: design, reference product
-      identity and source/batch, subject count, fasting/fed, analyte, and
-      Cmax / AUCt / AUCinf point estimates with 90% confidence intervals.
-      Unlocks a real rule — CI within 80.00-125.00% — and cross-checking the
-      reference product named in the study against the one named elsewhere.
+      LANDED IN P22. BioequivalenceStudy carries the design, the conduct and
+      two cross-references that make it checkable: the comparator, as a
+      ReferenceProduct row with an identity AND a batch, and the test batch,
+      as a foreign key to the batch 3.2.P.5.4 already files. Each
+      pharmacokinetic parameter is a BioequivalenceResult row -- geometric
+      mean ratio plus the two bounds of its 90 % CI -- because the verdict is
+      per parameter and R25's finding has to name Cmax and the bound that
+      failed, not "the study". The acceptance window lives in the region
+      profile (BioequivalenceWindow), with a narrower one for
+      narrow-therapeutic-index products; the rule that CHECKS it and the BTI
+      form that PRINTS it read the same object. R26 reconciles the study's
+      comparator against the one the application declares, which is stored
+      separately on Product for exactly the reason shelf_life_months is stored
+      separately from the stability data. R06 was rewritten from "a
+      bioequivalence row exists" to "exactly one route is filed".
+      The free-text ClinicalEntry row was NOT converted -- a sentence does not
+      contain a confidence interval, and manufacturing one would be inventing
+      regulatory data. See app/models/bioequivalence.py.
 
   na_statement_generator:
     summary: Emit "not applicable per <guideline>" leaves.
@@ -430,11 +441,15 @@ sections:
     applicable: conditional
     condition: a BCS-based biowaiver is being claimed in place of an in vivo study
     production: hybrid
-    blocked_by: [be_study_model]
     notes: >
-      Mutually exclusive with a submitted in vivo BE study in 5.3.1.2 for the
-      same strength. A validation rule should assert that exactly one of the
-      two routes is present.
+      LANDED IN P22. Rendered from a Biowaiver row (BCS class, f2 similarity)
+      with the applicant's own argument in the narrative slot. The leaf reaches
+      the package ONLY when the filer has answered this condition "yes" --
+      SectionSpec.only_when_applicable, which is P17's machinery deciding what
+      is in the dossier rather than only what is on the screen. R06 enforces
+      the mutual exclusion the previous note asked for: a biowaiver and an in
+      vivo study filed for the same strength are both an error, and so is
+      neither.
     status: unknown
 
   - number: "1.2.18"
@@ -443,12 +458,20 @@ sections:
     applicable: conditional
     condition: filing covers more than one strength and a biowaiver is claimed for the additional strength
     production: hybrid
-    blocked_by: [be_study_model]
     notes: >
-      SCALE SIGNAL: this leaf only makes sense if a Project can span multiple
-      strengths. Amlodipine files at 5 mg and 10 mg. If the data model cannot
-      represent a product family, this leaf is unreachable and the limitation
-      will surface again later at higher cost.
+      LANDED IN P22, PARTIALLY, AND THE PART THAT DID NOT IS THE POINT.
+      The SCALE SIGNAL this note carried is CONFIRMED: a Project points at one
+      Product, and a Product's strength lives on its ActiveIngredient rows, so
+      a filing cannot span 5 mg and 10 mg. The leaf is reachable -- the request
+      renders, cites the in vivo study it leans on by foreign key, and is gated
+      by the same conditional answer as 1.2.17 -- but Biowaiver.strength is a
+      STRING, because the model has nothing better to offer, and the
+      proportionality checks this leaf really wants (proportional composition,
+      comparable dissolution against the strength that WAS studied) are
+      impossible while the other strength is not in the filing. The field's own
+      comment says so, and a test fails the day Product grows a family,
+      pointing whoever is holding it back here. Named rather than worked
+      around, exactly as the note asked.
     status: unknown
 
   - number: "1.3.1"
@@ -484,8 +507,14 @@ sections:
     title: Bioequivalence Trial Information form (BTI)
     applicable: true
     production: generated
-    blocked_by: [be_study_model]
-    notes: Derived entirely from the BE study data. No prose.
+    notes: >
+      LANDED IN P22, and it is the clearest demonstration in the platform of
+      why the single-source-of-truth premise matters: a MODULE 1 form produced
+      with no prose at all out of MODULE 5 numbers. Its SectionSpec has an
+      empty narrative_slots list and a test asserts it stays empty -- a slot
+      here could state a confidence interval the results table disproves.
+      A second test breaks a study and asserts that 1.4.1 AND 5.2 both follow,
+      which is the property a hand-typed form cannot have.
     status: unknown
 
   - number: "1.4.2"
@@ -1131,10 +1160,12 @@ sections:
     title: Tabular listing of all clinical studies
     applicable: true
     production: generated
-    blocked_by: [be_study_model]
     notes: >
-      Generated by walking the studies present. Must not be able to disagree
-      with what is actually filed under 5.3.1.
+      LANDED IN P22. Generated by walking BioequivalenceStudy and
+      ClinicalEntry, so the listing has no independent existence: remove a
+      study and its row goes with it. Every row names the LEAF the report is
+      filed at, which is what makes the table navigable rather than
+      decorative -- an assessor reads it to find the report.
     status: unknown
 
   - number: "5.3.1.1"
@@ -1151,14 +1182,21 @@ sections:
     title: Comparative BA and bioequivalence (BE) study reports
     applicable: true
     production: uploaded
-    blocked_by: [upload_path, be_study_model]
     notes: >
       THE CRITICAL LEAF. For a multisource filing this single document carries
-      the entire scientific argument for approval. Two distinct things are
-      needed and neither exists: the study report FILE (upload_path), and the
-      STRUCTURED RESULTS (be_study_model) that generate 1.4.1, populate 5.2,
-      and make the 80.00-125.00% confidence interval check possible.
-      Mutually exclusive with a 1.2.17 biowaiver for the same strength.
+      the entire scientific argument for approval. Both halves now exist: the
+      study report FILE arrives through P18's upload path, and P22's STRUCTURED
+      RESULTS generate 1.4.1, populate 5.2 and make the confidence-interval
+      check real.
+      IT STAYS `uploaded`, AND STAYS A PLACEHOLDER UNTIL A FILE IS IN. The
+      platform renders a structured SUMMARY here (SectionSpec.leaf_suffix
+      "summary") which ships BESIDE the CRO's report rather than instead of it
+      -- assembly otherwise lets an upload win over a rendered leaf at the same
+      key, and the summary would vanish the moment the report arrived.
+      Crediting the section as done because the summary renders would launder
+      the one gap that matters most, so this leaf goes DONE only in
+      `--project` mode, once the report is actually attached.
+      Mutually exclusive with a 1.2.17 biowaiver for the same strength (R06).
     status: unknown
 
   - number: "5.3.1.3"
