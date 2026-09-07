@@ -29,7 +29,6 @@ from app.models import (
     ActiveIngredient,
     Excipient,
     Packaging,
-    StabilityStudy,
     ClinicalEntry,
     BatchFormulaLine,
     Section,
@@ -45,12 +44,12 @@ from app.models import (
     CompendialStatus,
     PackagingComponent,
     PackagingRole,
-    StabilityStudyType,
     ClinicalKind,
     CertificateType,
     DeclarationType,
     GMPStatus,
 )
+from app.seed.stability import attach_stability_data
 from app.seed.specifications import (
     attach_control_data,
     bp_substance_specification,
@@ -271,14 +270,6 @@ def build_ampiclox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Pro
             ),
         ]
     )
-    product.stability.append(
-        StabilityStudy(
-            study_type=StabilityStudyType.LONG_TERM,
-            condition="30C/65%RH",
-            duration_months=24,
-            result_summary="Within specification through 24 months.",
-        )
-    )
     product.clinical.append(
         ClinicalEntry(
             kind=ClinicalKind.BIOEQUIVALENCE,
@@ -338,5 +329,10 @@ def build_ampiclox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Pro
     # each owner's own specification. Attached last because every part of it
     # points at an active, an excipient or a manufacturing site.
     attach_control_data(product, oos=buggy)
+    # P21: the timepoint tables 3.2.S.7.3 and 3.2.P.8.3 ARE, plus the
+    # studies' real axes -- one per batch, in the marketed pack. Must run
+    # after attach_control_data: every study names a batch and every
+    # result names a specification test, and that function creates both.
+    attach_stability_data(product, oos=buggy)
 
     return project

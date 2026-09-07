@@ -25,6 +25,16 @@ MODULE_2_5_FOLDERS: dict[str, str] = {
     "2.3": "m2/23-quality-overall-summary",
     "3.2.P.1": "m3/32-body-data/32p/32p1-description-and-composition",
     "3.2.P.8.1": "m3/32-body-data/32p/32p8-stability/32p81-stability-summary-and-conclusion",
+    # P21: the other two drug-product stability leaves. They sit beside
+    # 3.2.P.8.1 rather than repeating per batch or per pack -- the CTD
+    # files ONE stability data document for the drug product, containing
+    # every study, which is why 3.2.P.8.3's context blocks the studies
+    # inside one document instead of expanding into several leaves.
+    "3.2.P.8.2": (
+        "m3/32-body-data/32p/32p8-stability/"
+        "32p82-post-approval-stability-protocol-and-stability-commitment"
+    ),
+    "3.2.P.8.3": "m3/32-body-data/32p/32p8-stability/32p83-stability-data",
     # P17: the not-applicable statements. They are placed in the folder the
     # section WOULD occupy, which is the entire point -- an assessor opening
     # m4 finds a document saying why there is nothing else there, instead of
@@ -161,6 +171,17 @@ REPEAT_FOLDERS: dict[str, RepeatFolders] = {
             "3.2.S.3.2": "32s3-characterisation/32s32-impurities",
             "3.2.S.4.2": "32s4-control-of-drug-substance/32s42-analytical-procedures",
             "3.2.S.4.4": "32s4-control-of-drug-substance/32s44-batch-analyses",
+            # P21. Per substance, because a retest period is per material:
+            # a combination product's two actives are two materials with
+            # two stability histories, and filing either under a number
+            # that means "the drug substance" puts the wrong data in front
+            # of an assessor.
+            "3.2.S.7.1": "32s7-stability/32s71-stability-summary-and-conclusions",
+            "3.2.S.7.2": (
+                "32s7-stability/"
+                "32s72-post-approval-stability-protocol-and-stability-commitment"
+            ),
+            "3.2.S.7.3": "32s7-stability/32s73-stability-data",
         },
     ),
     # P20: the excipient axis, declared by P19 and unused until

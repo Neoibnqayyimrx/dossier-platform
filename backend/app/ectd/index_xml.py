@@ -252,6 +252,26 @@ ICH_HEADING_PATH: dict[str, tuple[str, ...]] = {
         "m3-2-p-5-control-of-drug-product",
         "m3-2-p-5-6-justification-of-specifications",
     ),
+    # P21: the drug-product stability leaves. Element names verbatim from
+    # ich-ectd-3-2.dtd -- a typo here fails DTD validation loudly, which is
+    # the behaviour we want. Note 3.2.P.8.1's element is SINGULAR
+    # ("...-conclusion") while 3.2.S.7.1's is plural ("...-conclusions");
+    # that asymmetry is the DTD's, not a mistake, and copying one to the
+    # other would produce a backbone no agency's software can read.
+    "3.2.P.8.2": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-8-stability",
+        "m3-2-p-8-2-post-approval-stability-protocol-and-stability-commitment",
+    ),
+    "3.2.P.8.3": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-8-stability",
+        "m3-2-p-8-3-stability-data",
+    ),
     "3.2.R": ("m3-quality", "m3-2-body-of-data", "m3-2-r-regional-information"),
     "5.3.1.1": (
         "m5-clinical-study-reports",
@@ -297,6 +317,16 @@ DRUG_SUBSTANCE_HEADING_PATH: dict[str, tuple[str, ...]] = {
     "3.2.S.2.1": ("m3-2-s-2-manufacture", "m3-2-s-2-1-manufacturer"),
     "3.2.S.5": ("m3-2-s-5-reference-standards-or-materials",),
     "3.2.S.6": ("m3-2-s-6-container-closure-system",),
+    # P21: filed under the per-substance element, like every other 3.2.S
+    # leaf -- which is what makes a combination product's two stability
+    # datasets distinguishable in the backbone rather than only in the
+    # folder tree.
+    "3.2.S.7.1": ("m3-2-s-7-stability", "m3-2-s-7-1-stability-summary-and-conclusions"),
+    "3.2.S.7.2": (
+        "m3-2-s-7-stability",
+        "m3-2-s-7-2-post-approval-stability-protocol-and-stability-commitment",
+    ),
+    "3.2.S.7.3": ("m3-2-s-7-stability", "m3-2-s-7-3-stability-data"),
     # P20.
     "3.2.S.3.2": ("m3-2-s-3-characterisation", "m3-2-s-3-2-impurities"),
     "3.2.S.4.2": (
@@ -452,6 +482,11 @@ _CHILD_ORDER: dict[str, tuple[str, ...]] = {
         "m3-2-s-2-4-controls-of-critical-steps-and-intermediates",
         "m3-2-s-2-5-process-validation-and-or-evaluation",
         "m3-2-s-2-6-manufacturing-process-development",
+    ),
+    "m3-2-s-7-stability": (
+        "m3-2-s-7-1-stability-summary-and-conclusions",
+        "m3-2-s-7-2-post-approval-stability-protocol-and-stability-commitment",
+        "m3-2-s-7-3-stability-data",
     ),
     "m3-2-s-3-characterisation": (
         "m3-2-s-3-1-elucidation-of-structure-and-other-characteristics",

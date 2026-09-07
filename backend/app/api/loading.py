@@ -21,6 +21,8 @@ from app.models import (
     Excipient,
     Product,
     Project,
+    StabilityResult,
+    StabilityStudy,
 )
 
 # Every child collection ProductRead nests (app/schemas/product.py).
@@ -29,7 +31,15 @@ PRODUCT_CHILD_OPTIONS = (
     selectinload(Product.apis).selectinload(ActiveIngredient.specification),
     selectinload(Product.excipients),
     selectinload(Product.packaging),
-    selectinload(Product.stability),
+    # P21: StabilityStudyRead nests its RESULTS, and each result derives
+    # `meets_criterion` by reading the limit through its specification
+    # test -- so this is three levels deep now, not one. A shallow load
+    # here raises MissingGreenlet inside Pydantic while serializing a
+    # perfectly ordinary GET /products/{id}, which is exactly the failure
+    # this module's docstring describes.
+    selectinload(Product.stability)
+    .selectinload(StabilityStudy.results)
+    .selectinload(StabilityResult.specification_test),
     selectinload(Product.clinical),
     selectinload(Product.batch_formula),
 )
@@ -42,7 +52,10 @@ PROJECT_CHILD_OPTIONS = (
     .selectinload(ActiveIngredient.specification),
     selectinload(Project.product).selectinload(Product.excipients),
     selectinload(Project.product).selectinload(Product.packaging),
-    selectinload(Project.product).selectinload(Product.stability),
+    selectinload(Project.product)
+    .selectinload(Product.stability)
+    .selectinload(StabilityStudy.results)
+    .selectinload(StabilityResult.specification_test),
     selectinload(Project.product).selectinload(Product.clinical),
     selectinload(Project.product).selectinload(Product.batch_formula),
     selectinload(Project.sequences),
@@ -105,4 +118,37 @@ READINESS_LOAD_OPTIONS = PROJECT_CHILD_OPTIONS + (
     .selectinload(Product.batch_analyses)
     .selectinload(BatchAnalysis.manufacturer),
     selectinload(Project.product).selectinload(Product.impurities),
+    # P21. R05, R23 and R24 walk stability -> results -> the specification
+    # test each result answers, on BOTH owners -- the finished product
+    # (3.2.P.8) and each drug substance (3.2.S.7). The result ->
+    # specification_test hop is the load-bearing one again: it is how R23
+    # reaches the limit without a copy of it. Three levels down, and
+    # selectinload chains have to spell out every level.
+    #
+    # The study's batch and pack are loaded too, because a finding names
+    # them: "batch AMP/24/0101, blister" is what makes an R23 finding point
+    # at a page of the stability report rather than at a condition.
+    selectinload(Project.product)
+    .selectinload(Product.stability)
+    .selectinload(StabilityStudy.results)
+    .selectinload(StabilityResult.specification_test),
+    selectinload(Project.product)
+    .selectinload(Product.stability)
+    .selectinload(StabilityStudy.batch_analysis),
+    selectinload(Project.product)
+    .selectinload(Product.stability)
+    .selectinload(StabilityStudy.packaging),
+    selectinload(Project.product)
+    .selectinload(Product.apis)
+    .selectinload(ActiveIngredient.stability)
+    .selectinload(StabilityStudy.results)
+    .selectinload(StabilityResult.specification_test),
+    selectinload(Project.product)
+    .selectinload(Product.apis)
+    .selectinload(ActiveIngredient.stability)
+    .selectinload(StabilityStudy.batch_analysis),
+    selectinload(Project.product)
+    .selectinload(Product.apis)
+    .selectinload(ActiveIngredient.stability)
+    .selectinload(StabilityStudy.packaging),
 )

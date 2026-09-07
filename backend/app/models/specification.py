@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from app.models.batch_analysis import BatchAnalysisResult
     from app.models.excipient import Excipient
     from app.models.product import Product
+    from app.models.stability import StabilityResult
 
 
 class SpecificationTest(Base, SpecificationOwned):
@@ -113,5 +114,14 @@ class SpecificationTest(Base, SpecificationOwned):
     # deletes them: a result whose test no longer exists is a number with no
     # limit, which is precisely the orphan the FK design exists to prevent.
     results: Mapped[list["BatchAnalysisResult"]] = relationship(
+        back_populates="specification_test", cascade="all, delete-orphan"
+    )
+
+    # P21: and the stability results that answer it, across every study,
+    # timepoint and pack. Same cascade and same reason -- a stability
+    # result whose test no longer exists is a number with no limit, which
+    # is worse on stability than at release, because a shelf life is
+    # justified by it.
+    stability_results: Mapped[list["StabilityResult"]] = relationship(
         back_populates="specification_test", cascade="all, delete-orphan"
     )

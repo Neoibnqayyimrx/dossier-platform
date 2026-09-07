@@ -18,7 +18,7 @@ from __future__ import annotations
 from app.ctd.region_profiles import REGION_PROFILES, resolve_applicability
 from app.models.enums import CertificateType, PackagingRole, TSE_RELEVANT_ORIGINS
 from app.models.project import Project
-from app.templating import quality_control
+from app.templating import quality_control, stability
 from app.templating.registry import get_section
 
 # What a context prints where a fact should be but is not. Shared rather
@@ -115,13 +115,6 @@ def build_context(
         return {
             "product": product,
             "batch_formula": product.batch_formula,
-            "narrative": narrative,
-        }
-
-    if section_number == "3.2.P.8.1":
-        return {
-            "product": product,
-            "stability": product.stability,
             "narrative": narrative,
         }
 
@@ -465,7 +458,7 @@ def _excipient_origin_context(product) -> dict:
     }
 
 
-# ---- P20 dispatch ----------------------------------------------------------
+# ---- P20/P21 dispatch ------------------------------------------------------
 #
 # Section number -> (shape, how to find the owner). Kept as one table so
 # that "which owner does this section render from" is answerable by reading
@@ -492,6 +485,21 @@ _QUALITY_CONTROL_SECTIONS: dict[str, tuple[str, str]] = {
     "3.2.P.5.2": ("procedures", _PRODUCT),
     "3.2.P.4.4": ("justification", _EXCIPIENTS),
     "3.2.P.5.6": ("justification", _PRODUCT),
+    # P21: the stability sections, on exactly the same table. 3.2.S.7
+    # repeats per drug substance and 3.2.P.8 is about the medicine, which
+    # the two owner resolvers already answer -- adding six sections here
+    # was six rows and no branches, which is what P20's table was for.
+    #
+    # Note 3.2.P.8.1 lost its own `if` branch when it joined this table. It
+    # used to render `product.stability` and a free-text result summary;
+    # it now renders what the timepoint data supports, from the same
+    # function rule R05 checks against.
+    "3.2.S.7.1": ("stability_summary", _SUBJECT),
+    "3.2.P.8.1": ("stability_summary", _PRODUCT),
+    "3.2.S.7.2": ("stability_commitment", _SUBJECT),
+    "3.2.P.8.2": ("stability_commitment", _PRODUCT),
+    "3.2.S.7.3": ("stability_data", _SUBJECT),
+    "3.2.P.8.3": ("stability_data", _PRODUCT),
 }
 
 
@@ -520,6 +528,12 @@ def _quality_control_context(section, project, subject, narrative) -> dict:
         return quality_control.impurities_context(section, owner)
     if shape == "batches":
         return quality_control.batch_analysis_context(section, owner)
+    if shape == "stability_summary":
+        return stability.stability_summary_context(section, owner, narrative)
+    if shape == "stability_data":
+        return stability.stability_data_context(section, owner)
+    if shape == "stability_commitment":
+        return stability.stability_commitment_context(section, owner, narrative)
 
     # The two narrative shapes take a LIST of owners: 3.2.P.4.2 and
     # 3.2.P.4.4 cover every excipient in one document, while their drug

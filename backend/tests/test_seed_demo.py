@@ -8,7 +8,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from app.core.storage import InMemoryStorageClient
-from app.models import ManufacturerRole, Base
+from app.models import Base, ManufacturerRole, StabilityStudyType
+from app.models.stability import supported_months
 from app.seed.documents import attach_certificate_documents
 import app.validation.rules  # noqa: F401  registers rules
 from app.validation.engine import Severity, run_all
@@ -40,18 +41,32 @@ def test_seed_examox_populates_a_full_project():
     assert len(product.apis) >= 1
     assert len(product.excipients) >= 2
     assert len(product.packaging) >= 1
-    assert len(product.stability) == 1
+    # P21: four studies, not one. ICH Q1A(R2) asks for long-term data on at
+    # least three primary batches, so the seed builds one study PER BATCH
+    # (each foreign-keyed to the batch 3.2.P.5.4 already files), plus one
+    # accelerated study on the first batch.
+    assert len(product.stability) == 4
     assert len(product.clinical) >= 1
     assert len(project.sections) >= 1
 
 
 def test_seed_examox_shelf_life_is_fully_supported():
     """Unlike the old Parazon fixture, EXAMOX's declared shelf life (24 months)
-    is fully supported by its long-term stability study (24 months) -- no
-    artificial R05 mismatch; the only planted defects are R01-R03."""
+    is fully supported by its long-term stability data -- no artificial R05
+    mismatch; the only planted defects are R01-R03.
+
+    P21 changed what "supported" means, and the test with it. It used to
+    read `max(duration_months)` -- how long the longest study RAN -- which
+    would credit a 24-month study that failed at 6 months with 24 months of
+    support. It now asks the same function rule R05 asks: how far did the
+    data actually hold, against the specification's own limits.
+    """
     product = _load(buggy=False).product
-    longest_supported = max(s.duration_months for s in product.stability)
-    assert product.shelf_life_months <= longest_supported
+    long_term = [
+        s for s in product.stability if s.study_type is StabilityStudyType.LONG_TERM
+    ]
+    supported, _ = supported_months(long_term)
+    assert product.shelf_life_months <= supported
 
 
 def test_buggy_examox_is_not_exportable():

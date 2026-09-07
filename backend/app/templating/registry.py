@@ -102,12 +102,75 @@ SECTIONS: dict[str, SectionSpec] = {
         narrative_slots=["description"],
         grounding_query="description and composition of the drug product dosage form",
     ),
+    # ---- P21: one set of stability sections, two owners -----------------
+    #
+    # 3.2.S.7.1-.3 and 3.2.P.8.1-.3 share three templates for the same
+    # reason 3.2.S.4.1 and 3.2.P.5.1 share `specification.docx`: they are
+    # the same section asked of two different materials, and six templates
+    # would be six places for one table to be laid out differently.
+    #
+    # 3.2.P.8.1 keeps its number, its title and its template FILENAME, and
+    # is a different document underneath: it used to print a claimed shelf
+    # life beside a free-text result summary, and now prints what the
+    # timepoint data supports. Keeping the filename is deliberate -- the
+    # leaf path, the folder and the eCTD element are all unchanged, so a
+    # rebuild of an existing sequence produces the same tree.
     "3.2.P.8.1": SectionSpec(
         number="3.2.P.8.1",
         title="Stability Summary and Conclusion",
         template_filename="stability_summary.docx",
+        # The conclusion ONLY. The period, the storage statement and the
+        # study table are all computed -- a narrative slot that could state
+        # a shelf life is a slot that can contradict 3.2.P.8.3.
         narrative_slots=["conclusion"],
         grounding_query="stability testing storage conditions retest period shelf life",
+    ),
+    "3.2.P.8.2": SectionSpec(
+        number="3.2.P.8.2",
+        title="Post-approval Stability Protocol and Stability Commitment",
+        template_filename="stability_commitment.docx",
+        # The commitment's wording is a legal undertaking the applicant
+        # makes; the schedule it follows is read from the studies.
+        narrative_slots=["commitment"],
+        grounding_query=(
+            "post approval stability protocol commitment production batches annual"
+        ),
+    ),
+    "3.2.P.8.3": SectionSpec(
+        number="3.2.P.8.3",
+        title="Stability Data (Drug Product)",
+        template_filename="stability_data.docx",
+        # No narrative slots: a stability table is timepoints, results and
+        # the limits they are judged against. There is nothing here for the
+        # LLM to draft -- the same call 3.2.S.4.1 and 3.2.P.5.4 make.
+        narrative_slots=[],
+        grounding_query=None,
+    ),
+    "3.2.S.7.1": SectionSpec(
+        number="3.2.S.7.1",
+        title="Stability Summary and Conclusion (Drug Substance)",
+        template_filename="stability_summary.docx",
+        narrative_slots=["conclusion"],
+        grounding_query="drug substance stability retest period storage conditions",
+        repeat="drug_substance",
+    ),
+    "3.2.S.7.2": SectionSpec(
+        number="3.2.S.7.2",
+        title="Post-approval Stability Protocol and Stability Commitment (Drug Substance)",
+        template_filename="stability_commitment.docx",
+        narrative_slots=["commitment"],
+        grounding_query=(
+            "post approval stability protocol commitment drug substance retest period"
+        ),
+        repeat="drug_substance",
+    ),
+    "3.2.S.7.3": SectionSpec(
+        number="3.2.S.7.3",
+        title="Stability Data (Drug Substance)",
+        template_filename="stability_data.docx",
+        narrative_slots=[],
+        grounding_query=None,
+        repeat="drug_substance",
     ),
     "3.2.S.1": SectionSpec(
         number="3.2.S.1",

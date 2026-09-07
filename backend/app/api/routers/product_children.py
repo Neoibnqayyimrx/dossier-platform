@@ -25,6 +25,23 @@ from app.models import Product, User
 from app.models.base import Base
 
 
+def _load_path(model: type[Base], path: str):
+    """A `selectinload` chain for a dotted relationship path.
+
+    "results.specification_test" becomes
+    `selectinload(X.results).selectinload(Y.specification_test)` --
+    selectinload chains have to spell out every level, and the class each
+    level belongs to is only reachable through the previous level's mapper.
+    """
+    option = None
+    current: type[Base] = model
+    for segment in path.split("."):
+        attribute = getattr(current, segment)
+        option = selectinload(attribute) if option is None else option.selectinload(attribute)
+        current = attribute.property.mapper.class_
+    return option
+
+
 def build_child_router(
     *,
     resource: str,
@@ -57,7 +74,18 @@ def build_child_router(
     # app/api/loading.py). The factory has to do this itself -- a router
     # built here returns rows straight from its own queries, so the
     # centralized options in loading.py never reach them.
-    _load = tuple(selectinload(getattr(model, name)) for name in nested_collections)
+    #
+    # P21: an entry may be a DOTTED PATH ("results.specification_test").
+    # StabilityResultRead exposes `meets_criterion`, which is derived by
+    # reading the limit through the result's specification test -- so
+    # serializing a study touches a relationship two levels down, and a
+    # single-level selectinload leaves it to raise MissingGreenlet inside
+    # Pydantic, nowhere near the query that forgot it.
+    _load = tuple(_load_path(model, path) for path in nested_collections)
+    # `db.refresh` takes ATTRIBUTE names, not paths, so it gets the first
+    # segment of each -- refreshing the collection reloads what hangs off
+    # it through the options above.
+    _refresh_names = tuple(dict.fromkeys(path.split(".")[0] for path in nested_collections))
     router = APIRouter(prefix=f"/{parent_segment}/{{parent_id}}/{resource}", tags=[resource])
 
     async def _get_parent_or_404(parent_id: uuid.UUID, user: User, db: AsyncSession) -> None:
@@ -105,8 +133,8 @@ def build_child_router(
         # A second, targeted refresh: passing attribute_names to the first
         # one would LIMIT it to those attributes, leaving server-side
         # columns like updated_at expired and unloadable.
-        if nested_collections:
-            await db.refresh(obj, nested_collections)
+        if _refresh_names:
+            await db.refresh(obj, _refresh_names)
         return obj
 
     @router.get("", response_model=list[read_schema])
@@ -150,8 +178,8 @@ def build_child_router(
         # A second, targeted refresh: passing attribute_names to the first
         # one would LIMIT it to those attributes, leaving server-side
         # columns like updated_at expired and unloadable.
-        if nested_collections:
-            await db.refresh(obj, nested_collections)
+        if _refresh_names:
+            await db.refresh(obj, _refresh_names)
         return obj
 
     @router.delete("/{child_id}", status_code=status.HTTP_204_NO_CONTENT)

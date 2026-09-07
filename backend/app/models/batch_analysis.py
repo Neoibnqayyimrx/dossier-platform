@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from app.models.manufacturer import Manufacturer
     from app.models.product import Product
     from app.models.specification import SpecificationTest
+    from app.models.stability import StabilityStudy
 
 
 class BatchAnalysis(Base, SpecificationOwned):
@@ -112,6 +113,17 @@ class BatchAnalysis(Base, SpecificationOwned):
         # would make the two tables have to be read against each other
         # instead of across.
         order_by="BatchAnalysisResult.sort_order",
+    )
+
+    # P21: the stability studies run ON this batch. ICH Q1A(R2) asks for
+    # stability data on the same primary batches whose analysis is filed
+    # in 3.2.S.4.4 / 3.2.P.5.4, and an assessor cross-references the batch
+    # numbers between the two sections -- so the link is a foreign key,
+    # never a batch number typed twice. No cascade delete: removing a batch
+    # while a stability study still cites it should fail on the constraint,
+    # not silently take the study's data with it.
+    stability_studies: Mapped[list["StabilityStudy"]] = relationship(
+        back_populates="batch_analysis"
     )
 
 

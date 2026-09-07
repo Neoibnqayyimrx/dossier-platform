@@ -15,10 +15,16 @@ the code here and re-run:
 
 It is idempotent: it overwrites every file it owns from scratch each time.
 
-The older templates (cover letter, 1.2, 3.2.P.1, 3.2.P.8.1, 2.3) are
-deliberately NOT regenerated here -- they were authored by hand and carry
-styling this script does not attempt to reproduce. Converting them would be
-a separate, behaviour-preserving change with its own tests.
+The older templates (cover letter, 1.2, 3.2.P.1, 2.3) are deliberately
+NOT regenerated here -- they were authored by hand and carry styling this
+script does not attempt to reproduce. Converting them would be a separate,
+behaviour-preserving change with its own tests.
+
+P21 took `stability_summary.docx` (3.2.P.8.1) OFF that list, and not as a
+tidy-up: the hand-authored one printed a claimed shelf life beside a
+free-text result summary, which is exactly the contradiction the phase
+exists to remove. Rewriting it required changing what the page says, so it
+came here where the change is diffable.
 """
 
 from __future__ import annotations
@@ -563,6 +569,194 @@ def build_impurities() -> Path:
     return path
 
 
+# ---- P21: stability ---------------------------------------------------------
+
+
+def build_stability_summary() -> Path:
+    """3.2.S.7.1, 3.2.P.8.1 -- the summary and conclusion.
+
+    **This replaces the hand-authored template the repo has carried since
+    P04**, and the replacement is the point of the phase rather than a
+    tidy-up. The old one printed `{{ product.shelf_life_months }}` beside
+    `{{ study.result_summary }}`: a claimed period next to a typed
+    sentence, with nothing in the document or the code able to tell whether
+    either matched the data. It could render "Shelf life: 24 months --
+    within specification throughout" over a study that failed dissolution
+    at 12.
+
+    Everything numeric on this page now arrives already computed, as
+    `claim_statement`, from `app.models.stability.supported_months` -- the
+    same function rule R05 checks against. The only free text is the
+    conclusion slot, which is the applicant's reading of the data and
+    cannot state a period, because the period is printed above it.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    doc.add_paragraph("{{ owner_label }}: {{ owner_name }}")
+    # NOT "{{ claim_label }}: {{ months }}" -- the sentence is assembled in
+    # the context precisely so that the "claimed period exceeds the data"
+    # case can render a marker instead of the claim. A template that
+    # printed the two fields separately could not make that choice.
+    doc.add_paragraph("{{ claim_statement }}")
+    doc.add_paragraph("{{ storage_statement }}")
+
+    doc.add_heading("Studies", level=2)
+    _looping_table(
+        doc,
+        ["Study", "Condition", "Batch", "Pack", "Duration (months)", "Timepoints", "Supported"],
+        [
+            "{{ s.study_type }}",
+            "{{ s.condition }}",
+            "{{ s.batch_number }}",
+            "{{ s.pack }}",
+            "{{ s.duration_months }}",
+            "{{ s.timepoints }}",
+            "{{ s.supported_months }}",
+        ],
+        loop="s in studies",
+    )
+
+    doc.add_heading("Attributes monitored", level=2)
+    doc.add_paragraph("{% for test in tests_monitored %}{{ test }}{% if not loop.last %}; "
+                      "{% endif %}{% endfor %}")
+
+    doc.add_heading("Conclusion", level=2)
+    doc.add_paragraph(
+        "{{ narrative.conclusion or '[[AI DRAFT PENDING -- stability conclusion]]' }}"
+    )
+    note = doc.add_paragraph()
+    note.add_run(
+        "The period stated above is computed from the timepoint results filed in the "
+        "corresponding stability data section, judged against the acceptance criteria in "
+        "the specification. It is not re-entered here, and this section cannot state a "
+        "period the data does not support."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "stability_summary.docx"
+    doc.save(path)
+    return path
+
+
+def build_stability_data() -> Path:
+    """3.2.S.7.3, 3.2.P.8.3 -- the timepoint tables.
+
+    One BLOCK per study, because a study is the unit an assessor reads:
+    this batch, this condition, this pack. Inside each block, one row per
+    test per timepoint, with the acceptance criterion and the verdict on
+    the same line as the value.
+
+    WHY not the matrix a stability report uses (tests down, timepoints
+    across): docxtpl's column loop `{%tc %}` has the same "the tag needs a
+    cell of its own" constraint `{%tr %}` has, and nesting a column loop
+    inside a row loop inside a document-level `{%p for %}` compounds it --
+    P20's build log records that failure mode dying with "Encountered
+    unknown tag 'endfor'". The flat form is also the better document: a
+    limit printed in one table and the numbers judged against it in another
+    is the layout that lets an out-of-specification result pass unnoticed.
+
+    `{%p %}` is docxtpl's PARAGRAPH-level tag: the paragraph holding it is
+    removed and what lies between the tags repeats. It is what lets a loop
+    span headings and whole tables rather than rows of one table.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    doc.add_paragraph("{{ owner_label }}: {{ owner_name }}")
+    doc.add_paragraph("{{ no_studies_statement }}")
+
+    doc.add_paragraph("{%p for study in studies %}")
+    doc.add_heading(
+        "{{ study.study_type }} - {{ study.condition }} - batch {{ study.batch_number }}",
+        level=2,
+    )
+    doc.add_paragraph("Pack: {{ study.pack }}")
+    doc.add_paragraph("Protocol: {{ study.protocol }}")
+    doc.add_paragraph("{{ study.no_results_statement }}")
+    _looping_table(
+        doc,
+        ["Test", "Acceptance criterion", "Timepoint (months)", "Result", "Against the limit"],
+        [
+            "{{ row.test_name }}",
+            "{{ row.acceptance_criterion }}",
+            "{{ row.timepoint_months }}",
+            "{{ row.result }}",
+            "{{ row.verdict }}",
+        ],
+        loop="row in study.rows",
+    )
+    doc.add_paragraph("{%p endfor %}")
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "Each result is recorded against the specification test it answers, and the "
+        "limits printed above are the specification's own -- they are not re-entered "
+        "here. A result inside the claimed shelf life that does not meet its criterion "
+        "blocks the export (rule R23). \"Not checked mechanically\" means exactly that: "
+        "it is not a pass."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "stability_data.docx"
+    doc.save(path)
+    return path
+
+
+def build_stability_commitment() -> Path:
+    """3.2.S.7.2, 3.2.P.8.2 -- the post-approval protocol and commitment.
+
+    The section exists because the studies filed with an application are
+    usually incomplete -- twelve months of data behind a twenty-four month
+    claim is the ordinary case -- and the applicant undertakes to finish
+    them, to put the first production batches on stability, and to report
+    any out-of-specification result to the agency.
+
+    Hybrid, and the split is the same as the summary's: the protocol table
+    is read from the studies themselves, so a commitment cannot name
+    batches or timepoints the stability section does not contain, and the
+    narrative carries the undertaking's own wording -- which is a legal
+    statement the applicant makes, not a number the platform can derive.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    doc.add_paragraph("{{ owner_label }}: {{ owner_name }}")
+    doc.add_paragraph("{{ claim_label }} claimed: {{ claim_months }} months")
+    doc.add_paragraph("{{ no_studies_statement }}")
+
+    doc.add_heading("Post-approval stability protocol", level=2)
+    _looping_table(
+        doc,
+        ["Batch", "Condition", "Pack", "Tested to (months)", "To be continued"],
+        [
+            "{{ row.batch_number }}",
+            "{{ row.condition }}",
+            "{{ row.pack }}",
+            "{{ row.tested_to_months }}",
+            "{{ row.remaining }}",
+        ],
+        loop="row in protocol",
+    )
+
+    doc.add_heading("Stability commitment", level=2)
+    doc.add_paragraph(
+        "{{ narrative.commitment or '[[AI DRAFT PENDING -- stability commitment]]' }}"
+    )
+    note = doc.add_paragraph()
+    note.add_run(
+        "The batches and timepoints above are read from the stability studies filed in "
+        "this dossier. They are not a separate list, so this protocol cannot commit to "
+        "continuing a study the dossier does not contain."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "stability_commitment.docx"
+    doc.save(path)
+    return path
+
+
+P21_BUILDERS = (
+    build_stability_summary,
+    build_stability_data,
+    build_stability_commitment,
+)
+
+
 P20_BUILDERS = (
     build_specification,
     build_analytical_procedures,
@@ -576,5 +770,6 @@ if __name__ == "__main__":
     built_paths = [build_3_2_s_1(), build_na_statement()]
     built_paths.extend(builder() for builder in P19_BUILDERS)
     built_paths.extend(builder() for builder in P20_BUILDERS)
+    built_paths.extend(builder() for builder in P21_BUILDERS)
     for built in built_paths:
         print(f"wrote {built}")

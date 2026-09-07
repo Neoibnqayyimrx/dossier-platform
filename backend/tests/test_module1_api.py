@@ -91,13 +91,17 @@ async def _complete_nafdac_project(client) -> dict:
     )
 
     # R05: the declared shelf life must be covered by long-term data.
+    #
+    # P21 removed `result_summary` from the wire. A study with no timepoint
+    # results on file falls back to its declared duration, which is exactly
+    # the pre-P21 behaviour and is what this fixture is exercising -- the
+    # point here is the Module 1 path, not the stability data.
     await client.post(
         f"/products/{product_id}/stability",
         json={
             "study_type": "long-term",
             "duration_months": 24,
             "condition": "30 C / 75 % RH",
-            "result_summary": "Within specification at 24 months.",
         },
     )
 

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from app.models.manufacturer import Manufacturer
     from app.models.product import Product
     from app.models.specification import SpecificationTest
+    from app.models.stability import StabilityStudy
 
 
 class ActiveIngredient(Base):
@@ -80,4 +81,12 @@ class ActiveIngredient(Base):
         back_populates="active_ingredient",
         cascade="all, delete-orphan",
         order_by="Impurity.name",
+    )
+    # P21: this substance's own stability studies (3.2.S.7). Same argument
+    # again -- a fixed-dose combination has one retest period per active,
+    # supported by that active's own data, and 3.2.S.7 is filed per
+    # substance because of it.
+    stability: Mapped[list["StabilityStudy"]] = relationship(
+        back_populates="active_ingredient",
+        cascade="all, delete-orphan",
     )

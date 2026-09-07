@@ -88,6 +88,11 @@ class Product(Base):
     packaging: Mapped[list["Packaging"]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
     )
+    # P21: the FINISHED PRODUCT's stability studies only (3.2.P.8). A
+    # study of a drug substance (3.2.S.7) now hangs off the active
+    # ingredient instead -- see app/models/stability.py. That split is why
+    # R05 can read this collection and mean "the studies that support THIS
+    # product's shelf life" without filtering.
     stability: Mapped[list["StabilityStudy"]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
     )

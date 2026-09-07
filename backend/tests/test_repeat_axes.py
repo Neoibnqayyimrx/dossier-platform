@@ -92,9 +92,11 @@ def test_a_combination_product_owes_two_copies_of_every_per_substance_section():
     for instance in per_substance:
         by_number.setdefault(instance.number, []).append(instance.key)
 
-    # Eight sections repeat per substance after P20 (3.2.S.1, 3.2.S.4.1 from
-    # P13; 3.2.S.2.1, 3.2.S.5, 3.2.S.6 from P19; 3.2.S.3.2, 3.2.S.4.2,
-    # 3.2.S.4.4 added with the impurity and batch-analysis models).
+    # Eleven sections repeat per substance after P21 (3.2.S.1, 3.2.S.4.1
+    # from P13; 3.2.S.2.1, 3.2.S.5, 3.2.S.6 from P19; 3.2.S.3.2, 3.2.S.4.2,
+    # 3.2.S.4.4 with the impurity and batch-analysis models in P20; the
+    # three 3.2.S.7 stability leaves in P21, once a study could belong to a
+    # substance at all).
     #
     # An exact set rather than a subset, deliberately: what this test is
     # for is that EVERY per-substance section is expanded per substance, so
@@ -110,6 +112,9 @@ def test_a_combination_product_owes_two_copies_of_every_per_substance_section():
         "3.2.S.4.4",
         "3.2.S.5",
         "3.2.S.6",
+        "3.2.S.7.1",
+        "3.2.S.7.2",
+        "3.2.S.7.3",
     }
     for number, keys in by_number.items():
         assert keys == [f"{number}-ampicillin", f"{number}-cloxacillin"], number

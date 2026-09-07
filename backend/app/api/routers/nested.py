@@ -96,12 +96,39 @@ NESTED_ROUTERS = [
         update_schema=PackagingUpdate,
         read_schema=PackagingRead,
     ),
+    # ---- one stability model, two owners (P21) --------------------------
+    #
+    # 3.2.P.8: the finished product's studies. Product IS the owner, so no
+    # owner_via hop.
+    #
+    # `nested_collections` reaches TWO levels down, which is new: a study's
+    # results each expose `meets_criterion`, derived by reading the limit
+    # through the result's specification test. One level of eager loading
+    # would leave that raising MissingGreenlet inside Pydantic.
     build_child_router(
         resource="stability",
         model=StabilityStudy,
         create_schema=StabilityStudyCreate,
         update_schema=StabilityStudyUpdate,
         read_schema=StabilityStudyRead,
+        parent_fk="product_id",
+        order_by="condition",
+        nested_collections=("results.specification_test",),
+    ),
+    # 3.2.S.7: per drug substance. A combination product's two actives have
+    # two retest periods, each justified by its own material's data.
+    build_child_router(
+        resource="stability",
+        model=StabilityStudy,
+        create_schema=StabilityStudyCreate,
+        update_schema=StabilityStudyUpdate,
+        read_schema=StabilityStudyRead,
+        parent_model=ActiveIngredient,
+        parent_segment="apis",
+        parent_fk="active_ingredient_id",
+        order_by="condition",
+        nested_collections=("results.specification_test",),
+        owner_via="product",
     ),
     build_child_router(
         resource="clinical",

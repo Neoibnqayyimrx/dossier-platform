@@ -11,6 +11,7 @@ scanning rules are the safety net for prose that slips through.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import date
 
 from app.ctd.region_profiles import (
@@ -19,6 +20,7 @@ from app.ctd.region_profiles import (
     resolve_applicability,
     satisfied_certificate_types,
 )
+from app.models.stability import supported_months
 from app.validation.acceptance import evaluate
 from app.validation.engine import Finding, Severity, rule
 from app.models import (
@@ -31,6 +33,7 @@ from app.models import (
     PackagingComponent,
     PackagingRole,
     Region,
+    StabilityStudyType,
 )
 
 # Words that denote a dosage form, mapped to the enum member they imply.
@@ -196,25 +199,56 @@ def salt_base_batch_arithmetic(project) -> list[Finding]:
 
 @rule("R05")
 def shelf_life_within_stability(project) -> list[Finding]:
-    """Declared shelf life must be supported by long-term stability duration.
-    A product with no declared shelf life yet has nothing for this rule to
-    check -- that's R06/R07-style completeness territory, not this rule's
-    job, so it stays silent rather than crashing on None."""
-    product = project.product
-    if product.shelf_life_months is None:
-        return []
-    supported = max((s.duration_months for s in product.stability), default=0)
-    if product.shelf_life_months > supported:
-        return [
+    """A claimed shelf life (or retest period) must be within the longest
+    timepoint at which the long-term study still met every acceptance
+    criterion. ERROR -- it blocks the export.
+
+    **P21 upgraded this rule, and the upgrade is the point of the phase.**
+    Until now it compared the claim against `duration_months`: how long the
+    study RAN. That could only ever catch a claim longer than the study,
+    and it read a 24-month study that failed dissolution at 6 months as 24
+    months of support -- the arithmetic was right and the question was
+    wrong. It now compares against `longest_passing_timepoint`, which is
+    computed from the timepoint results against the specification's own
+    limits (app/models/stability.py).
+
+    Two other things changed with it, both of which were latent bugs:
+
+    - **It only counts LONG-TERM studies now.** The old `max()` ran over
+      every study on file, so a 6-month accelerated study counted as six
+      months of shelf-life support. It is not -- accelerated data supports
+      excursions and extrapolation, never the shelf life itself (ICH
+      Q1A(R2) 2.2.7). R24 says so separately.
+    - **It reaches the drug substance too.** A retest period is the
+      substance's exact analogue of a shelf life, justified by 3.2.S.7
+      data, and before P21 a study could not belong to a substance at all.
+
+    Silent when nothing is claimed: a product with no shelf life on file
+    yet is R06/R07-style completeness territory, not this rule's job.
+    """
+    out: list[Finding] = []
+    for claim in _stability_claims(project):
+        if claim.months is None:
+            continue
+        long_term = [
+            study
+            for study in claim.owner.stability
+            if study.study_type is StabilityStudyType.LONG_TERM
+        ]
+        supported, basis = supported_months(long_term)
+        if claim.months <= supported:
+            continue
+        out.append(
             Finding(
                 "R05",
                 Severity.ERROR,
                 "consistency",
-                f"Shelf life {product.shelf_life_months} months exceeds the "
-                f"{supported} months supported by long-term stability data.",
+                f"{claim.label} of {_owner_label(claim.owner)} is {claim.months} months, "
+                f"but the long-term stability data supports {supported} months ({basis}).",
+                section=claim.data_section,
             )
-        ]
-    return []
+        )
+    return out
 
 
 @rule("R06")
@@ -914,3 +948,225 @@ def batch_results_within_specification(project) -> list[Finding]:
                     )
                 )
     return out
+
+
+# ---- P21: stability, as three independent checks ---------------------------
+#
+# The phase brief asks for three, and they stay three functions rather than
+# one "stability check" for the reason the engine's registry exists: each
+# is a separate regulatory statement, each fails for its own reason, and a
+# filer reading the report has to be able to tell which one they tripped.
+#
+#   R05  the claim exceeds what the data supports   (upgraded above)
+#   R23  a result inside the claim is out of specification
+#   R24  the only data on file is accelerated
+#
+# They can fire together on one product, and when they do they are saying
+# three different things -- not the same thing three times.
+
+
+def _stability_claims(project):
+    """Every claim stability has to support, as a `_StabilityClaim`.
+
+    Two kinds of claim, and they are the same claim about different
+    material. A finished product declares a SHELF LIFE, justified by
+    3.2.P.8 data. A drug substance declares a RETEST PERIOD, justified by
+    3.2.S.7 data -- the interval after which the material must be
+    re-tested before use, not an expiry. Yielding both from one place is
+    what lets R05, R23 and R24 each be written once instead of twice.
+    """
+    product = project.product
+    yield _StabilityClaim(product, product.shelf_life_months, "Shelf life", "3.2.P.8")
+    for api in product.apis:
+        yield _StabilityClaim(api, api.retest_period_months, "Retest period", "3.2.S.7")
+
+
+@dataclass(frozen=True)
+class _StabilityClaim:
+    """One shelf life or retest period, and where its evidence is filed.
+
+    Carrying the 3.2.x.y STEM rather than a leaf number means each rule
+    names the leaf it is actually talking about -- the data table for a
+    contradicted result, the commitment leaf for missing data -- instead of
+    slicing a section number apart at the call site.
+    """
+
+    owner: object
+    months: int | None
+    label: str
+    stem: str
+
+    @property
+    def data_section(self) -> str:
+        """3.2.S.7.3 / 3.2.P.8.3 -- where the timepoint table is filed."""
+        return f"{self.stem}.3"
+
+    @property
+    def commitment_section(self) -> str:
+        """3.2.S.7.2 / 3.2.P.8.2 -- the post-approval protocol and
+        commitment, which is where an incomplete study is answered."""
+        return f"{self.stem}.2"
+
+
+@rule("R23")
+def stability_results_within_specification(project) -> list[Finding]:
+    """A stability result inside the claimed shelf life that does not meet
+    its acceptance criterion. ERROR -- it blocks the export.
+
+    **This is the rule P21 exists to make possible**, and it is R22's
+    sibling: a stability result is judged against the limit reached through
+    `result.specification_test`, never against a copy of it. Tighten a
+    limit in 3.2.P.5.1 and every timepoint already on file is re-judged
+    with nothing re-entered.
+
+    The regulatory fact it encodes: a shelf life is a promise that the
+    product still meets its specification at the end of it. An
+    out-of-specification result at 6 months on a product claiming 24 is not
+    a formatting problem -- it is the claim being contradicted by the
+    applicant's own table, three sections later in the same dossier, and
+    comparing those two things is precisely what an assessor does with
+    3.2.P.8.3.
+
+    Why "inside the claimed shelf life" and not "any failure at all": a
+    study deliberately run past the claim is normal and good practice, and
+    the point at which it eventually fails is *why* the claim is where it
+    is. Flagging that as a defect would penalise the applicant who
+    generated the most data. A failure beyond the claim still constrains
+    R05 -- it caps `longest_passing_timepoint` -- so it is never ignored,
+    only reported by the rule it actually bears on.
+
+    Every finding names the timepoint, the test, the result and the limit,
+    plus the batch and pack when they are on file. A finding a filer cannot
+    act on without opening three screens is a finding they will not act on.
+    """
+    out: list[Finding] = []
+    for claim in _stability_claims(project):
+        for study in claim.owner.stability:
+            unchecked: set[str] = set()
+            for result in study.results:
+                test = result.specification_test
+                if test is None:
+                    # Structurally impossible through the API (the FK is
+                    # NOT NULL and the router checks the owner match), so
+                    # this is an in-memory object mid-construction. There
+                    # is no limit to judge against, and inventing one would
+                    # be worse than saying nothing.
+                    continue
+                verdict = result.meets_criterion
+                if verdict is None:
+                    unchecked.add(test.test_name)
+                    continue
+                if verdict:
+                    continue
+                if claim.months is not None and result.timepoint_months > claim.months:
+                    # Past the claim: the reason the claim stops there, not
+                    # a defect. R05 already accounts for it.
+                    continue
+                out.append(
+                    Finding(
+                        "R23",
+                        Severity.ERROR,
+                        "regulatory-limit",
+                        f"{_study_label(study, claim.owner)}: at "
+                        f"{result.timepoint_months} months, {test.test_name} was "
+                        f"{result.result!r} against the acceptance criterion "
+                        f"{test.acceptance_criterion!r}. That is inside the claimed "
+                        f"{claim.label.lower()}"
+                        + (f" of {claim.months} months" if claim.months is not None else "")
+                        + ".",
+                        section=claim.data_section,
+                    )
+                )
+            if unchecked:
+                # ONE finding per study rather than one per cell, and INFO
+                # rather than WARNING -- the same call R22 makes and for
+                # the same reason. A specification's first rows are
+                # descriptive by nature ("White crystalline powder"), so a
+                # per-cell warning would fire dozens of times on every
+                # filing and teach the reader to scroll past the report.
+                # What must never happen is silence: an unchecked result is
+                # not a passed result.
+                out.append(
+                    Finding(
+                        "R23",
+                        Severity.INFO,
+                        "regulatory-limit",
+                        f"{_study_label(study, claim.owner)}: {len(unchecked)} test(s) "
+                        f"could not be checked mechanically against their acceptance "
+                        f"criteria ({', '.join(sorted(unchecked))}) -- these need a "
+                        f"human read.",
+                        section=claim.data_section,
+                    )
+                )
+    return out
+
+
+@rule("R24")
+def accelerated_data_alone_cannot_establish_shelf_life(project) -> list[Finding]:
+    """A claim resting on accelerated data with no long-term study at all.
+    WARNING.
+
+    The regulatory fact: accelerated conditions (typically 40 C / 75 % RH
+    for six months) exist to detect significant change and to support
+    excursions and extrapolation -- not to establish the shelf life. ICH
+    Q1A(R2) asks for long-term data on at least three primary batches, and
+    ICH Q1E limits what may be extrapolated from a shorter long-term
+    dataset. A dossier whose only stability evidence is accelerated has
+    tested for a different question than the one the shelf life asks.
+
+    WARNING rather than ERROR, and the two severities are doing different
+    jobs. R05 has already blocked the export on the arithmetic -- there is
+    no long-term support, so nothing covers the claim. This rule adds the
+    *reason*, which is a judgement about study design rather than a
+    comparison the platform can settle: an applicant may hold long-term
+    data not yet entered, or may be filing with a commitment to complete
+    it (which is what 3.2.P.8.2 is for). A rule that is inferring should
+    surface, not gate; a rule that is certain should gate. This one is
+    inferring.
+    """
+    out: list[Finding] = []
+    for claim in _stability_claims(project):
+        if claim.months is None:
+            continue
+        studies = list(claim.owner.stability)
+        if not studies:
+            # Nothing on file at all is R05's finding, not this one. Saying
+            # "your data is accelerated-only" about no data would be a
+            # finding about a study that does not exist.
+            continue
+        if any(study.study_type is StabilityStudyType.LONG_TERM for study in studies):
+            continue
+        accelerated, _ = supported_months(
+            [s for s in studies if s.study_type is StabilityStudyType.ACCELERATED]
+        )
+        out.append(
+            Finding(
+                "R24",
+                Severity.WARNING,
+                "consistency",
+                f"{claim.label} of {_owner_label(claim.owner)} is {claim.months} months, "
+                f"supported only by accelerated data ({accelerated} months). Accelerated "
+                f"conditions detect significant change and support extrapolation; they do "
+                f"not establish a shelf life on their own (ICH Q1A(R2)). File long-term "
+                f"data, or a post-approval stability commitment in "
+                f"{claim.commitment_section}.",
+                section=claim.data_section,
+            )
+        )
+    return out
+
+
+def _study_label(study, owner) -> str:
+    """How one study is named in a finding: the material, the condition,
+    and -- when they are on file -- the batch and the pack.
+
+    The batch and pack are what make a finding actionable. "Amoxicillin
+    30C/65%RH" identifies a study; "batch EX/24/0117, blister" identifies
+    the page of the stability report the filer has to open.
+    """
+    parts = [f"{_owner_label(owner)} {study.condition}"]
+    if study.batch_analysis is not None:
+        parts.append(f"batch {study.batch_analysis.batch_number}")
+    if study.packaging is not None:
+        parts.append(study.packaging.description)
+    return ", ".join(parts)

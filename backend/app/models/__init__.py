@@ -42,7 +42,7 @@ from app.models.manufacturer import Manufacturer
 from app.models.active_ingredient import ActiveIngredient
 from app.models.excipient import Excipient
 from app.models.packaging import Packaging
-from app.models.stability import StabilityStudy
+from app.models.stability import StabilityResult, StabilityStudy
 from app.models.clinical import ClinicalEntry
 from app.models.batch_formula import BatchFormulaLine
 from app.models.specification import SpecificationTest
@@ -95,6 +95,7 @@ __all__ = [
     "Excipient",
     "Packaging",
     "StabilityStudy",
+    "StabilityResult",
     "ClinicalEntry",
     "BatchFormulaLine",
     "BatchAnalysis",

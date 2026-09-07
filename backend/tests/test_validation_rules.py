@@ -84,19 +84,43 @@ def test_r04_flags_a_genuine_batch_arithmetic_mismatch():
 
 
 def test_r05_flags_shelf_life_exceeding_stability():
+    """A study with no timepoint results still falls back to its declared
+    duration, which is exactly the pre-P21 behaviour -- and the finding now
+    says so, so a filer can tell "we checked every timepoint" apart from
+    "we took your word for how long the study ran"."""
     project = _minimal_project(shelf_life_months=36)
     project.product.stability.append(
         StabilityStudy(
             study_type=StabilityStudyType.LONG_TERM,
             condition="30C/65%RH",
             duration_months=24,
-            result_summary="Within specification through 24 months.",
         )
     )
     report = run_all(project)
     r05 = [f for f in report.findings if f.rule_id == "R05"]
     assert len(r05) == 1
     assert "36" in r05[0].message and "24" in r05[0].message
+    assert "no timepoint results are on file" in r05[0].message
+
+
+def test_r05_ignores_an_accelerated_study_when_counting_support():
+    """A latent bug P21 fixed. The old rule ran `max()` over EVERY study on
+    file, so a six-month accelerated study counted as six months of
+    shelf-life support. Accelerated conditions detect significant change;
+    they do not establish a shelf life (ICH Q1A(R2))."""
+    project = _minimal_project(shelf_life_months=6)
+    project.product.stability.append(
+        StabilityStudy(
+            study_type=StabilityStudyType.ACCELERATED,
+            condition="40C/75%RH",
+            duration_months=6,
+        )
+    )
+    report = run_all(project)
+
+    assert [f for f in report.findings if f.rule_id == "R05"]
+    # ...and R24 says WHY the data does not count, which R05 cannot.
+    assert [f for f in report.findings if f.rule_id == "R24"]
 
 
 # ---- R06: bioequivalence required for a generic -----------------------------
