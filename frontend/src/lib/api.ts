@@ -31,6 +31,11 @@ import type {
   Sequence,
   BatchAnalysis,
   BatchAnalysisResult,
+  BioequivalenceResult,
+  BioequivalenceStudy,
+  Biowaiver,
+  PKParameter,
+  ReferenceProduct,
   SpecificationOwnerKind,
   SpecificationTest,
   StabilityOwnerKind,
@@ -638,6 +643,62 @@ export const api = {
     );
   },
 
+  // ---- P22: bioequivalence ----------------------------------------------
+  //
+  // The three collections go through `createProductChild`/
+  // `deleteProductChild` like every other product child -- they are on the
+  // same factory on the backend, and adding a bespoke method per resource
+  // is exactly what that factory exists to avoid. Only the RESULTS need
+  // their own calls, because they are replaced as a set rather than added
+  // a row at a time.
+
+  listBioequivalenceStudies(productId: string) {
+    return request<BioequivalenceStudy[]>(`/products/${productId}/bioequivalence`);
+  },
+
+  listReferenceProducts(productId: string) {
+    return request<ReferenceProduct[]>(`/products/${productId}/reference-products`);
+  },
+
+  listBiowaivers(productId: string) {
+    return request<Biowaiver[]>(`/products/${productId}/biowaivers`);
+  },
+
+  updateBioequivalenceStudy(
+    productId: string,
+    studyId: string,
+    payload: Record<string, unknown>,
+  ) {
+    return request<BioequivalenceStudy>(
+      `/products/${productId}/bioequivalence/${studyId}`,
+      { method: "PATCH", body: JSON.stringify(payload) },
+    );
+  },
+
+  /**
+   * Replace a study's whole result set.
+   *
+   * PUT, not three POSTs, and for the reason the backend router gives: a
+   * study report states Cmax, AUC(0-t) and AUC(0-inf) together in one
+   * table, and a study holding two of its three intervals is worse than
+   * one holding none, because it looks answered.
+   */
+  replaceBioequivalenceResults(
+    studyId: string,
+    rows: Array<{
+      parameter: PKParameter;
+      geometric_mean_ratio: string | null;
+      ci_lower: string;
+      ci_upper: string;
+      intra_subject_cv: string | null;
+    }>,
+  ) {
+    return request<BioequivalenceResult[]>(`/bioequivalence/${studyId}/results`, {
+      method: "PUT",
+      body: JSON.stringify(rows),
+    });
+  },
+
   // ---- build + validate -------------------------------------------------
 
   buildCtd(projectId: string) {
@@ -714,6 +775,9 @@ export type ProductChildResource =
   | "excipients"
   | "packaging"
   | "stability"
+  | "bioequivalence"
+  | "reference-products"
+  | "biowaivers"
   | "clinical"
   | "batch-formula"
   | "certificates";

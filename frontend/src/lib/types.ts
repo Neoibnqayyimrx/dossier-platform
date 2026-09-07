@@ -70,6 +70,16 @@ export interface Product {
   stability: unknown[];
   clinical: unknown[];
   batch_formula: unknown[];
+  /** P22. The comparator the APPLICATION declares -- printed at 1.2 and
+   * 2.3, and reconciled by rule R26 against what each study dosed. */
+  reference_product_name: string | null;
+  reference_product_manufacturer: string | null;
+  /** Which of the region's two acceptance windows this molecule is
+   * judged against. A property of the drug, not of the region. */
+  narrow_therapeutic_index: boolean;
+  bioequivalence_studies: BioequivalenceStudy[];
+  reference_products: ReferenceProduct[];
+  biowaivers: Biowaiver[];
 }
 
 export interface Project {
@@ -486,4 +496,110 @@ export type StabilityOwnerKind = "drug-substance" | "drug-product";
 export const STABILITY_SECTION: Record<StabilityOwnerKind, string> = {
   "drug-substance": "3.2.S.7.3",
   "drug-product": "3.2.P.8.3",
+};
+
+// ---- P22: bioequivalence ---------------------------------------------------
+
+/** The comparator, as an entity with an identity AND a batch.
+ *
+ * A reference, not a string, for the reason the backend's model docstring
+ * gives: an assessor checks that the batch was in date when it was dosed
+ * and that the brand is the one the application claims equivalence to,
+ * and neither is checkable against a sentence. */
+export interface ReferenceProduct {
+  id: string;
+  product_id: string;
+  name: string;
+  strength: string | null;
+  dosage_form: string | null;
+  manufacturer: string | null;
+  country_of_origin: string | null;
+  batch_number: string | null;
+  expiry_date: string | null;
+  purchase_country: string | null;
+  /** Brand and maker as one comparable string, derived on the backend so
+   * the screen shows exactly what rule R26 will compare. */
+  identity: string;
+}
+
+/** The three pharmacokinetic parameters a bioequivalence conclusion rests
+ * on. Spelled as the pharmacopoeial shorthand because these strings are
+ * PRINTED on the BTI form and in the tabular listing. */
+export type PKParameter = "Cmax" | "AUC(0-t)" | "AUC(0-inf)";
+
+export const PK_PARAMETERS: PKParameter[] = ["Cmax", "AUC(0-t)", "AUC(0-inf)"];
+
+/** One parameter's answer: the ratio and the two bounds of its 90 %
+ * confidence interval. The verdict is NOT here and never will be -- it is
+ * a judgement against a window that lives in region config, and a stored
+ * verdict would freeze one region's window into the data. */
+export interface BioequivalenceResult {
+  id: string;
+  bioequivalence_study_id: string;
+  parameter: PKParameter;
+  geometric_mean_ratio: string | null;
+  ci_lower: string;
+  ci_upper: string;
+  intra_subject_cv: string | null;
+  sort_order: number;
+}
+
+export interface BioequivalenceStudy {
+  id: string;
+  product_id: string;
+  study_identifier: string;
+  title: string | null;
+  design: string;
+  fed_state: string;
+  dose_regimen: string;
+  subjects_enrolled: number | null;
+  subjects_completed: number | null;
+  analyte: string | null;
+  bioanalytical_method: string | null;
+  cro_name: string | null;
+  study_site: string | null;
+  start_date: string | null;
+  completion_date: string | null;
+  reference_product_id: string | null;
+  test_batch_id: string | null;
+  test_batch_size_units: number | null;
+  test_batch_manufacture_date: string | null;
+  notes: string | null;
+  results: BioequivalenceResult[];
+  /** Derived on the backend, so the screen, the BTI form and the tabular
+   * listing describe one study the same way. */
+  dropouts: number | null;
+  design_summary: string;
+}
+
+export type BiowaiverKind = "BCS-based" | "additional strength";
+
+export interface Biowaiver {
+  id: string;
+  product_id: string;
+  kind: BiowaiverKind;
+  strength: string;
+  bcs_class: number | null;
+  dissolution_similarity_f2: string | null;
+  supporting_study_id: string | null;
+  justification: string | null;
+  /** Which leaf the request is filed at -- derived on the backend so the
+   * route control and the renderer cannot disagree about whether a BCS
+   * waiver is 1.2.17 or 1.2.18. */
+  section_number: string;
+}
+
+/** The three ways a multisource filing can show bioequivalence. They are
+ * ALTERNATIVES: rule R06 blocks the export when two are present, and when
+ * none is.
+ *
+ * The route is expressed as P17 condition answers, not as a field of its
+ * own -- answering "yes" to 1.2.17 is what makes that leaf applicable and
+ * puts the request in the package, so the answer IS the decision. */
+export type BiowaiverRoute = "in-vivo" | "bcs" | "additional-strength";
+
+export const BIOWAIVER_ROUTE_LEAF: Record<BiowaiverRoute, string | null> = {
+  "in-vivo": null,
+  bcs: "1.2.17",
+  "additional-strength": "1.2.18",
 };

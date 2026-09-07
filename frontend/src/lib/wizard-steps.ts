@@ -82,7 +82,7 @@ export interface ChildStepSpec {
    * the DATA is a table -- it is not a licence to hand-write the next
    * screen.
    */
-  customEditor?: "drug-product-control";
+  customEditor?: "drug-product-control" | "bioequivalence";
 }
 
 export const PRODUCT_FIELDS: FieldSpec[] = [
@@ -121,6 +121,31 @@ export const PRODUCT_FIELDS: FieldSpec[] = [
     vocabulary: "registration_type",
   },
   { name: "country", label: "Country of origin", type: "text" },
+  // P22. The comparator the APPLICATION claims equivalence to. It is a
+  // field on the PRODUCT and not on the study for the same reason the
+  // shelf life is a field on the product and not on the stability data:
+  // it is the claim, the study is the evidence, and rule R26 reconciles
+  // them. Collapsing the two would make that check a comparison of a
+  // value with itself.
+  {
+    name: "reference_product_name",
+    label: "Reference product (comparator)",
+    type: "text",
+    placeholder: "Amoxil 500 mg capsules",
+    help: "Printed on the registration form (1.2) and the QOS (2.3). Rule R26 checks it against the comparator your study actually dosed.",
+  },
+  {
+    name: "reference_product_manufacturer",
+    label: "Reference product manufacturer",
+    type: "text",
+    help: "A generic is equivalent to a specific innovator product, not to a name.",
+  },
+  {
+    name: "narrow_therapeutic_index",
+    label: "Narrow therapeutic index drug",
+    type: "checkbox",
+    help: "Warfarin, digoxin, levothyroxine, lithium, phenytoin. Tightens the bioequivalence acceptance window from 80.00-125.00 % to 90.00-111.11 % (rule R25).",
+  },
 ];
 
 export const CHILD_STEPS: ChildStepSpec[] = [
@@ -321,11 +346,25 @@ export const CHILD_STEPS: ChildStepSpec[] = [
     fields: [],
   },
   {
+    id: "bioequivalence",
+    title: "Bioequivalence",
+    addLabel: "Add bioequivalence study",
+    blurb:
+      "For a generic, this is the document the approval turns on: 5.3.1.2 carries the entire scientific argument. Enter the comparator, the study and its three confidence intervals here, and the BTI form (1.4.1) and the tabular listing (5.2) are generated from them - nothing is retyped onto either.",
+    // A comparator that other rows point at, and a fixed three-row results
+    // table. Neither fits the generic add-a-row form -- see
+    // `customEditor` above and BioequivalenceEditor.tsx for the full
+    // reasoning. This is the second deviation, not a new licence: both
+    // exist because the shape of the DATA is not a list.
+    customEditor: "bioequivalence",
+    fields: [],
+  },
+  {
     id: "clinical",
     title: "Clinical",
     addLabel: "Add clinical entry",
     blurb:
-      "A generic filing has to show bioequivalence against the reference product (rule R06). Literature and clinical studies go here too.",
+      "Literature references (5.4) and any other clinical study. The bioequivalence study is NOT here any more - it is structured data on the previous step, because a paragraph cannot carry a confidence interval and 1.4.1 is generated entirely from those.",
     summarise: (row) =>
       [row.kind, row.reference_product].filter(Boolean).join(" — "),
     fields: [

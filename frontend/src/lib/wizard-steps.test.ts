@@ -41,8 +41,9 @@ describe("wizard step specs", () => {
 
   it("summarises a row without leaking 'undefined' when optional fields are blank", () => {
     // A step with a `customEditor` renders no row list and therefore has
-    // no summariser -- see ChildStepSpec.customEditor for why exactly one
-    // step is allowed to leave the generic shape.
+    // no summariser -- see ChildStepSpec.customEditor for why two steps
+    // are allowed to leave the generic shape, and why that is a bounded
+    // exception rather than a new pattern.
     for (const step of CHILD_STEPS.filter((s) => s.summarise)) {
       const required = Object.fromEntries(
         step.fields
@@ -51,6 +52,19 @@ describe("wizard step specs", () => {
       );
       expect(step.summarise!(required)).not.toContain("undefined");
     }
+  });
+});
+
+describe("the custom editors stay a bounded exception", () => {
+  it("keeps hand-written editors to the two steps whose data is a table", () => {
+    // A guard rather than a preference. The generic form is what makes
+    // "add a field" a one-line edit, and each hand-written editor is a
+    // screen that has to be maintained by hand forever. Two are justified
+    // -- stability is a timepoint x test grid, bioequivalence is a fixed
+    // three-parameter table pointing at a comparator row -- and a third
+    // should have to argue for itself by failing this test.
+    const custom = CHILD_STEPS.filter((step) => step.customEditor).map((step) => step.id);
+    expect(custom.sort()).toEqual(["bioequivalence", "stability"]);
   });
 });
 

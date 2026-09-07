@@ -28,6 +28,7 @@ import type {
 } from "@/lib/types";
 import { BatchAnalysisEditor } from "@/components/BatchAnalysisEditor";
 import { SpecificationEditor } from "@/components/SpecificationEditor";
+import { BioequivalenceEditor } from "@/components/BioequivalenceEditor";
 import { StabilityGrid } from "@/components/StabilityGrid";
 import {
   CHILD_STEPS,
@@ -138,6 +139,20 @@ function ChildStep({
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not delete");
     }
+  }
+
+  if (step.customEditor === "bioequivalence") {
+    // P22. The second non-generic step, and for a different reason than
+    // the first: the comparator is a row other rows point at (so it cannot
+    // be a text field on the study without reintroducing the drift rule
+    // R26 exists to catch), and the results are a fixed three-row table
+    // saved as a set. See BioequivalenceEditor.tsx.
+    return (
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600 dark:text-slate-400">{step.blurb}</p>
+        <BioequivalenceEditor productId={productId} />
+      </div>
+    );
   }
 
   if (step.customEditor === "drug-product-control") {

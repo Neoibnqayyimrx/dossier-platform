@@ -24,6 +24,7 @@ import type {
   SectionStatus,
   SectionStatusValue,
 } from "@/lib/types";
+import { BiowaiverRoutePanel } from "@/components/BiowaiverRoutePanel";
 import { Badge, Card, ErrorNotice } from "@/components/ui";
 
 const MODULE_TITLES: Record<number, string> = {
@@ -357,6 +358,21 @@ export function SectionListPanel({
           statement, “yes” means the section owes real content.
         </p>
       </Card>
+
+      {/* P22. The bioequivalence route is presented as ONE choice rather
+          than left to the two conditional leaves below, because 1.2.17,
+          1.2.18 and an in vivo study are alternatives to each other and
+          nothing about two independent yes/no buttons says so. Rule R06
+          blocks the export on two routes or none; this is what stops the
+          filer getting there. */}
+      <BiowaiverRoutePanel
+        projectId={projectId}
+        sections={sections}
+        onChanged={(updated) => {
+          setSections(updated);
+          onChanged();
+        }}
+      />
 
       {modules.map((module) => (
         <Card key={module}>
