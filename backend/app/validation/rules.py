@@ -23,6 +23,8 @@ from app.ctd.region_profiles import (
 )
 from app.models.bioequivalence import BiowaiverKind
 from app.models.stability import supported_months
+from app.narrative.guardrails import check_patient_register
+from app.templating.context import build_context
 from app.validation.acceptance import evaluate
 from app.validation.engine import Finding, Severity, rule
 from app.models import (
@@ -1561,8 +1563,551 @@ def _commercial_batch_size(product) -> int | None:
     first.
     """
     sizes = [
-        line.batch_size_units
-        for line in product.batch_formula
-        if line.batch_size_units is not None
+        line.batch_size_units for line in product.batch_formula if line.batch_size_units is not None
     ]
     return max(sizes) if sizes else None
+
+
+# =============================================================================
+# P23 -- the product information rules
+# =============================================================================
+#
+# Read these six against app/templating/product_information.py, because what
+# they check and what they DO NOT check is the phase's whole argument.
+#
+# The three documents cannot disagree with EACH OTHER: they render from one
+# `shared_values` call, so there is one expression of the shelf life and
+# nothing to contradict it. R31 asserts that anyway, as a tripwire.
+#
+# What CAN still be wrong is the relationship between the product
+# information and the rest of the dossier -- the excipient list against the
+# batch formula, the storage statement against the temperature the study
+# actually ran at, the leaflet's prose against the SmPC's own lists. Those
+# are what R28, R29, R32 and R33 check, and every one of them is a real
+# deficiency letter.
+
+
+@rule("R28")
+def leaflet_excipients_match_the_batch_formula(project) -> list[Finding]:
+    """Every excipient the leaflet and SmPC 6.1 list must appear in the
+    batch formula, and every non-active batch formula line must appear as
+    an excipient. ERROR -- it blocks the export.
+
+    ## Why this is the check, and not a check on the leaflet's text
+
+    SmPC 6.1 and the leaflet's "other ingredients" both render from
+    `product.excipients` (app/templating/product_information.py), so a
+    leaflet cannot list an excipient the SmPC does not. That half is
+    structural.
+
+    What is NOT structural is the relationship to 3.2.P.3.2. The batch
+    formula is the MANUFACTURING truth -- what is actually weighed -- and
+    the excipient rows are the QUALITY truth that 3.2.P.4.1 is built from.
+    They are separate tables, entered at different times, and they drift:
+    a formulation change adds a glidant to the batch formula and nobody
+    updates the leaflet, or an excipient is removed from the formula and
+    stays in the leaflet forever.
+
+    A patient with a lactose intolerance reads the leaflet. That is why
+    this is an ERROR and not a warning: an undeclared excipient in a
+    patient-facing document is a safety issue, not a bookkeeping one.
+
+    ## Why the comparison is on normalised names
+
+    The two tables are typed by different people at different times, so
+    "Magnesium Stearate" and "magnesium stearate" are the same material and
+    must not be reported as a divergence. Anything beyond case and spacing
+    -- "Mg stearate" -- IS reported, because at that point the platform
+    genuinely cannot tell whether it is the same material, and guessing
+    would be the one behaviour that makes the rule untrustworthy.
+    """
+    product = project.product
+    declared = {_normalise_component(e.name): e.name for e in product.excipients}
+    in_formula = {
+        _normalise_component(line.component): line.component
+        for line in product.batch_formula
+        if not line.is_active
+    }
+    if not declared and not in_formula:
+        # Neither table has been filled in yet. That is completeness
+        # territory (R30 for the product information, R07-style rules for
+        # the formula), not a divergence -- and reporting "these two empty
+        # lists disagree" would be noise on every new project.
+        return []
+
+    out: list[Finding] = []
+    for key, name in sorted(declared.items()):
+        if key not in in_formula:
+            out.append(
+                Finding(
+                    "R28",
+                    Severity.ERROR,
+                    "consistency",
+                    f"Excipient '{name}' is listed in the product information "
+                    f"(SmPC 6.1 and the patient leaflet, 1.3.1/1.3.3) but has no line "
+                    f"in the batch formula (3.2.P.3.2). Either it is not in the "
+                    f"product, or the batch formula is incomplete.",
+                    section="1.3.3",
+                )
+            )
+    for key, component in sorted(in_formula.items()):
+        if key not in declared:
+            out.append(
+                Finding(
+                    "R28",
+                    Severity.ERROR,
+                    "consistency",
+                    f"Batch formula line '{component}' (3.2.P.3.2) is not declared as "
+                    f"an excipient, so it appears in neither SmPC 6.1 nor the patient "
+                    f"leaflet (1.3.1/1.3.3). A patient reading the leaflet would not "
+                    f"know this ingredient is in the product.",
+                    section="1.3.3",
+                )
+            )
+    return out
+
+
+def _normalise_component(name: str) -> str:
+    """Case- and spacing-insensitive key for a material name. Nothing more
+    aggressive on purpose -- see R28's docstring."""
+    return " ".join((name or "").lower().split())
+
+
+# Temperatures a storage statement is written in, in the two forms a real
+# label uses: an upper bound ("Store below 30 C") and a range ("Store at 2 C
+# to 8 C"). Both are matched, and the HIGHEST number found is the one that
+# matters -- it is the warmest condition the label permits, and therefore
+# the one the stability data has to have covered.
+_STORAGE_TEMPERATURE_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:°\s*)?C\b", re.IGNORECASE)
+
+
+def _max_temperature(text: str | None) -> float | None:
+    if not text:
+        return None
+    matches = _STORAGE_TEMPERATURE_RE.findall(text)
+    return max(float(match) for match in matches) if matches else None
+
+
+@rule("R29")
+def storage_statement_supported_by_stability_conditions(project) -> list[Finding]:
+    """The storage temperature the label permits must be one the long-term
+    stability study actually ran at. ERROR -- it blocks the export.
+
+    ## The defect, in one sentence
+
+    A label that says "Store below 30 C" over a study run at 25 C is
+    claiming twelve months of evidence the applicant does not have.
+
+    ## Why this is a real and common failure, not a contrivance
+
+    The long-term condition is chosen by CLIMATIC ZONE. Zone II (most of
+    Europe) tests at 25 C / 60 % RH; Zone IVb (Nigeria, and most of
+    tropical Asia) tests at 30 C / 75 % RH. A dossier assembled from a
+    European parent filing arrives with 25 C data and a label that was
+    rewritten for the Nigerian market -- and the two now disagree by five
+    degrees that nobody typed deliberately. NAFDAC asks for Zone IVb data
+    precisely because that gap is the norm.
+
+    ## Why it reads temperatures out of strings rather than asking for a field
+
+    Both sides are free text today: `Product.storage_condition` is what
+    goes on the label, and `StabilityStudy.condition` is what the protocol
+    was written as ("30 C / 75 % RH"). Parsing is honest about that -- it
+    is silent when it cannot find a temperature on either side, so a
+    storage statement with no number in it ("Protect from light") produces
+    no finding rather than a false one. The day both become structured
+    fields, this rule reads them directly and the regex goes.
+
+    The comparison is on the WARMEST number on each side, because that is
+    what the claim actually is: the label permits storage up to some
+    temperature, and the study demonstrates stability up to some
+    temperature.
+    """
+    product = project.product
+    permitted = _max_temperature(product.storage_condition)
+    if permitted is None:
+        return []
+
+    long_term = [
+        study for study in product.stability if study.study_type is StabilityStudyType.LONG_TERM
+    ]
+    tested = [(study, _max_temperature(study.condition)) for study in long_term]
+    tested = [(study, temperature) for study, temperature in tested if temperature is not None]
+    if not tested:
+        return []
+
+    warmest_study, warmest = max(tested, key=lambda pair: pair[1])
+    if permitted <= warmest:
+        return []
+    return [
+        Finding(
+            "R29",
+            Severity.ERROR,
+            "consistency",
+            f"The storage statement printed on the label, the SmPC (6.4) and the "
+            f"patient leaflet -- '{product.storage_condition}' -- permits storage up "
+            f"to {permitted:g} C, but the warmest long-term stability study on file "
+            f"ran at {warmest:g} C ('{warmest_study.condition}', 3.2.P.8.3). The data "
+            f"does not support the storage condition being claimed.",
+            section="1.3.2",
+        )
+    ]
+
+
+# The SmPC sections a dossier cannot be filed without, and the ones it
+# should not be. The split is regulatory, not stylistic: 4.1, 4.2 and 4.3
+# ARE the marketing authorisation -- what the medicine is for, how much of
+# it to take, and who must not take it. An application missing any of the
+# three has not stated what it is applying for.
+# Each entry is (attribute on ProductInformation, the heading a filer sees).
+# The attribute names for the three list sections are the model's coercing
+# PROPERTIES (`contraindication_terms`, not `contraindications`), so a row
+# holding null instead of [] reads as empty rather than raising here.
+_MANDATORY_SMPC_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("therapeutic_indications", "4.1 Therapeutic indications"),
+    ("posology_and_administration", "4.2 Posology and method of administration"),
+    ("contraindication_terms", "4.3 Contraindications"),
+)
+_EXPECTED_SMPC_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("warning_terms", "4.4 Special warnings and precautions for use"),
+    ("interactions", "4.5 Interaction with other medicinal products"),
+    ("pregnancy_and_lactation", "4.6 Fertility, pregnancy and lactation"),
+    ("effects_on_driving", "4.7 Effects on ability to drive and use machines"),
+    ("adverse_effects", "4.8 Undesirable effects"),
+    ("overdose", "4.9 Overdose"),
+    ("incompatibilities", "6.2 Incompatibilities"),
+    ("special_precautions_for_disposal", "6.6 Special precautions for disposal"),
+)
+
+
+@rule("R30")
+def product_information_sections_are_present(project) -> list[Finding]:
+    """The SmPC's authored sections must actually be authored. ERROR for
+    the three that constitute the authorisation, WARNING for the rest.
+
+    ## Why a completeness rule earns its place here
+
+    Everything else about the product information is DERIVED, so it cannot
+    be missing while the underlying data exists -- a shelf life is either
+    on the product or the whole dossier knows it is not. The clinical
+    particulars are the opposite: they live nowhere else, so an empty 4.3
+    produces a perfectly well-formed SmPC with no contraindications
+    section, which is a document that looks finished and is not. That is
+    the failure this platform exists to catch, arriving from the one
+    direction derivation cannot cover.
+
+    ## Why two severities
+
+    4.1, 4.2 and 4.3 are the application. Without them there is nothing to
+    approve, so they block. The rest genuinely can be legitimately short --
+    a product with no known interactions has an honest 4.5 -- but they
+    cannot be SILENT, because "no interactions are known" and "nobody
+    filled this in" are different statements and only one of them is a
+    filing. So they warn, and the filer decides.
+    """
+    information = project.product.product_information
+    if information is None:
+        return [
+            Finding(
+                "R30",
+                Severity.ERROR,
+                "completeness",
+                "No product information has been entered, so the SmPC (1.3.1), the "
+                "labels (1.3.2) and the patient leaflet (1.3.3) have no clinical "
+                "particulars -- no indications, no posology and no contraindications.",
+                section="1.3.1",
+            )
+        ]
+
+    out: list[Finding] = []
+    for attribute, heading, severity in (
+        *((*entry, Severity.ERROR) for entry in _MANDATORY_SMPC_SECTIONS),
+        *((*entry, Severity.WARNING) for entry in _EXPECTED_SMPC_SECTIONS),
+    ):
+        value = getattr(information, attribute)
+        if value:
+            continue
+        out.append(
+            Finding(
+                "R30",
+                severity,
+                "completeness",
+                f"SmPC section {heading} is empty. It is authored content -- it "
+                f"exists nowhere else in the dossier to be derived from -- and it is "
+                f"printed in the SmPC (1.3.1) and, for the patient-facing sections, "
+                f"the leaflet (1.3.3).",
+                section="1.3.1",
+            )
+        )
+    return out
+
+
+# The three documents, and the section number each divergence should be
+# reported against. Ordered so a finding names them the way a filer reads
+# them: the SmPC is the source document, the other two follow from it.
+_PRODUCT_INFORMATION_LEAVES = ("1.3.1", "1.3.2", "1.3.3")
+
+
+@rule("R31")
+def product_information_agrees_across_the_three_documents(project) -> list[Finding]:
+    """Strength, shelf life, storage and pack size must read identically in
+    the SmPC, the label and the leaflet. ERROR -- it blocks the export.
+
+    ## This rule cannot fire today, and that is the point
+
+    All three documents render from one `shared_values` call
+    (app/templating/product_information.py), so there is one expression of
+    each of these facts and nothing for it to disagree with. This rule asks
+    the three FINISHED CONTEXTS anyway -- what each document will actually
+    print -- rather than asking the shared function, which would be a check
+    that a value equals itself.
+
+    It is a regression tripwire, and the regression it is waiting for is
+    specific and likely: someone adds a `shelf_life_months` column to
+    ProductInformation because the label "needs its own", or a context
+    builder starts formatting a value locally instead of reading `shared`.
+    Either would restore the exact defect this phase removed, and it would
+    restore it silently -- three documents that look right individually and
+    disagree in a pile on an assessor's desk.
+
+    A test (`test_none_of_the_three_can_be_made_to_disagree`) holds the same
+    line by forcing a divergence and asserting this fires. The rule is what
+    holds it in a running system, on real data, after the test has been
+    forgotten.
+
+    ## Why it is an ERROR when it cannot fire
+
+    Severity describes what the finding MEANS, not how likely it is. If
+    these three ever disagree, the package must not ship.
+    """
+    contexts = {}
+    for number in _PRODUCT_INFORMATION_LEAVES:
+        contexts[number] = build_context(number, project).get("shared", {})
+
+    fields = sorted({field for shared in contexts.values() for field in shared})
+    reference_number = _PRODUCT_INFORMATION_LEAVES[0]
+
+    out: list[Finding] = []
+    for field in fields:
+        reference = contexts[reference_number].get(field)
+        for number in _PRODUCT_INFORMATION_LEAVES[1:]:
+            other = contexts[number].get(field)
+            if other == reference:
+                continue
+            out.append(
+                Finding(
+                    "R31",
+                    Severity.ERROR,
+                    "consistency",
+                    f"'{field}' does not agree across the product information: "
+                    f"{reference_number} states {reference!r} and {number} states "
+                    f"{other!r}. These three documents are rendered from one dataset "
+                    f"precisely so this cannot happen; a divergence means a second "
+                    f"copy of the value has been introduced.",
+                    section=number,
+                )
+            )
+    return out
+
+
+@rule("R32")
+def leaflet_prose_carries_every_contraindication(project) -> list[Finding]:
+    """Every contraindication the SmPC states should be recognisable in the
+    leaflet's own words. WARNING.
+
+    ## What is structural and what is not
+
+    The leaflet PRINTS the contraindication list verbatim -- it renders the
+    same `contraindications` entries the SmPC does, so it cannot omit one.
+    That guarantee is in the template, not in this rule.
+
+    What this rule checks is the drafted prose that sits above the list: the
+    "before you take it" section, which is what a patient actually reads.
+    Prose is where a contraindication goes missing, and it goes missing by
+    paraphrase -- the list says "severe hepatic impairment" and the prose
+    talks about kidneys.
+
+    ## Why a WARNING and not an ERROR
+
+    The check is keyword-based, and a good leaflet paraphrases: "severe
+    hepatic impairment" correctly becomes "serious liver problems", which
+    shares no whole word with the source. So a miss here means "a human
+    should look", not "this is wrong" -- and a rule that blocked exports on
+    good plain-language writing would teach filers to write badly. The
+    finding names the contraindication so the reviewer knows where to look.
+
+    R33 is where the leaflet's register is checked; this is where its
+    COMPLETENESS is.
+    """
+    product = project.product
+    information = product.product_information
+    if information is None:
+        return []
+    terms = information.contraindication_terms
+    if not terms:
+        return []
+
+    prose = _leaflet_prose(project)
+    if prose is None:
+        # Nothing has been drafted and approved yet, so there is no prose
+        # to have lost anything. R20 is what complains about a leaf still
+        # holding an unfilled placeholder at export.
+        return []
+
+    lowered = prose.lower()
+    out: list[Finding] = []
+    for term in terms:
+        if _shares_a_content_word(term, lowered):
+            continue
+        out.append(
+            Finding(
+                "R32",
+                Severity.WARNING,
+                "consistency",
+                f"The patient leaflet's drafted text does not appear to mention the "
+                f"contraindication '{term}' that the SmPC states at 4.3. It is still "
+                f"printed in the leaflet's own list, so it is not missing from the "
+                f"document -- but the prose a patient actually reads may not carry it.",
+                section="1.3.3",
+            )
+        )
+    return out
+
+
+# Words that carry no clinical content, so sharing one is not evidence that
+# a contraindication was carried over.
+#
+# Two kinds are listed, and the second kind is the one that took a failing
+# test to find. Ordinary grammar words are obvious. The other kind is the
+# vocabulary EVERY leaflet is made of -- "medicine", "take", "doctor",
+# "problem" -- and without them the check passes on any prose at all: the
+# contraindication "jaundice or a liver problem after taking this medicine"
+# was satisfied by a sentence that said only "do not take this medicine if
+# you are allergic to penicillins", because both contain "medicine".
+#
+# What is left after both lists is the clinically DISTINCTIVE word -- the
+# organ, the condition, the drug class -- which is the word a paraphrase
+# has to keep in order to still be saying the same thing.
+_STOPWORDS = frozenset(
+    {
+        # grammar
+        "a",
+        "an",
+        "and",
+        "any",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "if",
+        "in",
+        "is",
+        "it",
+        "not",
+        "of",
+        "on",
+        "or",
+        "other",
+        "the",
+        "this",
+        "to",
+        "with",
+        "who",
+        # the vocabulary every leaflet is written in
+        "after",
+        "before",
+        "been",
+        "condition",
+        "doctor",
+        "ever",
+        "known",
+        "medicine",
+        "medicines",
+        "patients",
+        "problem",
+        "problems",
+        "severe",
+        "take",
+        "taken",
+        "taking",
+        "tell",
+        "use",
+        "used",
+        "using",
+        "you",
+        "your",
+    }
+)
+
+
+def _shares_a_content_word(term: str, prose_lower: str) -> bool:
+    """True if any clinically meaningful word of `term` appears in `prose`.
+
+    Deliberately generous -- one shared content word is enough. The rule it
+    backs is a WARNING whose job is to point a reviewer at a paraphrase
+    that may have gone too far, and a stricter test would fire on every
+    well-written leaflet.
+    """
+    words = [word for word in re.findall(r"[a-z]{3,}", term.lower()) if word not in _STOPWORDS]
+    if not words:
+        return True
+    return any(re.search(rf"\b{re.escape(word)}", prose_lower) for word in words)
+
+
+def _leaflet_prose(project) -> str | None:
+    """What leaf 1.3.3 actually says, or None if nothing has been stored yet.
+
+    Reads `Section.narrative_text` -- the same already-loaded collection
+    R01-R03 scan, and the seam P06 built for exactly this: the rule engine
+    is synchronous, so it cannot query `NarrativeGeneration` for approved
+    slot text, and `Section` is where a project's rendered prose is put for
+    rules to read. A leaflet whose narrative has not been generated,
+    approved and stored simply has no prose here, and both rules that call
+    this stay silent rather than complaining about text nobody has written.
+    """
+    texts = [
+        section.narrative_text
+        for section in project.sections
+        if section.number == "1.3.3" and section.narrative_text
+    ]
+    return "\n".join(texts) if texts else None
+
+
+@rule("R33")
+def leaflet_reads_as_plain_language(project) -> list[Finding]:
+    """Approved patient leaflet text must meet the plain-language register.
+    WARNING.
+
+    The same check `app.narrative.guardrails.check_patient_register` runs on
+    a fresh draft, run again here on text a human has APPROVED -- which is
+    the only place it can act as a gate. A guardrail warning at generation
+    time is advice; the same finding at export time is on the readiness
+    report the filer has to look at before building the package.
+
+    WARNING rather than ERROR, deliberately. Jargon in a leaflet is a
+    readability failure, not a false statement -- unlike an unsupported
+    shelf life, it does not make the dossier wrong, it makes it hard to
+    read. Blocking on it would also put the platform in the position of
+    refusing to export a filing over a word choice a competent regulatory
+    writer may have made on purpose. The finding names the term and the
+    plain alternative, which is what actually gets it fixed.
+    """
+    text = _leaflet_prose(project)
+    if text is None:
+        return []
+    return [
+        Finding(
+            "R33",
+            Severity.WARNING,
+            "narrative",
+            f"Patient leaflet (1.3.3): {warning}",
+            section="1.3.3",
+        )
+        for warning in check_patient_register(text)
+    ]

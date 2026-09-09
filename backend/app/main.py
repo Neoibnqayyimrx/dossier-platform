@@ -17,6 +17,7 @@ from app.api.routers.batch_results import router as batch_results_router
 from app.api.routers.bioequivalence_results import router as bioequivalence_results_router
 from app.api.routers.stability_results import router as stability_results_router
 from app.api.routers.nested import NESTED_ROUTERS
+from app.api.routers.product_information import router as product_information_router
 from app.api.routers.products import router as products_router
 from app.api.routers.projects import router as projects_router
 from app.api.routers.regions import router as regions_router
@@ -47,6 +48,7 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(applicants_router)
 app.include_router(products_router)
+app.include_router(product_information_router)
 app.include_router(projects_router)
 app.include_router(applicability_router)
 app.include_router(kb_router)

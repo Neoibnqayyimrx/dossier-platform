@@ -38,6 +38,9 @@ from app.models.enums import RegistrationType
 from app.models.project import Project
 
 EU_NS = "http://europa.eu.int"
+# The XML namespace itself, for `xml:lang`. Hardcoded by the spec, never
+# declared with a prefix -- lxml wants the full URI to write the attribute.
+XML_NS = "http://www.w3.org/XML/1998/namespace"
 # Shared with app.ectd.backbone (where the file gets written) and
 # app.ectd.validate (P10, where it gets re-read and re-checked) -- one
 # constant instead of the same string literal in three places.
@@ -55,6 +58,33 @@ _ENVELOPE_COUNTRY = "de"
 _PROCEDURE_TYPE = "national"
 _DOCUMENT_COUNTRY = "common"  # `specific`/leaf docs not tied to one member state
 _SUBMISSION_UNIT_TYPE = "initial"  # always -- procedural correspondence types are out of scope
+# The leaflet, the SmPC and the label are filed in one language per set; the
+# DTD marks `xml:lang` #REQUIRED on every pi-doc. English, to match the
+# `common` document country already used above -- a real multi-member-state
+# filing carries one pi-doc set per language, which is a lifecycle question
+# this platform does not model yet.
+_PI_DOCUMENT_LANGUAGE = "en"
+
+# P23: which `pi-doc` type each product-information leaf is filed as.
+#
+# WHY this table and not a guess: `eu-regional.dtd` declares
+# `m1-3-1-spc-label-pl (pi-doc+)`, and pi-doc's `type` attribute is #REQUIRED
+# with the vocabulary (spc|annex2|outer|interpack|impack|other|pl|combined).
+# The EU spec therefore NAMES the three documents this phase produces and
+# insists you say which is which -- an assessor's software routes on this
+# attribute, so filing the leaflet as `spc` files it where nobody reads it.
+#
+# The keys are `Module1Slot.slot_id`s, the same currency `build_regional_xml`
+# already uses for the other four slots.
+_PI_DOC_TYPE_BY_SLOT: dict[str, str] = {
+    "smpc": "spc",
+    # "outer" rather than "combined": our 1.3.2 is the outer carton plus the
+    # immediate-container label, which is what `outer` covers. `combined`
+    # means an SmPC/label/leaflet filed as ONE document, which is precisely
+    # the practice this phase exists to make unnecessary.
+    "labelling": "outer",
+    "patient-information-leaflet": "pl",
+}
 
 _SUBMISSION_TYPE_BY_REGISTRATION_TYPE: dict[RegistrationType, str] = {
     RegistrationType.NEW: "maa",
@@ -145,6 +175,23 @@ def _build_node_extension(group_id: str, title: str, leaves: list[Leaf]) -> etre
     return node
 
 
+def _build_pi_doc(pi_type: str, leaves: list[Leaf]) -> etree._Element:
+    """One `pi-doc`, holding one product-information leaf.
+
+    All three attributes are #REQUIRED by the DTD, so none of them can be
+    left to a default -- DTD validation at the end of `build_regional_xml`
+    is what enforces that, and it is why this is the one element in this
+    module that cannot be built from the leaf alone.
+    """
+    pi_doc = etree.Element("pi-doc", nsmap={"xlink": XLINK_NS})
+    pi_doc.set(f"{{{XML_NS}}}lang", _PI_DOCUMENT_LANGUAGE)
+    pi_doc.set("type", pi_type)
+    pi_doc.set("country", _DOCUMENT_COUNTRY)
+    for leaf in leaves:
+        pi_doc.append(build_leaf_element(leaf))
+    return pi_doc
+
+
 def build_regional_xml(
     project: Project,
     sequence_number: str,
@@ -179,6 +226,20 @@ def build_regional_xml(
     m1_0_cover = etree.SubElement(m1_eu, "m1-0-cover")
     m1_0_cover.append(_build_specific(_DOCUMENT_COUNTRY, leaves_by_slot.get("cover-letter", [])))
 
+    # P23: the product-information documents, built DETACHED here and
+    # attached below, after m1-2-form. The DTD declares m1-eu's children in
+    # a fixed order (m1-0-cover?, m1-2-form?, m1-3-pi?, ...) and lxml
+    # appends in call order, so where an element is APPENDED is what has to
+    # be right -- which is why the attach happens at the bottom and this
+    # only builds. A pi-doc appended before m1-2-form would fail DTD
+    # validation with a message about content models rather than order,
+    # which is the kind of error that costs an afternoon.
+    pi_doc_elements = [
+        _build_pi_doc(pi_type, leaves_by_slot[slot_id])
+        for slot_id, pi_type in _PI_DOC_TYPE_BY_SLOT.items()
+        if leaves_by_slot.get(slot_id)
+    ]
+
     form_leaves = leaves_by_slot.get("registration-form", [])
     certificate_leaves = leaves_by_slot.get("certificates", [])
     declaration_leaves = leaves_by_slot.get("declarations", [])
@@ -200,6 +261,12 @@ def build_regional_xml(
                     f"GRP-declarations-{sequence_number}", "Declarations", declaration_leaves
                 )
             )
+
+    if pi_doc_elements:
+        m1_3_pi = etree.SubElement(m1_eu, "m1-3-pi")
+        spc_label_pl = etree.SubElement(m1_3_pi, "m1-3-1-spc-label-pl")
+        for pi_doc in pi_doc_elements:
+            spc_label_pl.append(pi_doc)
 
     xml_bytes = etree.tostring(
         root,

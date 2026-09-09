@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from app.models.base import Base
 from app.models.enums import (
+    AdverseEventFrequency,
     BEDoseRegimen,
     BEFedState,
     BEStudyDesign,
@@ -32,6 +33,7 @@ from app.models.enums import (
     KBSource,
     LegalStatus,
     ManufacturerRole,
+    NarrativeRegister,
     NarrativeStatus,
     PackagingComponent,
     PackagingRole,
@@ -59,6 +61,7 @@ from app.models.batch_formula import BatchFormulaLine
 from app.models.specification import SpecificationTest
 from app.models.batch_analysis import BatchAnalysis, BatchAnalysisResult
 from app.models.impurity import Impurity
+from app.models.product_information import ProductInformation
 from app.models.certificate import Certificate
 from app.models.applicant import Applicant
 from app.models.declaration import Declaration
@@ -91,6 +94,8 @@ __all__ = [
     "ExcipientOrigin",
     "GMPStatus",
     "ImpurityType",
+    "AdverseEventFrequency",
+    "NarrativeRegister",
     "KBLicense",
     "KBSource",
     "LegalStatus",
@@ -121,6 +126,7 @@ __all__ = [
     "BatchAnalysis",
     "BatchAnalysisResult",
     "Impurity",
+    "ProductInformation",
     "Certificate",
     "Applicant",
     "Declaration",

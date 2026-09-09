@@ -17,6 +17,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from app.models.enums import NarrativeRegister
 from app.templating.registry import SECTIONS
 
 router = APIRouter(prefix="/sections", tags=["sections"])
@@ -29,6 +30,12 @@ class SectionRead(BaseModel):
     # no slots at all, because every fact on it is already structured data
     # and there is nothing for the LLM to draft.
     narrative_slots: list[str]
+    # P23: whether this section's slots are drafted for a prescriber or for
+    # a patient. Served rather than inferred in the UI for the same reason
+    # the slot list is: it is decided in the registry, and a frontend copy
+    # of "1.3.3 is the plain-language one" would silently stop being true
+    # the day a second patient-facing section is registered.
+    narrative_register: NarrativeRegister
 
 
 @router.get("", response_model=list[SectionRead])
@@ -38,6 +45,7 @@ async def list_sections() -> list[SectionRead]:
             number=spec.number,
             title=spec.title,
             narrative_slots=list(spec.narrative_slots),
+            narrative_register=spec.narrative_register,
         )
         for spec in SECTIONS.values()
     ]

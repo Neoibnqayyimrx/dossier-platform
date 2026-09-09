@@ -617,8 +617,10 @@ def build_stability_summary() -> Path:
     )
 
     doc.add_heading("Attributes monitored", level=2)
-    doc.add_paragraph("{% for test in tests_monitored %}{{ test }}{% if not loop.last %}; "
-                      "{% endif %}{% endfor %}")
+    doc.add_paragraph(
+        "{% for test in tests_monitored %}{{ test }}{% if not loop.last %}; "
+        "{% endif %}{% endfor %}"
+    )
 
     doc.add_heading("Conclusion", level=2)
     doc.add_paragraph(
@@ -690,7 +692,7 @@ def build_stability_data() -> Path:
         "Each result is recorded against the specification test it answers, and the "
         "limits printed above are the specification's own -- they are not re-entered "
         "here. A result inside the claimed shelf life that does not meet its criterion "
-        "blocks the export (rule R23). \"Not checked mechanically\" means exactly that: "
+        'blocks the export (rule R23). "Not checked mechanically" means exactly that: '
         "it is not a pass."
     ).font.size = Pt(9)
 
@@ -967,6 +969,273 @@ def build_biowaiver_request() -> Path:
     return path
 
 
+def build_smpc() -> Path:
+    """1.3.1 -- the Summary of Product Characteristics.
+
+    The section numbers on the page are the SmPC's own (1, 2, 3, 4.1, ...
+    6.6), not the CTD's, and that is not decoration: an assessor's query
+    arrives as "section 6.4 contradicts 3.2.P.8", and a document that does
+    not carry those numbers cannot be answered against.
+
+    Read the 6.x block against the 4.x block above it. Sections 6.1, 6.3,
+    6.4 and 6.5 bind `shared.*` -- values computed once for all three
+    documents. Sections 4.1 to 4.9 bind authored fields. Sections 5.1 to
+    5.3 are the only narrative placeholders in the file. That layout IS the
+    phase: derived, authored and drafted are visibly three different kinds
+    of content, in one document, and a reader can see which is which.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+
+    doc.add_heading("1. Name of the medicinal product", level=2)
+    doc.add_paragraph("{{ shared.product_name }}")
+
+    doc.add_heading("2. Qualitative and quantitative composition", level=2)
+    doc.add_paragraph("{{ shared.strength }}")
+    doc.add_paragraph("For the full list of excipients, see section 6.1.")
+
+    doc.add_heading("3. Pharmaceutical form", level=2)
+    doc.add_paragraph("{{ shared.dosage_form }}")
+
+    doc.add_heading("4. Clinical particulars", level=2)
+    doc.add_heading("4.1 Therapeutic indications", level=3)
+    doc.add_paragraph("{{ therapeutic_indications }}")
+    doc.add_heading("4.2 Posology and method of administration", level=3)
+    doc.add_paragraph("{{ posology_and_administration }}")
+    doc.add_paragraph("Route of administration: {{ shared.route_of_administration }}")
+
+    doc.add_heading("4.3 Contraindications", level=3)
+    # A LIST, printed from the structured entries rather than from a
+    # paragraph, because the leaflet prints the same entries and rule R32
+    # has to be able to name the one the leaflet dropped.
+    doc.add_paragraph("{%p for item in contraindications %}")
+    doc.add_paragraph("{{ item }}", style="List Bullet")
+    doc.add_paragraph("{%p endfor %}")
+
+    doc.add_heading("4.4 Special warnings and precautions for use", level=3)
+    doc.add_paragraph("{%p for item in special_warnings %}")
+    doc.add_paragraph("{{ item }}", style="List Bullet")
+    doc.add_paragraph("{%p endfor %}")
+
+    doc.add_heading("4.5 Interaction with other medicinal products", level=3)
+    doc.add_paragraph("{{ interactions }}")
+    doc.add_heading("4.6 Fertility, pregnancy and lactation", level=3)
+    doc.add_paragraph("{{ pregnancy_and_lactation }}")
+    doc.add_heading("4.7 Effects on ability to drive and use machines", level=3)
+    doc.add_paragraph("{{ effects_on_driving }}")
+
+    doc.add_heading("4.8 Undesirable effects", level=3)
+    _looping_table(
+        doc,
+        ["Undesirable effect", "Frequency"],
+        ["{{ row.effect }}", "{{ row.frequency }}"],
+        loop="row in undesirable_effects",
+    )
+
+    doc.add_heading("4.9 Overdose", level=3)
+    doc.add_paragraph("{{ overdose }}")
+
+    doc.add_heading("5. Pharmacological properties", level=2)
+    doc.add_heading("5.1 Pharmacodynamic properties", level=3)
+    doc.add_paragraph(
+        "{{ narrative.pharmacodynamic_properties or "
+        "'[[AI DRAFT PENDING -- pharmacodynamic properties]]' }}"
+    )
+    doc.add_heading("5.2 Pharmacokinetic properties", level=3)
+    doc.add_paragraph(
+        "{{ narrative.pharmacokinetic_properties or "
+        "'[[AI DRAFT PENDING -- pharmacokinetic properties]]' }}"
+    )
+    doc.add_heading("5.3 Preclinical safety data", level=3)
+    doc.add_paragraph(
+        "{{ narrative.preclinical_safety or '[[AI DRAFT PENDING -- preclinical safety]]' }}"
+    )
+
+    doc.add_heading("6. Pharmaceutical particulars", level=2)
+    doc.add_heading("6.1 List of excipients", level=3)
+    doc.add_paragraph("{{ shared.excipients }}")
+    doc.add_heading("6.2 Incompatibilities", level=3)
+    doc.add_paragraph("{{ incompatibilities }}")
+    doc.add_heading("6.3 Shelf life", level=3)
+    doc.add_paragraph("{{ shared.shelf_life }}")
+    doc.add_heading("6.4 Special precautions for storage", level=3)
+    doc.add_paragraph("{{ shared.storage_condition }}")
+    doc.add_heading("6.5 Nature and contents of container", level=3)
+    doc.add_paragraph("{{ shared.container }}")
+    doc.add_heading("6.6 Special precautions for disposal", level=3)
+    doc.add_paragraph("{{ disposal }}")
+
+    doc.add_heading("7. Marketing authorisation holder", level=2)
+    doc.add_paragraph("{{ marketing_authorisation_holder }}")
+    doc.add_paragraph("{{ marketing_authorisation_holder_address }}")
+    doc.add_paragraph("Manufactured by: {{ manufacturer_name }}")
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "Sections 6.1, 6.3, 6.4 and 6.5 are computed from the product data, the "
+        "packaging rows filed at 3.2.P.7 and the stability data filed at 3.2.P.8. "
+        "They are the same values printed on the label (1.3.2) and in the leaflet "
+        "(1.3.3), read from one place -- so the three documents cannot state "
+        "different shelf lives, storage conditions or pack sizes."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "smpc.docx"
+    doc.save(path)
+    return path
+
+
+def build_labelling() -> Path:
+    """1.3.2 -- the outer and inner labels.
+
+    Two tables from one dataset. The inner label is a SUBSET of the outer
+    one, not a second document: an immediate-container label on a blister
+    strip has room for four things, and which four is a packaging
+    constraint, not a different set of facts. Both tables are built from
+    `shared` in app/templating/product_information.py, so a value can only
+    be on both or on neither.
+
+    The overprinted fields at the bottom are the phase's one deliberate
+    blank. Batch number, manufacturing date and expiry are applied by the
+    packing line for each batch; a dossier that filled them in would file
+    one batch's label as the artwork for every batch. Naming them as
+    overprinted is what an assessor reviewing artwork expects to see.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+
+    doc.add_heading("Outer label (carton)", level=2)
+    _looping_table(
+        doc,
+        ["Item", "Text on the label"],
+        ["{{ row.label }}", "{{ row.value }}"],
+        loop="row in outer_label_rows",
+    )
+
+    doc.add_heading("Inner label (immediate container)", level=2)
+    doc.add_paragraph(
+        "The immediate container carries the minimum set below. Every value is the "
+        "same value printed on the carton above."
+    )
+    _looping_table(
+        doc,
+        ["Item", "Text on the label"],
+        ["{{ row.label }}", "{{ row.value }}"],
+        loop="row in inner_label_rows",
+    )
+
+    doc.add_heading("Applied at packing (overprinted)", level=2)
+    doc.add_paragraph("{%p for item in overprinted_fields %}")
+    doc.add_paragraph("{{ item }}", style="List Bullet")
+    doc.add_paragraph("{%p endfor %}")
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "This label is generated in full from the product data -- there is no drafted "
+        "text on it at all. Every value it carries is the value printed in the SmPC "
+        "(1.3.1) and the patient leaflet (1.3.3), because all three read one dataset."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "labelling.docx"
+    doc.save(path)
+    return path
+
+
+def build_patient_information_leaflet() -> Path:
+    """1.3.3 -- the patient information leaflet.
+
+    The six numbered headings are the leaflet's statutory ones, in their
+    statutory order, and they are phrased as a patient reads them ("What X
+    is used for", not "Therapeutic indications").
+
+    Each narrative slot is followed by the STRUCTURED list it paraphrases,
+    and both are on the page on purpose. The prose is what makes the
+    leaflet readable; the list is what makes it complete. A paraphrase can
+    silently drop a contraindication, and rule R32 checks that it did not --
+    but the list means the leaflet carries the contraindication even when
+    the prose is still a draft.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    doc.add_paragraph("{{ shared.product_name }}")
+    doc.add_paragraph(
+        "Read all of this leaflet carefully before you start taking this medicine, "
+        "because it contains important information for you."
+    )
+
+    doc.add_heading("1. What this medicine is and what it is used for", level=2)
+    doc.add_paragraph(
+        "{{ narrative.what_it_is_used_for or "
+        "'[[AI DRAFT PENDING -- what this medicine is used for]]' }}"
+    )
+    doc.add_paragraph("Active ingredient(s): {{ shared.strength }}")
+
+    doc.add_heading("2. What you need to know before you take this medicine", level=2)
+    doc.add_paragraph(
+        "{{ narrative.before_you_take_it or "
+        "'[[AI DRAFT PENDING -- before you take this medicine]]' }}"
+    )
+    doc.add_paragraph("Do not take this medicine if any of the following apply to you:")
+    doc.add_paragraph("{%p for item in contraindications %}")
+    doc.add_paragraph("{{ item }}", style="List Bullet")
+    doc.add_paragraph("{%p endfor %}")
+    doc.add_paragraph("Talk to your doctor or pharmacist before taking this medicine if:")
+    doc.add_paragraph("{%p for item in special_warnings %}")
+    doc.add_paragraph("{{ item }}", style="List Bullet")
+    doc.add_paragraph("{%p endfor %}")
+
+    doc.add_heading("3. How to take this medicine", level=2)
+    doc.add_paragraph(
+        "{{ narrative.how_to_take_it or '[[AI DRAFT PENDING -- how to take this medicine]]' }}"
+    )
+    doc.add_paragraph("How it is taken: {{ shared.route_of_administration }}")
+
+    doc.add_heading("4. Possible side effects", level=2)
+    doc.add_paragraph(
+        "{{ narrative.possible_side_effects or "
+        "'[[AI DRAFT PENDING -- possible side effects]]' }}"
+    )
+    _looping_table(
+        doc,
+        ["Side effect", "How often it happens"],
+        ["{{ row.effect }}", "{{ row.frequency }}"],
+        loop="row in undesirable_effects",
+    )
+
+    doc.add_heading("5. How to store this medicine", level=2)
+    doc.add_paragraph("{{ shared.storage_condition }}")
+    doc.add_paragraph("Do not use this medicine after the expiry date printed on the pack.")
+    doc.add_paragraph("Shelf life: {{ shared.shelf_life }}")
+    doc.add_paragraph("{{ disposal }}")
+
+    doc.add_heading("6. What this medicine contains, and other information", level=2)
+    doc.add_paragraph("The other ingredients are: {{ shared.excipients }}")
+    doc.add_paragraph("What the pack contains: {{ shared.container }}")
+    doc.add_paragraph("Marketing authorisation holder: {{ marketing_authorisation_holder }}")
+    doc.add_paragraph("{{ marketing_authorisation_holder_address }}")
+    doc.add_paragraph("Manufactured by: {{ manufacturer_name }}")
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "The storage, shelf life, pack and ingredient statements above are the same "
+        "values printed in the SmPC (1.3.1) and on the label (1.3.2). The drafted "
+        "sections are written in a patient register and are checked for plain "
+        "language before export (rule R33); the bulleted lists come straight from the "
+        "SmPC's own sections 4.3 and 4.4, so the leaflet cannot omit a "
+        "contraindication the SmPC states."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "patient_information_leaflet.docx"
+    doc.save(path)
+    return path
+
+
+P23_BUILDERS = (
+    build_smpc,
+    build_labelling,
+    build_patient_information_leaflet,
+)
+
+
 P22_BUILDERS = (
     build_bti_form,
     build_clinical_study_listing,
@@ -997,5 +1266,6 @@ if __name__ == "__main__":
     built_paths.extend(builder() for builder in P20_BUILDERS)
     built_paths.extend(builder() for builder in P21_BUILDERS)
     built_paths.extend(builder() for builder in P22_BUILDERS)
+    built_paths.extend(builder() for builder in P23_BUILDERS)
     for built in built_paths:
         print(f"wrote {built}")

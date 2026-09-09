@@ -42,6 +42,7 @@ from app.models import (
     ClinicalKind,
 )
 from app.seed.bioequivalence import attach_bioequivalence_data
+from app.seed.product_information import attach_product_information
 from app.seed.stability import attach_stability_data
 from app.seed.specifications import (
     attach_control_data,
@@ -294,6 +295,41 @@ def build_examox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Proje
         )
     )
 
+    # P23: the excipient lines. A batch formula that lists only the actives
+    # is not a batch formula -- it is the actives -- and until rule R28
+    # existed nothing said so. R28 compares these lines against the
+    # `Excipient` rows above in BOTH directions, which is what makes SmPC
+    # 6.1 and the patient leaflet's "other ingredients" trustworthy.
+    #
+    # The quantities are illustrative but the ARITHMETIC is real: the
+    # excipients plus the active fill the capsule, which is what a reviewer
+    # redoing the batch formula by hand is checking.
+    product.batch_formula.extend(
+        [
+            BatchFormulaLine(
+                component="Starch",
+                spec="BP",
+                qty_per_unit_mg=60.0,
+                batch_size_units=250_000,
+                declared_batch_qty_kg=15.0,
+            ),
+            BatchFormulaLine(
+                component="Magnesium Stearate",
+                spec="BP",
+                qty_per_unit_mg=6.0,
+                batch_size_units=250_000,
+                declared_batch_qty_kg=1.5,
+            ),
+            BatchFormulaLine(
+                component="Gelatin capsule shell",
+                spec="BP",
+                qty_per_unit_mg=96.0,
+                batch_size_units=250_000,
+                declared_batch_qty_kg=24.0,
+            ),
+        ]
+    )
+
     p1_text = BUGGY_P1 if buggy else CORRECTED_P1
     project.sections.append(
         Section(
@@ -311,6 +347,29 @@ def build_examox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Proje
                 narrative_text="Table of content (Modules 1-5). NUFLOX 960 layout reused.",
             )
         )
+    # P23: the SmPC's clinical particulars -- the sections that exist
+    # nowhere else in the dossier and so cannot be derived. Everything the
+    # SmPC, the label and the leaflet say about strength, shelf life,
+    # storage and pack comes from the product data above; this supplies
+    # only 4.1-4.9, 6.2 and 6.6.
+    attach_product_information(
+        product,
+        indications=(
+            "Treatment of infections caused by organisms sensitive to amoxicillin, "
+            "including infections of the upper and lower respiratory tract, the "
+            "urinary tract, the skin and soft tissue, and acute otitis media. "
+            "Consideration should be given to official guidance on the appropriate "
+            "use of antibacterial agents."
+        ),
+        posology=(
+            "Adults and children over 40 kg: one capsule three times a day. In "
+            "severe infections the dose may be doubled on the advice of a doctor. "
+            "Children under 40 kg: the dose is calculated by body weight and a "
+            "suspension is normally more suitable. The capsules are swallowed whole "
+            "with water and may be taken with or without food."
+        ),
+    )
+
     # P20: the control sections' data -- excipient and drug-product
     # specifications, impurity profiles, and batch analyses checked against
     # each owner's own specification. Attached last because every part of it

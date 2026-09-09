@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.models.enums import NarrativeRegister
 from app.target_toc import na_statement_leaves
 
 TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
@@ -102,6 +103,21 @@ class SectionSpec:
     # moment the report was attached, which is precisely the "looks
     # complete, is not" failure this platform exists to prevent.
     leaf_suffix: str | None = None
+    # P23: WHO this section's narrative is written for, which decides how
+    # its output is judged (app/narrative/guardrails.py) and which system
+    # prompt it is generated under.
+    #
+    # WHY a declared property of the section rather than just a different
+    # prompt for the leaflet: a prompt is an instruction a model may
+    # quietly ignore, and nothing downstream would know it had. A patient
+    # information leaflet has a statutory plain-language obligation that an
+    # SmPC does not -- "contraindicated in hepatic impairment" is correct
+    # in one document and a failure in the other -- so the obligation has
+    # to be checkable on the OUTPUT and gatable at export (rule R33). One
+    # register per section, not per slot: every slot of 1.3.3 addresses a
+    # patient and every slot of 1.3.1 addresses a prescriber, and a
+    # section that needed both voices would be two documents.
+    narrative_register: NarrativeRegister = NarrativeRegister.REGULATORY
 
     @property
     def template_path(self) -> Path:
@@ -164,9 +180,7 @@ SECTIONS: dict[str, SectionSpec] = {
         # The commitment's wording is a legal undertaking the applicant
         # makes; the schedule it follows is read from the studies.
         narrative_slots=["commitment"],
-        grounding_query=(
-            "post approval stability protocol commitment production batches annual"
-        ),
+        grounding_query=("post approval stability protocol commitment production batches annual"),
     ),
     "3.2.P.8.3": SectionSpec(
         number="3.2.P.8.3",
@@ -333,6 +347,71 @@ SECTIONS: dict[str, SectionSpec] = {
         template_filename="justification_of_specification.docx",
         narrative_slots=["justification"],
         grounding_query="justification of specification acceptance criteria ICH Q6A",
+    ),
+    # ---- P23: product information -- one dataset, three audiences ------
+    #
+    # The SmPC, the labels and the leaflet. They say the same facts to a
+    # prescriber, to whoever is holding the pack, and to the patient, and in
+    # real filings they contradict each other constantly -- a shelf-life
+    # extension updates two of the three. All three render from
+    # app/templating/product_information.py's `shared_values`, so there is
+    # one expression of each shared fact and nothing to disagree with.
+    #
+    # Note the three different production types in one group, and that they
+    # are not a style choice: the label is GENERATED because everything on
+    # it is a fact already on file, the SmPC is HYBRID with its 5.x
+    # descriptive sections drafted, and the leaflet is HYBRID in the
+    # PATIENT register because its job is to re-say known facts in plain
+    # language.
+    "1.3.1": SectionSpec(
+        number="1.3.1",
+        title="Summary of Product Characteristics (SmPC)",
+        template_filename="smpc.docx",
+        # The 5.x sections ONLY. Sections 4.1-4.9 are authored data on
+        # ProductInformation, not slots: an indication, a dose and a
+        # contraindication are regulatory CLAIMS, and a model inventing one
+        # is the single error the existing guardrails cannot catch -- there
+        # is no number to leak and no citation to fabricate. See
+        # app/models/product_information.py.
+        narrative_slots=[
+            "pharmacodynamic_properties",
+            "pharmacokinetic_properties",
+            "preclinical_safety",
+        ],
+        grounding_query=(
+            "summary of product characteristics pharmacodynamic pharmacokinetic "
+            "properties preclinical safety data"
+        ),
+    ),
+    "1.3.2": SectionSpec(
+        number="1.3.2",
+        title="Labelling (outer and inner labels)",
+        template_filename="labelling.docx",
+        # NO NARRATIVE SLOTS, and this is the strongest case for that in the
+        # platform after 1.4.1. A label is read as the definitive statement
+        # of what is in the pack; everything it may legally carry is already
+        # on file, so a slot here could only add a regulatory claim nobody
+        # made.
+        narrative_slots=[],
+        grounding_query=None,
+    ),
+    "1.3.3": SectionSpec(
+        number="1.3.3",
+        title="Package insert / Patient Information Leaflet",
+        template_filename="patient_information_leaflet.docx",
+        # Four slots, one per leaflet heading a patient recognises. Every
+        # FACT in them is already printed from the shared values and the
+        # authored particulars; what the slots supply is the language.
+        narrative_slots=[
+            "what_it_is_used_for",
+            "before_you_take_it",
+            "how_to_take_it",
+            "possible_side_effects",
+        ],
+        grounding_query=(
+            "patient information leaflet readability plain language package insert " "requirements"
+        ),
+        narrative_register=NarrativeRegister.PATIENT,
     ),
     # ---- P22: bioequivalence -------------------------------------------
     #

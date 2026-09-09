@@ -165,9 +165,7 @@ class TestBatchRule:
         return max(int(Decimal(commercial_units) * self.minimum_fraction), self.minimum_units)
 
 
-DEFAULT_TEST_BATCH_RULE = TestBatchRule(
-    minimum_fraction=Decimal("0.1"), minimum_units=100_000
-)
+DEFAULT_TEST_BATCH_RULE = TestBatchRule(minimum_fraction=Decimal("0.1"), minimum_units=100_000)
 
 
 class Applicability(str, enum.Enum):
@@ -309,9 +307,7 @@ class RegionProfile:
     # a region that has not been researched inherits it and rule R25 keeps
     # working; a region that differs overrides it here.
     bioequivalence_window: BioequivalenceWindow = DEFAULT_BE_WINDOW
-    narrow_therapeutic_index_window: BioequivalenceWindow = (
-        NARROW_THERAPEUTIC_INDEX_BE_WINDOW
-    )
+    narrow_therapeutic_index_window: BioequivalenceWindow = NARROW_THERAPEUTIC_INDEX_BE_WINDOW
     test_batch_rule: TestBatchRule = DEFAULT_TEST_BATCH_RULE
 
     def window_for(self, product) -> BioequivalenceWindow:
@@ -552,6 +548,31 @@ NAFDAC_PROFILE = RegionProfile(
             folder="m1/12-administrative-information",
             section_number="1.2",
         ),
+        # ---- P23: the three product-information leaves ------------------
+        #
+        # One folder, three documents: 1.3 is a single heading in NAFDAC's
+        # Module 1 and in the EU DTD alike, and an assessor opening it
+        # expects to find the SmPC, the labels and the leaflet together --
+        # they are cross-read against each other, which is the whole reason
+        # they are filed as a group.
+        Module1Slot(
+            slot_id="smpc",
+            title="Summary of Product Characteristics",
+            folder="m1/13-product-information",
+            section_number="1.3.1",
+        ),
+        Module1Slot(
+            slot_id="labelling",
+            title="Labelling (outer and inner labels)",
+            folder="m1/13-product-information",
+            section_number="1.3.2",
+        ),
+        Module1Slot(
+            slot_id="patient-information-leaflet",
+            title="Package insert / Patient Information Leaflet",
+            folder="m1/13-product-information",
+            section_number="1.3.3",
+        ),
         # ---- P22: the three Module 1 leaves built from Module 5 data ----
         #
         # The BTI form is the clearest single demonstration of this
@@ -653,6 +674,33 @@ EU_PROFILE = RegionProfile(
             title="Application Form",
             folder="m1/eu/12-administrative-information",
             section_number="1.2",
+        ),
+        # P23: the EU's own product information group. Unlike the rest of
+        # this profile, this one is NOT a guess -- eu-regional.dtd declares
+        # `m1-3-pi` holding `m1-3-1-spc-label-pl (pi-doc+)`, and `pi-doc`
+        # carries a REQUIRED `type` attribute whose vocabulary is
+        # (spc|annex2|outer|interpack|impack|other|pl|combined). The spec
+        # names our three documents itself. See app/ectd/regional.py, which
+        # is what actually places them in the backbone -- adding the folder
+        # here without that would have put three files in the package that
+        # the regional XML never mentions.
+        Module1Slot(
+            slot_id="smpc",
+            title="Summary of Product Characteristics",
+            folder="m1/eu/13-product-information",
+            section_number="1.3.1",
+        ),
+        Module1Slot(
+            slot_id="labelling",
+            title="Labelling",
+            folder="m1/eu/13-product-information",
+            section_number="1.3.2",
+        ),
+        Module1Slot(
+            slot_id="patient-information-leaflet",
+            title="Package Leaflet",
+            folder="m1/eu/13-product-information",
+            section_number="1.3.3",
         ),
         Module1Slot(
             slot_id="certificates",

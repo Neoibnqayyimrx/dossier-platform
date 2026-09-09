@@ -24,13 +24,19 @@ from app.models.kb import KBChunk
 from app.models.narrative import NarrativeGeneration
 from app.models.project import Project
 from app.narrative.facts import render_facts
-from app.narrative.guardrails import check_citations, check_numeric_leakage
+from app.models.enums import NarrativeRegister
+from app.narrative.guardrails import (
+    check_citations,
+    check_numeric_leakage,
+    check_patient_register,
+)
 from app.templating.context import build_context
 from app.templating.registry import get_section
 
-SYSTEM_PROMPT = (
-    "You are drafting one narrative paragraph for a pharmaceutical regulatory "
-    "dossier (CTD format). Rules, strictly enforced:\n"
+# The rules that hold whoever the reader is. Every one of them is a
+# determinism-boundary rule (AGENTS.md 5) rather than a style rule, which
+# is why they are shared and the register-specific half below is not.
+_SHARED_RULES = (
     "- Write ONLY the requested prose -- no section numbers, headings, "
     "tables, or document structure.\n"
     "- Every figure, date, or quantity you use MUST already appear in the "
@@ -38,8 +44,49 @@ SYSTEM_PROMPT = (
     "- You may cite ONLY the sources listed under SOURCES, using exactly "
     "the marker format '[Source: <title> <version>]'. Never cite anything "
     "else.\n"
-    "- Write in a formal regulatory register."
 )
+
+# P23: one system prompt per register.
+#
+# WHY two prompts and not one with a sentence appended: the two documents
+# ask for genuinely different work. An SmPC section is written FOR a
+# prescriber, in the vocabulary of the field. A patient leaflet section is a
+# TRANSLATION of facts the filer has already stated, for a reader who has
+# never seen them -- different audience, different verb, different sentence
+# length. Bolting "and make it simple" onto a regulatory prompt produces
+# regulatory prose with short words in it, which is the failure mode the
+# whole readability obligation exists to prevent.
+#
+# The prompt is only half of the mechanism. `check_patient_register` judges
+# what actually came back, because a prompt is an instruction a model may
+# ignore silently -- see SectionSpec.narrative_register.
+SYSTEM_PROMPTS: dict[NarrativeRegister, str] = {
+    NarrativeRegister.REGULATORY: (
+        "You are drafting one narrative paragraph for a pharmaceutical regulatory "
+        "dossier (CTD format). Rules, strictly enforced:\n"
+        + _SHARED_RULES
+        + "- Write in a formal regulatory register."
+    ),
+    NarrativeRegister.PATIENT: (
+        "You are drafting one section of a PATIENT INFORMATION LEAFLET -- the "
+        "printed insert a patient reads at home, not a document for a doctor or "
+        "a regulator. Rules, strictly enforced:\n"
+        + _SHARED_RULES
+        + "- Address the reader directly as 'you'.\n"
+        "- Use everyday words. Never write 'contraindicated' (say 'must not be "
+        "used'), 'adverse reaction' (say 'side effect'), 'hepatic' (say "
+        "'liver'), 'renal' (say 'kidney'), 'administer' (say 'take'), or "
+        "'concomitant' (say 'at the same time').\n"
+        "- Keep every sentence under 25 words, carrying one idea.\n"
+        "- Do not soften or omit anything: a leaflet must state every warning "
+        "the prescribing information states, in plain words."
+    ),
+}
+
+# Kept as the regulatory prompt's old name so that nothing importing it
+# breaks. It is the default register, and the one every section other than
+# the leaflet uses.
+SYSTEM_PROMPT = SYSTEM_PROMPTS[NarrativeRegister.REGULATORY]
 
 
 def _build_prompt(
@@ -103,11 +150,18 @@ async def generate_narrative(
 
     prompt, source_labels = _build_prompt(section.title, slot, facts_text, results)
     output = llm_client.generate(
-        system=SYSTEM_PROMPT, messages=[{"role": "user", "content": prompt}]
+        system=SYSTEM_PROMPTS[section.narrative_register],
+        messages=[{"role": "user", "content": prompt}],
     )
 
     check_citations(output, source_labels)  # raises on a fabricated citation
     warnings = check_numeric_leakage(output, facts_text)
+    # P23: and, for a leaflet, whether it reads like one. Warnings, not a
+    # raise, for the reason check_patient_register's docstring gives -- a
+    # draft with three phrases flagged on it is more use to a reviewer than
+    # an error and no draft.
+    if section.narrative_register is NarrativeRegister.PATIENT:
+        warnings.extend(check_patient_register(output))
 
     chunks: list[KBChunk] = []
     chunk_ids = [uuid.UUID(result.chunk_id) for result in results]

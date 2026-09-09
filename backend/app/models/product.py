@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from app.models.impurity import Impurity
     from app.models.manufacturer import Manufacturer
     from app.models.packaging import Packaging
+    from app.models.product_information import ProductInformation
     from app.models.project import Project
     from app.models.specification import SpecificationTest
     from app.models.stability import StabilityStudy
@@ -92,9 +93,7 @@ class Product(Base):
     # catchable. Collapse them and R26 becomes a check that a field equals
     # itself.
     reference_product_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    reference_product_manufacturer: Mapped[str | None] = mapped_column(
-        String(200), nullable=True
-    )
+    reference_product_manufacturer: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # WHY this is on the product and not in the rule: the acceptance window
     # for a narrow-therapeutic-index drug is tighter (90.00-111.11 % rather
     # than 80.00-125.00 %), and which drugs those are is a property of the
@@ -173,6 +172,13 @@ class Product(Base):
         cascade="all, delete-orphan",
         order_by="Impurity.name",
     )
+    # P23: the SmPC / label / leaflet content, and the only 1:1 child
+    # Product has. `uselist=False` is what makes it a single row rather
+    # than a collection of one -- see app/models/product_information.py
+    # for why three documents read one row.
+    product_information: Mapped["ProductInformation | None"] = relationship(
+        back_populates="product", cascade="all, delete-orphan", uselist=False
+    )
 
     # ---- reverse side of Project -> Product (many Projects per Product) --
     projects: Mapped[list["Project"]] = relationship(back_populates="product")
@@ -201,6 +207,15 @@ class Product(Base):
         """
         for collection in ("bioequivalence_studies", "reference_products", "biowaivers"):
             kwargs.setdefault(collection, [])
+        # P23: the same trap, met by a SCALAR relationship for the first
+        # time. `product_information` is 1:1 and legitimately absent on a
+        # product whose SmPC has not been entered yet, and rules R28-R33
+        # all read it -- so on a Product built in Python and committed,
+        # the attribute access would go to the database and raise
+        # MissingGreenlet inside a synchronous rule. `None` here is the
+        # scalar equivalent of the empty lists above: the relationship
+        # counts as loaded, and "not entered yet" answers without IO.
+        kwargs.setdefault("product_information", None)
         super().__init__(**kwargs)
 
     @property

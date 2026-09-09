@@ -53,6 +53,10 @@ PRODUCT_CHILD_OPTIONS = (
     selectinload(Product.reference_products),
     selectinload(Product.biowaivers),
     selectinload(Product.batch_formula),
+    # P23: the SmPC content. A 1:1 relationship is eager-loaded exactly like
+    # a collection -- `uselist=False` changes what comes back, not whether
+    # touching it un-loaded raises MissingGreenlet.
+    selectinload(Product.product_information),
 )
 
 # ProjectRead nests product (with all its children) + sequences.
@@ -75,6 +79,7 @@ PROJECT_CHILD_OPTIONS = (
     selectinload(Project.product).selectinload(Product.reference_products),
     selectinload(Project.product).selectinload(Product.biowaivers),
     selectinload(Project.product).selectinload(Product.batch_formula),
+    selectinload(Project.product).selectinload(Product.product_information),
     selectinload(Project.sequences),
     # P15a: ProjectRead nests these two, so every project read has to load
     # them -- not just the readiness path that already did below.

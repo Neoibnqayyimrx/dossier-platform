@@ -37,6 +37,7 @@ from app.models.enums import (
     PackagingComponent,
     PackagingRole,
     Region,
+    AdverseEventFrequency,
     RegistrationType,
     StabilityStudyType,
     SubmissionType,
@@ -64,6 +65,10 @@ _VOCABULARIES: dict[str, type[Enum]] = {
     "clinical_kind": ClinicalKind,
     "certificate_type": CertificateType,
     "declaration_type": DeclarationType,
+    # P23: the CIOMS frequency bands for SmPC 4.8. A controlled vocabulary
+    # rather than a text field because both the SmPC and the leaflet print
+    # them in band order, and an order needs a defined set.
+    "adverse_event_frequency": AdverseEventFrequency,
 }
 
 

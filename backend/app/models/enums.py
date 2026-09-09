@@ -453,3 +453,49 @@ class ImpurityType(str, enum.Enum):
     DEGRADATION = "degradation"
     RESIDUAL_SOLVENT = "residual-solvent"
     INORGANIC = "inorganic"
+
+
+class AdverseEventFrequency(str, enum.Enum):
+    """The CIOMS frequency bands an SmPC section 4.8 is organised by, and
+    that a patient leaflet's "possible side effects" repeats in plain
+    words.
+
+    WHY a controlled vocabulary and not free text: the bands are DEFINED
+    numerically in the SmPC guideline (very common is at least 1 in 10,
+    common at least 1 in 100, and so on), and the leaflet is required to
+    state those same bands in the same order. A filer typing "fairly
+    often" has written something no assessor can map to a band and no
+    patient can compare against another leaflet.
+
+    The parenthesised incidence is part of the VALUE rather than a
+    separate field because it is printed verbatim in both documents --
+    the band and its incidence are one phrase on the page, and splitting
+    them would let a rendering show one without the other.
+    """
+
+    VERY_COMMON = "very common (>= 1/10)"
+    COMMON = "common (>= 1/100 to < 1/10)"
+    UNCOMMON = "uncommon (>= 1/1,000 to < 1/100)"
+    RARE = "rare (>= 1/10,000 to < 1/1,000)"
+    VERY_RARE = "very rare (< 1/10,000)"
+    NOT_KNOWN = "not known"
+
+
+class NarrativeRegister(str, enum.Enum):
+    """WHO a narrative slot is written for, which decides how it is judged.
+
+    An SmPC is written for a prescriber and an assessor: formal, technical,
+    and correct in the vocabulary of the field. A patient information
+    leaflet has a statutory plain-language obligation -- it is tested on
+    real readers, and "contraindicated in hepatic impairment" fails that
+    test however accurate it is.
+
+    WHY this is a declared property of the SECTION and not just a
+    different prompt: a prompt is an instruction the model may ignore, and
+    nothing downstream would know it had. A register is checked on the
+    OUTPUT (app/narrative/guardrails.py) and gated at export (rule R33),
+    so the obligation survives a model that answered in the wrong voice.
+    """
+
+    REGULATORY = "regulatory"
+    PATIENT = "patient"

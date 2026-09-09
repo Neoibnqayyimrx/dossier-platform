@@ -18,7 +18,7 @@ from __future__ import annotations
 from app.ctd.region_profiles import REGION_PROFILES, resolve_applicability
 from app.models.enums import CertificateType, PackagingRole, TSE_RELEVANT_ORIGINS
 from app.models.project import Project
-from app.templating import bioequivalence, quality_control, stability
+from app.templating import bioequivalence, product_information, quality_control, stability
 from app.templating.registry import get_section
 
 # What a context prints where a fact should be but is not. Shared rather
@@ -183,6 +183,23 @@ def build_context(
 
     if section_number in ("1.2.17", "1.2.18"):
         return bioequivalence.biowaiver_context(section, project, narrative)
+
+    # ---- P23: the three product-information documents -------------------
+    #
+    # Three leaves, one dataset. They are dispatched separately rather than
+    # through the quality-control table above because that table is keyed on
+    # an OWNER (a substance, an excipient, the product), and these three
+    # have the same owner as each other -- what differs is the AUDIENCE. See
+    # app/templating/product_information.py, whose `shared_values` all three
+    # read, which is what makes them unable to disagree.
+    if section_number == "1.3.1":
+        return product_information.smpc_context(section, project, narrative)
+
+    if section_number == "1.3.2":
+        return product_information.label_context(section, project)
+
+    if section_number == "1.3.3":
+        return product_information.leaflet_context(section, project, narrative)
 
     if section_number == "3.2.S.2.1":
         # WHY this renders a marker instead of raising when the manufacturer

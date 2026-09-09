@@ -196,10 +196,23 @@ capabilities:
   product_information_model:
     summary: SmPC / label / leaflet content as structured data.
     detail: >
-      1.3.1-1.3.3 need indications, posology, contraindications, warnings,
-      storage, shelf life, pack description. These three documents contradict
-      each other constantly in real filings, so cross-checking them is a
-      genuine selling point rather than just more coverage.
+      LANDED IN P23, and the shape it landed in is the point. ProductInformation
+      holds the SmPC's AUTHORED sections only -- 4.1 to 4.9 plus 6.2 and 6.6,
+      one column per numbered section. It holds NO shelf life, NO storage
+      condition, NO strength and NO pack size, because those already exist on
+      the product, the packaging rows and the stability data. All three
+      documents render them through one function
+      (app/templating/product_information.py's `shared_values`), so the
+      cross-check this note asked for is not a check at all -- the three
+      documents have one expression of each shared fact and nothing to
+      contradict. R31 asserts it anyway as a regression tripwire, and the API
+      REFUSES a write naming a derived field rather than silently dropping it.
+      What is genuinely checkable is the relationship to the rest of the
+      dossier: R28 (excipients against the batch formula, both directions),
+      R29 (the label's storage temperature against the temperature the
+      long-term study actually ran at -- the climatic-zone defect), R30
+      (the authored sections are authored), R32 and R33 (the leaflet's
+      completeness and its plain-language register).
 
   batch_analysis_model:
     summary: Batch analysis results (3.2.S.4.4, 3.2.P.5.4).
@@ -479,7 +492,15 @@ sections:
     title: Summary of Product Characteristics (SmPC)
     applicable: true
     production: hybrid
-    blocked_by: [product_information_model]
+    notes: >
+      LANDED IN P23. HYBRID with an unusually sharp split, and the split is
+      what makes it safe: sections 1-3 and 6.1/6.3/6.4/6.5 are DERIVED, 4.1
+      to 4.9 are AUTHORED data on ProductInformation, and only 5.1-5.3 are
+      narrative slots. There is deliberately no slot in section 4 -- an
+      indication, a dose and a contraindication are regulatory CLAIMS, and a
+      model inventing one is the single error the numeric-leakage and
+      citation guardrails cannot catch, because there is no number to leak
+      and no citation to fabricate.
     status: unknown
 
   - number: "1.3.2"
@@ -487,7 +508,6 @@ sections:
     title: Labelling (outer and inner labels)
     applicable: true
     production: generated
-    blocked_by: [product_information_model]
     notes: >
       High-value cross-check target: label, leaflet and SmPC must agree on
       strength, shelf life, storage and pack. This is the copy-paste failure
@@ -499,7 +519,16 @@ sections:
     title: Package insert / Patient Information Leaflet
     applicable: true
     production: hybrid
-    blocked_by: [product_information_model]
+    notes: >
+      LANDED IN P23. A distinct NARRATIVE REGISTER, not the same slot type
+      with a different prompt: SectionSpec.narrative_register declares this
+      section PATIENT, which selects a different system prompt AND a
+      different output check (app/narrative/guardrails.check_patient_register
+      -- a jargon translation table, a sentence-length limit, and whether the
+      text addresses the reader as "you"). A prompt alone would be an
+      instruction a model can ignore silently. Rule R33 re-runs the same
+      check on APPROVED text at export, as a WARNING: jargon in a leaflet is
+      a readability failure, not a false statement.
     status: unknown
 
   - number: "1.4.1"
