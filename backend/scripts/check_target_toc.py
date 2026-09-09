@@ -68,6 +68,7 @@ def producible_keys(sections: list[dict]) -> set[str]:
     try:
         from app.ctd.region_profiles import NAFDAC_PROFILE
         from app.ctd.structure import MODULE_2_5_FOLDERS, repeatable_section_numbers
+        from app.ctd.toc import MODULE_TOC_LEAVES
         from app.templating.certificates import render_certificate_placeholder  # noqa: F401
         from app.templating.declarations import render_declaration  # noqa: F401
         from app.templating.registry import SECTIONS
@@ -82,6 +83,15 @@ def producible_keys(sections: list[dict]) -> set[str]:
     # like any other section, which is precisely the property that makes
     # them visible here with no special case.
     keys = set(SECTIONS)
+
+    # P24: the per-module tables of contents. They are NOT in SECTIONS and
+    # deliberately so -- a TOC is a function of the built package, not of
+    # the project, so it has no template to register (see app/ctd/toc.py).
+    # The map is imported rather than the four numbers retyped here, for
+    # the same reason `data_sources` is read from the YAML below: a second
+    # list of TOC leaves in this script is a second list that can disagree
+    # with the builder.
+    keys.update(MODULE_TOC_LEAVES)
 
     # A slot backed by a rendered section carries its own number.
     for slot in NAFDAC_PROFILE.module1_slots:

@@ -26,7 +26,7 @@ from app.assembly.pdf import convert_docx_to_pdf
 from app.core.storage import StorageClient, get_storage_client
 from app.ctd.region_profiles import get_region_profile, satisfied_certificate_types
 from app.ctd.structure import folder_for_section_instance
-from app.ctd.toc import build_toc_pdf
+from app.ctd.toc import MODULE_TOC_LEAVES, build_module_toc_pdf, build_toc_pdf
 from app.models.project import Project
 from app.templating.certificates import render_certificate_placeholder
 from app.templating.declarations import render_declaration
@@ -133,6 +133,21 @@ async def build_ctd_package(
                 path = f"{slot.folder}/{declaration.declaration_type.value}-{declaration.id}.pdf"
                 files[path] = pdf_bytes
                 titles[path] = title
+
+    # P24: the per-module tables of contents (1.1, 2.1, 3.1, 5.1), built
+    # BEFORE the whole-package TOC and deliberately not listed in each
+    # other. Each is a leaf of its own module, so it appears in the
+    # package TOC below like any other document.
+    #
+    # WHY they are computed from `titles` as it stands here -- after every
+    # rendered, uploaded, certificate and declaration leaf has been placed,
+    # and before any TOC is added: a module TOC that listed itself would be
+    # a document whose own entry is the only thing it is sure about, and
+    # one that listed the OTHER modules' TOCs would be listing leaves that
+    # are not in its module.
+    for leaf in MODULE_TOC_LEAVES.values():
+        files[leaf.path] = build_module_toc_pdf(project, leaf, titles)
+        titles[leaf.path] = leaf.title
 
     files["toc.pdf"] = build_toc_pdf(project, titles)
 

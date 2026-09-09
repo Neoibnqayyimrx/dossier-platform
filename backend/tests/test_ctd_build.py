@@ -23,6 +23,7 @@ from app.seed.documents import attach_certificate_documents
 from app.ctd.build import build_ctd_package
 from app.ctd.region_profiles import get_region_profile
 from app.ctd.structure import folder_for_section
+from app.ctd.toc import MODULE_TOC_LEAVES
 from app.models import Base, Region
 from app.seed.ampiclox import build_ampiclox
 from app.seed.examox import build_examox
@@ -249,3 +250,99 @@ async def test_a_combination_product_builds_end_to_end(db_factory):
         assert "Ampicillin" in text
         assert "Cloxacillin" in text
         assert "Structure not available" not in text
+
+
+# ---- P24a: the per-module tables of contents --------------------------------
+
+
+async def test_module_tocs_list_their_own_module_and_nothing_else(db_factory):
+    """A TOC derived from the tree cannot disagree with the tree.
+
+    The claim under test is the one the phase is for: every leaf placed in
+    module N appears in module N's TOC, and no leaf from another module
+    does. A hand-written TOC passes this on the day it is written and fails
+    it the first time a section is added.
+    """
+    async with db_factory() as db:
+        project = build_examox(buggy=False)
+        db.add(project)
+        await db.commit()
+
+        storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
+        result = await build_ctd_package(db, project, storage=storage)
+        zip_bytes = storage.get(result.storage_key)
+
+        placed = {entry.path for entry in result.manifest}
+
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            for leaf in MODULE_TOC_LEAVES.values():
+                assert leaf.path in placed, f"{leaf.number} was not placed"
+                reader = PdfReader(io.BytesIO(zf.read(leaf.path)))
+                # Every page: Module 3 alone runs to more than one.
+                text = "".join(page.extract_text() for page in reader.pages)
+                # A path can wrap inside its table cell -- same unwrapping
+                # the whole-package TOC test does, and for the same reason.
+                text = text.replace("\n", "")
+
+                for path in placed:
+                    if path in ("manifest.json", "toc.pdf"):
+                        continue
+                    # A module TOC is written before the other modules' TOCs
+                    # exist, so it lists neither them nor itself.
+                    if path in {other.path for other in MODULE_TOC_LEAVES.values()}:
+                        continue
+                    if path.startswith(leaf.package_prefix):
+                        assert path in text, f"{path} missing from {leaf.number}"
+                    else:
+                        assert path not in text, f"{path} wrongly listed in {leaf.number}"
+
+
+async def test_module_toc_lists_not_applicable_statements(db_factory):
+    """P24a task 2, and it is a regulatory requirement rather than a detail.
+
+    2.4-2.7 are leaves. An assessor opening Module 2's table of contents
+    expects to find them accounted for; a TOC that silently omitted them
+    would make a correctly SCOPED module read as an incomplete one -- the
+    exact failure the statement leaves were built to prevent, reintroduced
+    one level up.
+    """
+    async with db_factory() as db:
+        project = build_examox(buggy=False)
+        db.add(project)
+        await db.commit()
+
+        storage = InMemoryStorageClient()
+        # The export gate (rule R27) blocks a build whose CPP is still a
+        # placeholder, so a filing has to be complete enough to build at all.
+        attach_certificate_documents(project, storage)
+        result = await build_ctd_package(db, project, storage=storage)
+
+        with zipfile.ZipFile(io.BytesIO(storage.get(result.storage_key))) as zf:
+            reader = PdfReader(io.BytesIO(zf.read(MODULE_TOC_LEAVES["2.1"].path)))
+            text = "".join(page.extract_text() for page in reader.pages).replace("\n", "")
+
+        for statement in ("2.4", "2.5", "2.6", "2.7"):
+            assert f"{statement}.pdf" in text
+
+
+def test_every_toc_leaf_in_the_target_has_a_builder():
+    """The contract and the builder, held to the same four numbers.
+
+    `MODULE_TOC_LEAVES` is what makes a `production: toc` leaf count as
+    produced in `scripts/check_target_toc.py`. If the target ever declares a
+    fifth TOC leaf, the check would credit nothing and this fails first,
+    naming it.
+    """
+    from scripts.check_target_toc import load_target
+
+    declared = {
+        entry["number"] for entry in load_target()["sections"] if entry["production"] == "toc"
+    }
+    assert declared == set(MODULE_TOC_LEAVES)
+
+
+def test_module_toc_prefix_matches_its_module_number():
+    for leaf in MODULE_TOC_LEAVES.values():
+        assert leaf.package_prefix == f"m{leaf.module}/"
+        assert leaf.folder.startswith(leaf.package_prefix)
