@@ -139,6 +139,7 @@ Full field definitions and relationships are specified in Phase 01.
 - [x] P20 — Specifications everywhere (polymorphic owner), batch analyses, impurities (43/98 leaves)
 - [x] P21 — Stability as data: timepoint results, study axes, real OOS checking (48/98 leaves)
 - [x] P22 — Bioequivalence as data: structured study, the CI window as region config, 1.4.1 generated from Module 5 (52/98 leaves)
+- [x] P23 — Product information: SmPC, label and leaflet rendered from one dataset; the leaflet as a distinct narrative register (55/98 leaves)
 - [ ] P12 — eCTD v4.0 (RPS) — future
 
 ## 8. How to work through the prompts

@@ -31,6 +31,287 @@ Newest entry at the top.
 
 ---
 
+## P23 — Product information: one dataset, three audiences (2026-09-08)
+
+**Platform capability: 52/98 → 55/98 leaves.** Three sections registered
+(1.3.1 SmPC, 1.3.2 labelling, 1.3.3 patient leaflet), one table added, six
+rules added, one new narrative register, and one real gap closed in the EU
+regional backbone.
+
+### What was actually wrong
+
+Nothing, in the sense that no code was broken. The problem was that the
+three documents did not exist, and the reason they could not exist is the
+interesting part.
+
+The Summary of Product Characteristics, the outer and inner labels, and the
+patient information leaflet say the same things to three audiences. They
+must agree on strength, shelf life, storage, pack sizes, indications and
+contraindications. In real filings they routinely do not — they are written
+at different times by different people, and a shelf-life extension updates
+two of the three. It is one of the most commonly raised deficiencies there
+is, and it is **not caused by disagreement**. Nobody disputes the shelf
+life. There are simply three copies of it.
+
+That framing decided the whole phase.
+
+### The mechanism: derive, do not re-enter
+
+`app/templating/product_information.py` has one function,
+`shared_values(product)`, which computes every fact appearing in more than
+one of the three documents: the product name, strength, dosage form, route,
+excipient list, shelf life, storage condition, container contents and legal
+status. All three context builders read it. Nothing else recomputes any of
+them, and **no column anywhere stores a second copy**.
+
+So the failure mode is not caught. It is unproducible.
+
+`ProductInformation` (the new table) therefore holds only what the
+documents ADD: the SmPC's clinical particulars, 4.1–4.9 plus 6.2 and 6.6,
+one column per numbered section. It has no `shelf_life_months`, no
+`storage_condition`, no `strength`, no `pack_size`. A test asserts those
+columns are absent, because the absence is the design — adding one would
+restore the defect in a single migration, and the platform would then need
+a rule to catch what it had just finished making impossible.
+
+### Three layers saying the same thing
+
+The interesting design work was making that refusal *legible* rather than
+merely true:
+
+- **Model**: no column, so a second copy is unstorable.
+- **API**: `ProductInformationWrite` sets `extra="forbid"`, so a PUT naming
+  `shelf_life_months` gets a 422 naming the field. Pydantic's default —
+  ignoring unknown keys — is the worst of the three options: the write
+  appears to succeed, the value vanishes, and the filer believes the SmPC
+  now says 36 months.
+- **UI**: the derived values are shown, read-only, each with a
+  `source` sentence naming where it comes from ("Claimed on the product;
+  your long-term stability data supports 24 months"). Not a disabled
+  `<input>` — a greyed box still reads as "a field you may not use right
+  now", and the filer's next move is to look for the permission. Rendering
+  it as text with provenance says something different: this is not a field,
+  it lives over there.
+
+An SmPC page that simply *omitted* section 6.3 would have been the obvious
+shortcut and would have been much worse — a pharmacist would assume the
+platform had forgotten it.
+
+### Where the LLM is and is not allowed
+
+**The clinical particulars are DATA, not narrative slots.** A therapeutic
+indication is a regulatory claim; so is a contraindication and so is a
+dose. A model that drafts "also indicated in paediatric patients" has
+invented a marketing authorisation, and the existing guardrails cannot
+catch it — there is no number to leak and no citation to fabricate. This is
+the clearest case yet for AGENTS.md §5's determinism boundary: an
+indication is the most cross-checked value in Module 1.
+
+The slots that DO exist are the SmPC's 5.x sections (pharmacodynamic,
+pharmacokinetic, preclinical — literature-derived description, which is
+what the knowledge base is for) and the leaflet's four patient-facing
+headings. The label has none at all, which after 1.4.1 is the platform's
+second-strongest case for a fully generated document.
+
+### The leaflet register — a distinct slot type, not a different prompt
+
+The prompt asked for this explicitly and it was the right call to insist
+on. `SectionSpec.narrative_register` declares 1.3.3 as `PATIENT`, which
+selects both a different system prompt **and** a different output check
+(`check_patient_register`): a jargon translation table
+(contraindicated → must not be used, hepatic → liver, concomitant → at the
+same time), a 25-word sentence limit, and whether the text addresses the
+reader as "you".
+
+WHY the check and not just the prompt: **a prompt is an instruction a model
+may ignore silently, and nothing downstream would know.** The register has
+to be checkable on the output. Rule R33 re-runs the same check on APPROVED
+text at export, which is where it becomes a gate rather than advice.
+
+WHY a readability *index* was rejected: Flesch-Kincaid counts syllables, so
+it scores "paracetamol" as hard and "may cause death" as easy — and it
+cannot tell a filer what to change. The jargon table names the term and the
+plain alternative, which is the difference between a measurement and a
+correction.
+
+R33 is a WARNING, not an ERROR. Jargon in a leaflet is a readability
+failure, not a false statement; blocking on it would put the platform in
+the position of refusing to export a filing over a word choice a competent
+regulatory writer may have made deliberately.
+
+### The six rules, and what each one can actually catch
+
+The three documents cannot disagree with each other, so most of the rules
+are about the relationship between the product information and the REST of
+the dossier — which is where divergence remains genuinely representable:
+
+- **R28 — excipients vs the batch formula, both directions. ERROR.** SmPC
+  6.1 and the leaflet render from `product.excipients`; 3.2.P.3.2 is what
+  is actually weighed. Separate tables, entered at different times, and
+  they drift. A patient with an intolerance reads the leaflet, which is why
+  this blocks rather than warns.
+- **R29 — the label's storage temperature vs the long-term study's. ERROR.**
+  The climatic-zone defect: Zone II tests at 25 °C, Zone IVb (Nigeria) at
+  30 °C, and a dossier assembled from a European parent filing arrives with
+  25 °C data and a label rewritten for the Nigerian market. Five degrees
+  nobody typed on purpose. Parses a temperature out of both free-text
+  fields and is silent when it cannot find one on either side.
+- **R30 — the authored sections are authored.** ERROR on 4.1/4.2/4.3
+  (those three ARE the application — without them there is nothing to
+  approve), WARNING on the rest, because "no interactions are known" and
+  "nobody filled this in" are different statements and only one is a filing.
+- **R31 — the three documents agree. ERROR, and it cannot fire today.**
+  A deliberate regression tripwire: it asks the three *rendered contexts*
+  what each will print, rather than asking `shared_values` once (which
+  would be a check that a value equals itself). The regression it waits for
+  is specific and likely — someone adds a column "just for the label". A
+  test forces exactly that divergence and asserts R31 catches it, so the
+  guard has been seen to fire.
+- **R32 — the leaflet's prose carries every contraindication. WARNING.**
+  The *list* is printed verbatim either way; that guarantee is in the
+  template. What this checks is the drafted prose above it, where a
+  paraphrase loses one.
+- **R33 — the register gate** (above).
+
+### The bug worth writing down: an empty stopword list is not a stopword list
+
+R32 was written with a stopword list of ordinary grammar words ("a", "the",
+"in", …) and a rule that one shared content word means the contraindication
+survived the paraphrase. It passed nothing.
+
+The contraindication *"You have ever had jaundice or a liver problem after
+taking this medicine before"* was satisfied by leaflet prose reading *"Do
+not take this medicine if you are allergic to penicillins"* — because both
+contain the word **"medicine"**.
+
+The second class of stopword is the vocabulary every leaflet is *made of*:
+medicine, take, taking, doctor, problem, ever, before, you, your. Strip
+both classes and what remains is the clinically distinctive word — the
+organ, the condition, the drug class — which is the word a paraphrase has
+to keep in order to still be saying the same thing. The failing test named
+the wrong contraindication, not the wrong mechanism, which is what made it
+take a moment to see.
+
+### The second bug: `updated_at` is not covered by expire_on_commit=False
+
+The PUT worked on create and failed on update, with `MissingGreenlet`
+raised inside Pydantic's serialisation of `updated_at`.
+
+`Base.updated_at` carries `onupdate=func.now()`, so SQLAlchemy marks it
+stale after an UPDATE **regardless of `expire_on_commit=False`** — the next
+read of it is IO, and on the async engine that is a crash rather than a
+blocking call. An INSERT's server defaults come back with the row, so
+create-then-read looked perfectly healthy while update-then-read did not.
+One `await db.refresh(...)` after the commit; the reasoning is in the route
+so nobody removes it as redundant.
+
+### The third bug: a test flake that fails in the wrong test
+
+`test_none_of_the_three_can_be_made_to_disagree` failed roughly one run in
+three, and never on the assertion it was making. It died inside
+`run_all(project)` — specifically inside rule **R15**, reading
+`project.declarations`, with a `DetachedInstanceError`.
+
+The `_load` helper this repo's model tests all share builds a project,
+commits it to a throwaway SQLite database, and returns it:
+
+```python
+session = Session(engine, expire_on_commit=False)
+session.add(project); session.commit(); session.refresh(project)
+return project
+```
+
+`session.refresh()` expires **every** attribute, relationships included —
+so a rule walking `project.declarations` later triggers a lazy load, and a
+lazy load needs the Session. Nothing holds a strong reference to it after
+`_load` returns; SQLAlchemy's instance state references it weakly. So the
+test passes or fails depending on **whether the garbage collector got there
+first**, which is why it was intermittent and why it surfaced in whichever
+test happened to run after the collection.
+
+Pinning the session to the returned object (`project._test_session =
+session`) fixes it.
+
+The same helper is copy-pasted into **eleven other test files** (grep
+`session.refresh(project)`), all carrying the same latent hazard. They are
+deliberately left alone: none has been observed to fail, and rewriting
+eleven other phases' fixtures inside P23 is exactly the silent scope creep
+this log exists to catch. Recorded here so the next person who sees a
+`DetachedInstanceError` in an unrelated rule does not spend an afternoon on
+it — the bug is never in the test that reports it.
+
+### A real gap closed: `m1-3-pi` in the EU backbone
+
+Unlike 1.4.1, these three leaves are `applicable: true` — they are emitted
+for every project, in every region. So an EU project would have reached
+`folder_for_section_instance` with no folder and raised at build time.
+
+Adding EU Module 1 slots fixes placement, but on its own would have
+produced three files in the package that the regional XML never mentions —
+the exact "looks complete, is not" failure this platform exists to prevent.
+
+The DTD turned out to hand us the answer. `eu-regional.dtd` declares
+`m1-3-pi` containing `m1-3-1-spc-label-pl (pi-doc+)`, and `pi-doc` carries
+a **#REQUIRED `type`** attribute from
+`(spc|annex2|outer|interpack|impack|other|pl|combined)`. The EU spec names
+these three documents itself and insists you say which is which, because an
+assessor's software routes on that attribute. So: SmPC → `spc`, labelling →
+`outer`, leaflet → `pl`. (`combined` means all three filed as ONE document
+— precisely the practice this phase makes unnecessary.)
+
+Ordering matters and cost a moment: `m1-eu`'s children are declared in a
+fixed order, lxml appends in call order, and a `pi-doc` appended before
+`m1-2-form` fails DTD validation with a message about content models rather
+than about order. The elements are therefore built detached and attached at
+the end.
+
+### Fixture change worth noting
+
+Every seed's batch formula listed only its ACTIVE lines. A batch formula
+that lists only the actives is not a batch formula — and nothing said so
+until R28 existed. All three fixtures now carry their excipient lines, and
+AMPICLOX's buggy variant plants the phase's defect: a glidant (colloidal
+silicon dioxide) in the batch formula with no excipient row, so it is
+manufactured into every capsule and named in neither SmPC 6.1 nor the
+leaflet.
+
+Note **how** the fixture has to plant it. There is no field anywhere that
+could hold a divergent excipient list, so even a seed deliberately trying
+to create this defect has to create a genuine disagreement between two real
+tables. That constraint is the phase, stated from the inside.
+
+### Scope calls
+
+- **The documents print the CLAIMED shelf life, not the supported one.**
+  3.2.P.8.1 prints what the data supports because it is an argument ABOUT
+  the data; a label is a statement of what was authorised, and one silently
+  printing a shorter period would file a shelf life nobody applied for. So
+  the claim is printed, R05 blocks when the data does not reach it, and the
+  provenance line shows both numbers at once.
+- **Batch number, manufacturing date and expiry are left blank on the
+  label**, marked as overprinted at packing. They are per-batch facts; a
+  dossier that filled them in would file one batch's label as the artwork
+  for all of them.
+- **One document for both labels.** The target TOC's leaf says "outer and
+  inner labels", and the two differ in what they FIT, not in what they say
+  — the inner renders as a subset of the same values.
+- **JSON columns for the three list sections**, not child tables. Same call
+  and same reasoning as `Project.condition_answers`: always read and written
+  as a whole, nothing points at an individual entry. What would change our
+  mind is recorded: the day a side effect must link to the
+  pharmacovigilance signal that found it, an entry needs an identity and
+  earns a table.
+
+### What this leaves for later
+
+The comparison screen currently always reports zero divergences, and that
+IS the demonstration — but it means the screen's most striking state is one
+a user cannot reach with their own data. A demo mode that shows the
+divergent version side by side would make the argument land harder for
+someone seeing the platform for the first time.
+
+---
+
 ## P22 — Bioequivalence as data (2026-09-07)
 
 **Platform capability: 48/98 → 52/98 leaves.** Four sections registered

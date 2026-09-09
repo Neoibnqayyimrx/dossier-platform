@@ -65,7 +65,7 @@ Python 3.11 · FastAPI · Pydantic v2 · SQLAlchemy 2.x (async) · Alembic · Po
 
 ## Coverage against a real dossier
 
-**52/98 leaves** of a filed NAFDAC multisource dossier (Me Cure, Amlodipine
+**55/98 leaves** of a filed NAFDAC multisource dossier (Me Cure, Amlodipine
 Tablets 5 mg) are produced from data today — including the fourteen sections
 the dossier declares *not applicable*, which are filed as generated
 statements citing the guideline that excuses them, not omitted. Sections that
@@ -95,6 +95,22 @@ changes, not a constant. A further
 **22 leaves accept an uploaded document** (a regulator's CPP, a CRO's study
 report — paper no software can author), and the build refuses to export while
 any of them is still a placeholder.
+
+The Summary of Product Characteristics (**1.3.1**), the outer and inner labels
+(**1.3.2**) and the patient information leaflet (**1.3.3**) are rendered from
+one dataset. These three contradict each other constantly in real filings —
+a shelf-life extension updates two of the three — and the platform's answer is
+not to check them but to leave nothing to check: strength, shelf life, storage,
+pack size and the ingredient list are computed once, from the product, its
+packaging rows and its stability data, and all three documents read that one
+computation. The API *refuses* a write naming a derived field rather than
+silently dropping it, and the wizard shows each one read-only beside a sentence
+saying where it comes from. What can still genuinely diverge is checked: an
+excipient in the batch formula but not in the leaflet blocks the export, and so
+does a label permitting storage at 30 °C over a study that ran at 25 °C. The
+leaflet's drafted prose is judged in a *patient* register — a different system
+prompt and a different output check from the SmPC's, because "contraindicated
+in hepatic impairment" is correct in one document and a failure in the other.
 
 Two kinds of coverage, kept apart on purpose: run the check with no arguments
 for what the *platform* can do, and with `--project <id>` for what one
