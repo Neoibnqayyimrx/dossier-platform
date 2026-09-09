@@ -591,6 +591,16 @@ NAFDAC_PROFILE = RegionProfile(
             folder="m1/14-bioequivalence-trial-information",
             section_number="1.4.1",
         ),
+        # P24: the QIS sits beside the BTI form in 1.4. Both are agency
+        # FORMS summarising evidence filed elsewhere -- one summarises
+        # Module 5, the other Module 3 -- which is why NAFDAC groups them
+        # under one heading and why they are placed together here.
+        Module1Slot(
+            slot_id="quality-information-summary",
+            title="Quality Information Summary",
+            folder="m1/14-quality-information-summary",
+            section_number="1.4.2",
+        ),
         Module1Slot(
             slot_id="bcs-biowaiver-request",
             title="Biowaiver request — BCS-based",

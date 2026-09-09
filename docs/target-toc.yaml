@@ -558,8 +558,17 @@ sections:
     title: Quality Information Summary (QIS)
     applicable: true
     production: generated
-    blocked_by: [derived_document_assembly]
+    registry_key: "1.4.2"
     notes: >
+      BUILT IN P24. Every field is lifted out of the very context dict the
+      corresponding Module 3 section renders from
+      (app/templating/derived.py), so the form has no fields of its own and
+      "keeping the QIS in step with Module 3" is not a task anybody has to
+      remember. The shelf-life field inherits 3.2.P.8.1's refusal to print
+      a claim the long-term data do not reach -- an unsupported shelf life
+      is unprintable on page one of the summary, not merely blocked at
+      export. Original note kept below, because it is why this leaf was
+      built last and deliberately.
       HIGHEST-LEVERAGE GENERATED DOCUMENT IN THE TARGET. The QIS is almost
       entirely a re-presentation of Module 3 data in a different layout —
       exactly the document that goes wrong when a human retypes Module 3 into

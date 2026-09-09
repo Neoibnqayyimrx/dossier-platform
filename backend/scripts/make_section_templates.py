@@ -1260,6 +1260,144 @@ P20_BUILDERS = (
 )
 
 
+# ---- P24: the derived documents --------------------------------------------
+
+
+def build_qis() -> Path:
+    """1.4.2 -- the Quality Information Summary.
+
+    Every value block prints the SOURCE beside the value. That column is
+    the document's most important feature and the cheapest: it turns the
+    form from "a set of claims about the product" into "a set of pointers
+    into Module 3", which is what an assessor actually wants from a
+    summary. It also makes a wrong value traceable in one step instead of
+    a search.
+
+    No narrative placeholder appears anywhere below, and that is checked --
+    the registry gives 1.4.2 no slots, for the same reason 1.4.1 has none.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    doc.add_paragraph("Product: {{ product_name }}")
+
+    doc.add_heading("Part 1 — General information", level=2)
+    _looping_table(
+        doc,
+        ["Item", "Value", "Source"],
+        ["{{ item.label }}", "{{ item.value }}", "{{ item.source }}"],
+        loop="item in general",
+    )
+
+    doc.add_heading("Part 2 — Drug substance", level=2)
+    doc.add_paragraph("{%p for substance in substances %}")
+    doc.add_heading("{{ substance.name }}", level=3)
+    doc.add_paragraph("Identity and general properties")
+    _looping_table(
+        doc,
+        ["Item", "Value", "Source"],
+        ["{{ item.label }}", "{{ item.value }}", "{{ item.source }}"],
+        loop="item in substance.identity",
+    )
+    doc.add_paragraph("Specification")
+    _looping_table(
+        doc,
+        ["Test", "Method", "Acceptance criterion"],
+        [
+            "{{ row.test_name }}",
+            "{{ row.method }}",
+            "{{ row.acceptance_criterion }}",
+        ],
+        loop="row in substance.specification",
+    )
+    doc.add_paragraph("Impurities")
+    _looping_table(
+        doc,
+        ["Impurity", "Type", "Limit", "Basis of the limit"],
+        [
+            "{{ row.name }}",
+            "{{ row.impurity_type }}",
+            "{{ row.limit }}",
+            "{{ row.limit_source }}",
+        ],
+        loop="row in substance.impurities",
+    )
+    doc.add_paragraph("Stability")
+    _looping_table(
+        doc,
+        ["Item", "Value", "Source"],
+        ["{{ item.label }}", "{{ item.value }}", "{{ item.source }}"],
+        loop="item in substance.stability",
+    )
+    doc.add_paragraph("{%p endfor %}")
+
+    doc.add_heading("Part 3 — Drug product", level=2)
+
+    doc.add_paragraph("Composition (per batch)")
+    _looping_table(
+        doc,
+        ["Component", "Specification", "Quantity per unit (mg)", "Quantity per batch (kg)"],
+        [
+            "{{ row.component }}",
+            "{{ row.spec }}",
+            "{{ row.qty_per_unit_mg }}",
+            "{{ row.batch_qty_kg }}",
+        ],
+        loop="row in composition",
+    )
+
+    doc.add_paragraph("Finished product specification")
+    _looping_table(
+        doc,
+        ["Test", "Method", "Acceptance criterion"],
+        [
+            "{{ row.test_name }}",
+            "{{ row.method }}",
+            "{{ row.acceptance_criterion }}",
+        ],
+        loop="row in product_specification",
+    )
+
+    doc.add_paragraph("Batches filed")
+    _looping_table(
+        doc,
+        ["Batch", "Date", "Size", "Site", "Purpose"],
+        [
+            "{{ row.batch_number }}",
+            "{{ row.manufacture_date }}",
+            "{{ row.batch_size }}",
+            "{{ row.site }}",
+            "{{ row.purpose }}",
+        ],
+        loop="row in batches",
+    )
+
+    doc.add_paragraph("Container closure system")
+    _looping_table(
+        doc,
+        ["Component", "Description", "Source"],
+        ["{{ item.label }}", "{{ item.value }}", "{{ item.source }}"],
+        loop="item in container",
+    )
+
+    doc.add_paragraph("Stability and shelf life")
+    _looping_table(
+        doc,
+        ["Item", "Value", "Source"],
+        ["{{ item.label }}", "{{ item.value }}", "{{ item.source }}"],
+        loop="item in product_stability",
+    )
+
+    note = doc.add_paragraph()
+    note.add_run("{{ derivation_note }}").font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "qis.docx"
+    doc.save(path)
+    return path
+
+
+P24_BUILDERS = (build_qis,)
+
+
 if __name__ == "__main__":
     built_paths = [build_3_2_s_1(), build_na_statement()]
     built_paths.extend(builder() for builder in P19_BUILDERS)
@@ -1267,5 +1405,6 @@ if __name__ == "__main__":
     built_paths.extend(builder() for builder in P21_BUILDERS)
     built_paths.extend(builder() for builder in P22_BUILDERS)
     built_paths.extend(builder() for builder in P23_BUILDERS)
+    built_paths.extend(builder() for builder in P24_BUILDERS)
     for built in built_paths:
         print(f"wrote {built}")

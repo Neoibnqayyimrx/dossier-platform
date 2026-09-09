@@ -18,7 +18,7 @@ from __future__ import annotations
 from app.ctd.region_profiles import REGION_PROFILES, resolve_applicability
 from app.models.enums import CertificateType, PackagingRole, TSE_RELEVANT_ORIGINS
 from app.models.project import Project
-from app.templating import bioequivalence, product_information, quality_control, stability
+from app.templating import bioequivalence, product_information, qis, quality_control, stability
 from app.templating.registry import get_section
 
 # What a context prints where a fact should be but is not. Shared rather
@@ -172,6 +172,16 @@ def build_context(
     # because two of them are Module 1 documents: a BTI form names the
     # applicant and a biowaiver request is a claim the filing makes, and
     # neither is a fact about a material.
+    # ---- P24: the derived documents -------------------------------------
+    #
+    # Dispatched before everything else in Module 1 because they are not
+    # Module 1 documents in any meaningful sense -- 1.4.2 is Module 3 in a
+    # form layout, and its context comes from the Module 3 section contexts
+    # rather than from any model this function reads. See
+    # app/templating/derived.py.
+    if section_number == "1.4.2":
+        return qis.qis_context(section, project)
+
     if section_number == "1.4.1":
         return bioequivalence.bti_context(section, project)
 

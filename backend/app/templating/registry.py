@@ -435,6 +435,25 @@ SECTIONS: dict[str, SectionSpec] = {
         grounding_query=None,
         only_when_applicable=True,
     ),
+    # ---- P24: the derived documents ------------------------------------
+    #
+    # 1.4.2 and 2.3 are the two leaves whose content lives entirely in
+    # other leaves. Both are registered like any other section -- assembly,
+    # folder placement, the module TOCs and the eCTD backbone pick them up
+    # with no special case -- and what makes them different is only where
+    # their context comes from: `app.templating.derived.section_contexts`
+    # rather than a model.
+    "1.4.2": SectionSpec(
+        number="1.4.2",
+        title="Quality Information Summary (QIS)",
+        template_filename="qis.docx",
+        # NO NARRATIVE SLOTS, the same emphatic call as 1.4.1. A QIS is a
+        # form an assessor reads field by field; a drafted paragraph in one
+        # could only introduce a claim Module 3 does not make, which is the
+        # exact divergence this document is built to eliminate.
+        narrative_slots=[],
+        grounding_query=None,
+    ),
     "5.2": SectionSpec(
         number="5.2",
         title="Tabular Listing of All Clinical Studies",
