@@ -230,7 +230,15 @@ export interface SectionSpec {
   title: string;
   /** Empty for data-only sections (e.g. 1.2, the registration form). */
   narrative_slots: string[];
+  /** P23: who this section's prose is written for. Served by the backend
+   * rather than inferred here, because "1.3.3 is the plain-language one"
+   * would stop being true the day a second patient-facing section is
+   * registered, and a frontend copy of that fact would not notice. */
+  narrative_register: NarrativeRegister;
 }
+
+/** Matches backend/app/models/enums.py::NarrativeRegister. */
+export type NarrativeRegister = "regulatory" | "patient";
 
 /** Matches backend/app/ctd/region_profiles.py::Applicability — what the
  * guideline says about a section, before the filer answers anything. */
@@ -603,3 +611,70 @@ export const BIOWAIVER_ROUTE_LEAF: Record<BiowaiverRoute, string | null> = {
   bcs: "1.2.17",
   "additional-strength": "1.2.18",
 };
+
+
+/**
+ * P23 -- the SmPC / label / leaflet content.
+ *
+ * Note what is NOT on the write type: no shelf life, no storage
+ * condition, no strength, no pack size. Those exist once, on the product
+ * and its packaging and stability data, and the three documents derive
+ * them. The backend REFUSES a write naming one (422), so a field here
+ * would be a form control that cannot save.
+ */
+export interface ProductInformationWrite {
+  therapeutic_indications: string | null;
+  posology_and_administration: string | null;
+  contraindications: string[];
+  special_warnings: string[];
+  interactions: string | null;
+  pregnancy_and_lactation: string | null;
+  effects_on_driving: string | null;
+  undesirable_effects: UndesirableEffect[];
+  overdose: string | null;
+  incompatibilities: string | null;
+  special_precautions_for_disposal: string | null;
+}
+
+export interface UndesirableEffect {
+  effect: string;
+  /** A CIOMS band from GET /enums (`adverse_event_frequency`). Both the
+   * SmPC and the leaflet print 4.8 in band order, which needs a defined
+   * set -- "fairly often" cannot be ordered. */
+  frequency: string;
+}
+
+/** A value the product information PRINTS but does not own. `source` is a
+ * sentence shown to the filer, because "this is derived" is useless
+ * without "derived from what". */
+export interface DerivedValue {
+  field: string;
+  label: string;
+  value: string;
+  source: string;
+  smpc_section: string | null;
+}
+
+export interface ProductInformation extends ProductInformationWrite {
+  id: string;
+  product_id: string;
+  derived: DerivedValue[];
+}
+
+/** One shared field as each of the three documents renders it. */
+export interface ComparisonRow {
+  field: string;
+  label: string;
+  smpc_section: string | null;
+  source: string;
+  values: { section: string; document: string; value: string }[];
+  /** Computed on the SERVER. It is a regulatory verdict, and rule R31
+   * makes the same call on the same data -- two implementations of "do
+   * these agree" is the second copy this whole phase removes. */
+  agrees: boolean;
+}
+
+export interface ThreeWayComparison {
+  rows: ComparisonRow[];
+  divergences: number;
+}

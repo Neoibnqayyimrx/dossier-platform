@@ -45,7 +45,20 @@ export interface FieldSpec {
 }
 
 export interface ChildStepSpec {
-  id: ProductChildResource;
+  /**
+   * The resource this step edits.
+   *
+   * Every step but one names a factory-backed child collection, which is
+   * what lets the generic form POST and DELETE against it. P23's product
+   * information is the exception and is typed as the exception rather
+   * than smuggled into `ProductChildResource`: it is a 1:1 resource with
+   * a PUT and no collection verbs, so widening that union would make
+   * `api.createProductChild(id, "product-information", ...)` typecheck
+   * against an endpoint that does not exist. It reaches this field only
+   * because it has a `customEditor`, and the generic path is never taken
+   * for it.
+   */
+  id: ProductChildResource | "product-information";
   title: string;
   /**
    * The add-button label, written out rather than derived from `title`.
@@ -82,7 +95,7 @@ export interface ChildStepSpec {
    * the DATA is a table -- it is not a licence to hand-write the next
    * screen.
    */
-  customEditor?: "drug-product-control" | "bioequivalence";
+  customEditor?: "drug-product-control" | "bioequivalence" | "product-information";
 }
 
 export const PRODUCT_FIELDS: FieldSpec[] = [
@@ -357,6 +370,20 @@ export const CHILD_STEPS: ChildStepSpec[] = [
     // reasoning. This is the second deviation, not a new licence: both
     // exist because the shape of the DATA is not a list.
     customEditor: "bioequivalence",
+    fields: [],
+  },
+  {
+    id: "product-information",
+    title: "Product information",
+    addLabel: "Add product information",
+    blurb:
+      "The SmPC (1.3.1), the outer and inner labels (1.3.2) and the patient leaflet (1.3.3) — all three rendered from one dataset. Type the clinical particulars here; the strength, shelf life, storage, pack and ingredient list are read from what you have already entered, so the three documents cannot end up disagreeing.",
+    // The third custom editor, and the first that is not about tabular
+    // data. Half of this screen is deliberately NOT editable -- see
+    // ProductInformationEditor.tsx. A field spec describes an input, and
+    // there is no honest way to spell "this is section 6.3, it says 24
+    // months, and it is not yours to type" as one.
+    customEditor: "product-information",
     fields: [],
   },
   {

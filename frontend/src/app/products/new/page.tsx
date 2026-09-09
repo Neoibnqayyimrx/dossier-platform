@@ -29,6 +29,7 @@ import type {
 import { BatchAnalysisEditor } from "@/components/BatchAnalysisEditor";
 import { SpecificationEditor } from "@/components/SpecificationEditor";
 import { BioequivalenceEditor } from "@/components/BioequivalenceEditor";
+import { ProductInformationEditor } from "@/components/ProductInformationEditor";
 import { StabilityGrid } from "@/components/StabilityGrid";
 import {
   CHILD_STEPS,
@@ -117,13 +118,21 @@ function ChildStep({
     [],
   );
 
+  // The generic add/delete form runs only for a step with no
+  // `customEditor`, and every one of those names a factory-backed child
+  // collection. P23's product information is the one step id that is not
+  // one (it is a 1:1 PUT resource), so the narrowing lives here, once,
+  // with its reason -- rather than as a cast at each of the three call
+  // sites below.
+  const resource = step.id as ProductChildResource;
+
   async function add(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      const saved = await api.createProductChild(productId, step.id, draft);
-      onSaved(step.id, { ...draft, ...saved });
+      const saved = await api.createProductChild(productId, resource, draft);
+      onSaved(resource, { ...draft, ...saved });
       setDraft({});
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not save");
@@ -134,11 +143,24 @@ function ChildStep({
 
   async function remove(id: string) {
     try {
-      await api.deleteProductChild(productId, step.id, id);
-      onDeleted(step.id, id);
+      await api.deleteProductChild(productId, resource, id);
+      onDeleted(resource, id);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not delete");
     }
+  }
+
+  if (step.customEditor === "product-information") {
+    // P23. The third non-generic step, and the first whose reason is not
+    // tabular data: half of this screen is deliberately read-only, and a
+    // field spec has no way to describe a value that is shown but not
+    // yours to type. See ProductInformationEditor.tsx.
+    return (
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600 dark:text-slate-400">{step.blurb}</p>
+        <ProductInformationEditor productId={productId} vocabularies={vocabularies} />
+      </div>
+    );
   }
 
   if (step.customEditor === "bioequivalence") {

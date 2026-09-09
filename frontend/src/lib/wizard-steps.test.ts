@@ -56,15 +56,31 @@ describe("wizard step specs", () => {
 });
 
 describe("the custom editors stay a bounded exception", () => {
-  it("keeps hand-written editors to the two steps whose data is a table", () => {
+  it("keeps hand-written editors to the three steps that have earned one", () => {
     // A guard rather than a preference. The generic form is what makes
     // "add a field" a one-line edit, and each hand-written editor is a
-    // screen that has to be maintained by hand forever. Two are justified
-    // -- stability is a timepoint x test grid, bioequivalence is a fixed
-    // three-parameter table pointing at a comparator row -- and a third
-    // should have to argue for itself by failing this test.
+    // screen that has to be maintained by hand forever. Each one has to
+    // argue for itself by failing this test first.
+    //
+    // Two are justified by their data being a TABLE: stability is a
+    // timepoint x test grid, and bioequivalence is a fixed three-parameter
+    // results table pointing at a comparator row that other rows reference.
+    //
+    // P23's product information is the third, and its argument is
+    // different -- which is why it had to fail this test to get in rather
+    // than being waved through as "one more editor". Half of that screen
+    // is NOT EDITABLE: sections 1, 2, 3, 6.1, 6.3, 6.4 and 6.5 of the SmPC
+    // are derived from the product, its packaging and its stability data,
+    // and shown read-only with a sentence saying where each comes from. A
+    // FieldSpec describes an input; there is no honest way to spell "this
+    // is section 6.3, it says 24 months, and it is not yours to type" as
+    // one. See ProductInformationEditor.tsx.
     const custom = CHILD_STEPS.filter((step) => step.customEditor).map((step) => step.id);
-    expect(custom.sort()).toEqual(["bioequivalence", "stability"]);
+    expect(custom.sort()).toEqual([
+      "bioequivalence",
+      "product-information",
+      "stability",
+    ]);
   });
 });
 

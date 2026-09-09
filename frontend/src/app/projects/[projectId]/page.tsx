@@ -14,6 +14,7 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { BuildPanel } from "@/components/BuildPanel";
 import { Module1Panel } from "@/components/Module1Panel";
 import { OverridePanel } from "@/components/OverridePanel";
+import { ProductInformationComparison } from "@/components/ProductInformationComparison";
 import { SectionListPanel } from "@/components/SectionListPanel";
 import { NarrativeSlot } from "@/components/NarrativeSlot";
 import { ValidationReport } from "@/components/ValidationReport";
@@ -27,9 +28,14 @@ import { Badge, Card, ErrorNotice, PageHeading } from "@/components/ui";
 // answers "what does this dossier still owe?", which is the question you ask
 // BEFORE deciding what to write (P17). It is also where the conditional
 // questions are answered, and those change what the other tabs show.
+// P23: "Product information" sits directly after Module 1, because that is
+// where it is filed (1.3) and because the question it answers -- do the
+// SmPC, the label and the leaflet agree? -- is one an assessor asks of the
+// administrative half of the dossier, not of the narrative work.
 const TABS = [
   "Overview",
   "Module 1",
+  "Product information",
   "Sections",
   "Narratives",
   "Validation",
@@ -221,6 +227,10 @@ function ProjectDetail({ projectId }: { projectId: string }) {
           vocabularies={vocabularies}
           onChanged={refreshProject}
         />
+      )}
+
+      {tab === "Product information" && (
+        <ProductInformationComparison projectId={projectId} />
       )}
 
       {tab === "Sections" && (

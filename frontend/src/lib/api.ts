@@ -22,6 +22,8 @@ import type {
   Declaration,
   Narrative,
   Product,
+  ProductInformation,
+  ProductInformationWrite,
   Project,
   RegionProfile,
   ReadinessResponse,
@@ -41,6 +43,7 @@ import type {
   StabilityOwnerKind,
   StabilityResult,
   StabilityStudy,
+  ThreeWayComparison,
   User,
   ValidationOverride,
   UserRole,
@@ -314,6 +317,46 @@ export const api = {
 
   getProduct(productId: string) {
     return request<Product>(`/products/${productId}`);
+  },
+
+  /**
+   * P23 -- the SmPC / label / leaflet content.
+   *
+   * A 1:1 resource, so there is no create/list/delete trio: `PUT` is
+   * create-or-replace, which is the honest verb for a thing there is
+   * exactly one of. Replace, not merge -- the sections on screen ARE the
+   * SmPC, so a contraindication the filer deleted has to be gone from the
+   * leaflet too.
+   *
+   * The payload type deliberately cannot express a shelf life. The
+   * backend answers 422 on one anyway (it forbids extra fields rather than
+   * ignoring them), so this is the two layers saying the same thing.
+   */
+  getProductInformation(productId: string) {
+    return request<ProductInformation>(
+      `/products/${productId}/product-information`,
+    );
+  },
+
+  saveProductInformation(
+    productId: string,
+    payload: Partial<ProductInformationWrite>,
+  ) {
+    return request<ProductInformation>(
+      `/products/${productId}/product-information`,
+      { method: "PUT", body: JSON.stringify(payload) },
+    );
+  },
+
+  /**
+   * The three-way comparison, keyed by PROJECT rather than product: it
+   * compares what three DOCUMENTS print, and a document belongs to a
+   * filing (the marketing authorisation holder comes off the applicant).
+   */
+  compareProductInformation(projectId: string) {
+    return request<ThreeWayComparison>(
+      `/projects/${projectId}/product-information/comparison`,
+    );
   },
 
   /**
