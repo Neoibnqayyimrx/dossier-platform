@@ -11,7 +11,7 @@
  * do not fit it, and both are about what the data IS:
  *
  *   1. **The comparator is a row that other rows point at.** A study names
- *      a `ReferenceProduct` by foreign key -- deliberately, so 1.2, 2.3,
+ *      a `ReferenceProduct` by foreign key -- deliberately, so 1.2.2, 2.3,
  *      1.4.1 and 5.2 cannot each hold their own copy of the brand and
  *      drift. Entering it as a free-text field on the study would put the
  *      drift straight back, which is what rule R26 exists to catch.
@@ -216,7 +216,7 @@ export function BioequivalenceEditor({
           The comparator, as a record rather than a name: an assessor checks that
           the batch was in date when it was dosed, and that the brand is the one
           your application claims equivalence to. Every study points at one of
-          these, so 1.2, 2.3, 1.4.1 and 5.2 cannot name different products.
+          these, so 1.2.2, 2.3, 1.4.1 and 5.2 cannot name different products.
         </p>
         <ComparatorList comparators={comparators} />
         <ComparatorForm busy={busy} onAdd={addComparator} />

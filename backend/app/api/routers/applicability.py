@@ -31,7 +31,8 @@ from app.api.deps import get_db, require_project_owner
 # those eager options would lazy-load inside an async request and blow up.
 # One loader beats two that must be kept identical.
 from app.api.routers.projects import _get_project_or_404
-from app.ctd.region_profiles import Applicability, resolve_applicability
+from app.ctd.region_profiles import REGION_PROFILES, Applicability, resolve_applicability
+from app.ctd.toc import MODULE_TOC_LEAVES
 from app.models.project import Project
 from app.templating.instances import expand_sections
 from app.target_toc import NA_STATEMENT_PRODUCTION
@@ -130,6 +131,36 @@ def _section_statuses(project: Project) -> list[SectionStatusRead]:
     # exists would be the same green tick for a missing document that
     # `scripts/check_target_toc.py` refuses to award.
     produced = {i.number for i in instances if i.spec.leaf_suffix is None}
+
+    # P24: the two production routes that are NOT registry sections, and so
+    # were invisible to this screen.
+    #
+    # It was inviting a filer to attach a PDF for four tables of contents
+    # and three declarations the platform generates. That is the inverse of
+    # the failure this screen usually guards against -- not a gap read as
+    # finished, but finished work read as a gap -- and it costs a filer
+    # real time hunting for documents that already exist.
+    #
+    # The module TOCs (1.1, 2.1, 3.1, 5.1) are built from the placed
+    # package, which is why they cannot be registry sections at all: a
+    # table of contents is a function of the package, not of the project
+    # (see app/ctd/toc.py).
+    produced |= set(MODULE_TOC_LEAVES)
+
+    # The declarations (1.2.4-1.2.6) are rendered by
+    # app/templating/declarations.py from `Declaration` rows, so a leaf is
+    # produced when the filing actually HAS that declaration -- not merely
+    # because the region declares a leaf for it. A profile with no mapping
+    # (EU today) contributes nothing, which is correct rather than
+    # unfortunate: it has no declared leaf numbers to claim.
+    profile = REGION_PROFILES.get(project.region)
+    if profile is not None:
+        held = {declaration.declaration_type for declaration in project.declarations}
+        produced |= {
+            number
+            for declaration_type, number in profile.declaration_leaves.items()
+            if declaration_type in held
+        }
 
     copies: dict[str, list[SectionCopyRead]] = {}
     for instance in instances:

@@ -83,8 +83,20 @@ ONE_OWNER_TWO = (
 
 def upgrade() -> None:
     """Upgrade schema."""
-    bind = op.get_bind()
-    IMPURITY_TYPE.create(bind, checkfirst=True)
+    # WHY there is no `IMPURITY_TYPE.create(bind, checkfirst=True)` here:
+    # there was, and it made this migration unrunnable against Postgres.
+    # `op.create_table` below emits CREATE TYPE for the enum as part of
+    # creating the column that uses it, so an explicit create beforehand
+    # meant the type was created twice and the second attempt failed with
+    # `DuplicateObject: type "impuritytype" already exists`.
+    #
+    # It went unnoticed because the test suite builds its schema with
+    # `Base.metadata.create_all` on SQLite, where an enum is a VARCHAR and
+    # there is no type to duplicate -- so nothing exercised the migration
+    # against the database it was written for until a dev box was upgraded
+    # from a pre-P20 revision. The later P22 migration declares its enums
+    # inline in the column with no explicit create, which is the idiom that
+    # works; this now matches it.
 
     # ---- 1. widen specification_test -----------------------------------
     op.add_column("specification_test", sa.Column("product_id", sa.Uuid(), nullable=True))

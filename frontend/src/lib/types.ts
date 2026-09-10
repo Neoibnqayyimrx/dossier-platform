@@ -70,7 +70,7 @@ export interface Product {
   stability: unknown[];
   clinical: unknown[];
   batch_formula: unknown[];
-  /** P22. The comparator the APPLICATION declares -- printed at 1.2 and
+  /** P22. The comparator the APPLICATION declares -- printed at 1.2.2 and
    * 2.3, and reconciled by rule R26 against what each study dosed. */
   reference_product_name: string | null;
   reference_product_manufacturer: string | null;
@@ -228,7 +228,7 @@ export interface Narrative {
 export interface SectionSpec {
   number: string;
   title: string;
-  /** Empty for data-only sections (e.g. 1.2, the registration form). */
+  /** Empty for data-only sections (e.g. 1.2.2, the registration form). */
   narrative_slots: string[];
   /** P23: who this section's prose is written for. Served by the backend
    * rather than inferred here, because "1.3.3 is the plain-language one"

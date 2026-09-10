@@ -84,7 +84,7 @@ function Narratives({
   sections: SectionSpec[];
   onChanged: () => void;
 }) {
-  // Sections with no slots (e.g. 1.2, the registration form) are shown but
+  // Sections with no slots (e.g. 1.2.2, the registration form) are shown but
   // not offered a drafting UI -- every fact on them is structured data
   // already, so there is nothing for a model to write.
   return (

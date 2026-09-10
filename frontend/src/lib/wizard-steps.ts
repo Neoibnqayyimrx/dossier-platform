@@ -145,7 +145,7 @@ export const PRODUCT_FIELDS: FieldSpec[] = [
     label: "Reference product (comparator)",
     type: "text",
     placeholder: "Amoxil 500 mg capsules",
-    help: "Printed on the registration form (1.2) and the QOS (2.3). Rule R26 checks it against the comparator your study actually dosed.",
+    help: "Printed on the registration form (1.2.2) and the QOS (2.3). Rule R26 checks it against the comparator your study actually dosed.",
   },
   {
     name: "reference_product_manufacturer",
