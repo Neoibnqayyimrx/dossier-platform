@@ -174,3 +174,156 @@ def test_the_qis_has_nothing_authorable_on_it():
     drafted sentence on an agency form is a regulatory claim that the
     section it summarises does not make."""
     assert get_section("1.4.2").narrative_slots == []
+
+
+# ---- P24c: the QOS cannot diverge from Module 3 -----------------------------
+
+
+def _qos(project) -> dict:
+    from app.templating.qos import qos_context
+
+    return qos_context(get_section("2.3"), project, narrative=None)
+
+
+def _subsection(context: dict, number: str, substance_index: int = 0) -> object:
+    """One numbered QOS subsection, by its 2.3.x number."""
+    if number.startswith("2.3.S"):
+        subsections = context["drug_substances"][substance_index]["subsections"]
+    else:
+        subsections = context["drug_product_subsections"]
+    return next(sub for sub in subsections if sub.number == number)
+
+
+def test_qos_has_every_subsection_the_target_declares():
+    """Fourteen, per the target's `covers` list on 2.3.
+
+    "Registered" and "complete" were different statuses for this leaf from
+    P04 until P24 -- it rendered a heading, the structural formulae and one
+    paragraph while the contract listed fourteen subsections. This is what
+    closes that gap, and what stops it reopening.
+    """
+    project = build_examox(buggy=False)
+    context = _qos(project)
+
+    substance = [sub.number for sub in context["drug_substances"][0]["subsections"]]
+    product = [sub.number for sub in context["drug_product_subsections"]]
+
+    assert substance == [f"2.3.S.{n}" for n in range(1, 8)]
+    assert product == [f"2.3.P.{n}" for n in range(1, 8)]
+    assert len(substance) + len(product) == 14
+
+
+def test_qos_shelf_life_follows_module_3():
+    """The defect this platform exists to eliminate, in one assertion.
+
+    A QOS that states a retest period 3.2.S.7.1 does not is the most
+    commonly raised quality deficiency there is, and it is never a decision
+    -- it is a second copy of a number, updated once.
+    """
+    project = build_examox(buggy=False)
+    substance = project.product.apis[0]
+
+    before = _subsection(_qos(project), "2.3.S.7").values[0].value
+    substance.retest_period_months = 6
+    after = _subsection(_qos(project), "2.3.S.7").values[0].value
+
+    assert before != after
+    assert after == build_context("3.2.S.7.1", project, subject=substance)["claim_statement"]
+
+
+def test_qos_specification_follows_module_3():
+    project = build_examox(buggy=False)
+    project.product.specification[0].acceptance_criterion = "99 % to 101 %"
+
+    rows = _subsection(_qos(project), "2.3.P.5").table_rows
+    assert any("99 % to 101 %" in row["cells"] for row in rows)
+
+
+def test_qos_composition_follows_the_batch_formula():
+    project = build_examox(buggy=False)
+    project.product.batch_formula[0].component = "Renamed Component BP"
+
+    rows = _subsection(_qos(project), "2.3.P.1").table_rows
+    assert any(row["cells"][0] == "Renamed Component BP" for row in rows)
+
+
+def test_qos_impurity_limits_follow_module_3():
+    project = build_ampiclox()
+    substance = project.product.apis[0]
+    impurity = sorted(substance.impurities, key=lambda i: (i.impurity_type.value, i.name))[0]
+    impurity.limit = "0.02 %"
+
+    rows = _subsection(_qos(project), "2.3.S.3").table_rows
+    assert any("0.02 %" in row["cells"] for row in rows)
+
+
+def test_qos_repeats_per_drug_substance():
+    """A combination product owes a 2.3.S block per active.
+
+    A QOS summarising "the drug substance" of a two-active product
+    summarises one material and says nothing about which -- and 2.3.S is
+    the half of the QOS an assessor reads to decide whether the API case
+    holds.
+    """
+    project = build_ampiclox()
+    blocks = _qos(project)["drug_substances"]
+
+    assert [block["name"] for block in blocks] == ["Ampicillin", "Cloxacillin"]
+    ampicillin = _subsection(_qos(project), "2.3.S.4", substance_index=0)
+    cloxacillin = _subsection(_qos(project), "2.3.S.4", substance_index=1)
+    assert ampicillin.values[0].value != cloxacillin.values[0].value
+
+
+def test_qos_cannot_state_a_retest_period_module_3_refuses_to_print():
+    project = build_examox(buggy=False)
+    project.product.apis[0].retest_period_months = 900
+
+    stated = _subsection(_qos(project), "2.3.S.7").values[0].value
+    assert "NOT SUPPORTED" in stated
+
+
+def test_every_qos_subsection_names_the_module_3_section_it_mirrors():
+    """The navigation contract. 2.3.S.4 must say it summarises 3.2.S.4.
+
+    A QOS subsection that does not name what it mirrors makes the reviewer
+    do the mapping in their head, which is the one thing the ICH M4Q
+    structure exists to spare them.
+    """
+    project = build_examox(buggy=False)
+    context = _qos(project)
+
+    for block in context["drug_substances"]:
+        for sub in block["subsections"]:
+            assert sub.mirrors == sub.number.replace("2.3.", "3.2.")
+    for sub in context["drug_product_subsections"]:
+        assert sub.mirrors == sub.number.replace("2.3.", "3.2.")
+
+
+def test_qos_narrative_slots_are_summary_only():
+    """Three slots, and none of them can carry a figure.
+
+    Not because a model would be asked politely: every number in the
+    document is printed from the derived blocks above the slots, so a
+    contradiction appears on the same page rather than three hundred pages
+    away. What the slots hold is the argument -- which is genuinely the
+    applicant's to make.
+    """
+    slots = get_section("2.3").narrative_slots
+    assert slots == ["overview", "drug_substance_summary", "drug_product_summary"]
+
+
+def test_qos_and_qis_agree_because_neither_holds_its_own_copy():
+    """The two derived documents, cross-read the way an assessor reads them.
+
+    A QIS and a QOS stating two different specifications is a real filing
+    defect and an obvious one. Here they cannot: both read 3.2.P.5.1's
+    rendered rows, so there is one table and two documents printing it.
+    """
+    project = build_examox(buggy=False)
+    project.product.specification[0].acceptance_criterion = "97.5 % to 102.5 %"
+
+    qis_rows = _qis(project)["product_specification"]
+    qos_rows = _subsection(_qos(project), "2.3.P.5").table_rows
+
+    assert qis_rows[0]["acceptance_criterion"] == "97.5 % to 102.5 %"
+    assert qos_rows[0]["cells"][2] == "97.5 % to 102.5 %"

@@ -57,6 +57,103 @@ def bp_substance_specification(assay_lower: str = "98.0", assay_upper: str = "10
     ]
 
 
+def amlodipine_substance_specification():
+    """Amlodipine besilate, for P24e's worked example (3.2.S.4.1).
+
+    THE TEST NAMES ARE DELIBERATELY THE SAME as
+    `bp_substance_specification`'s, and only the methods and criteria
+    differ. That is not a shortcut -- it is what a drug substance
+    specification looks like: identity, assay, related substances, water,
+    ash, solvents, heavy metals and microbial limits are the standard test
+    set for any small-molecule API, and what varies between molecules is
+    the limit, not the question.
+
+    It also has a practical payoff the fixtures depend on: the batch and
+    stability result maps are keyed by test name and RAISE on a name the
+    specification does not contain, so a shared vocabulary means one set of
+    result tables serves every product.
+
+    WHY a separate function rather than parameters on the BP one: the
+    criteria differ in kind, not degree. Amoxicillin trihydrate carries
+    about 13 % water by design and amlodipine besilate carries almost none,
+    so "NMT 14.5 %" is not a default anybody should inherit -- a worked
+    example that shipped it would be filing a specification no analyst
+    could have written.
+    """
+    rows = [
+        ("Description", "Visual, BP monograph", "White to off-white crystalline powder"),
+        ("Identification A", "IR absorption, BP monograph", "Complies with reference spectrum"),
+        ("Identification B", "HPLC retention time, BP monograph", "Corresponds to reference"),
+        ("Assay (anhydrous basis)", "HPLC, BP monograph", "98.0 - 102.0 % w/w"),
+        # Ph. Eur./BP control the named amlodipine impurities individually
+        # at 0.3 % and anything unspecified at the ICH Q3A threshold.
+        ("Related substances - any individual", "HPLC, BP monograph", "NMT 0.3 %"),
+        ("Related substances - total", "HPLC, BP monograph", "NMT 1.0 %"),
+        # The contrast with the penicillin specification, and the reason
+        # this function exists.
+        ("Water content", "Karl Fischer, BP monograph", "NMT 0.5 %"),
+        ("Sulphated ash", "BP monograph", "NMT 0.1 %"),
+        ("Residual solvents", "GC, ICH Q3C", "Complies with ICH Q3C limits"),
+        ("Heavy metals", "BP monograph", "NMT 20 ppm"),
+        ("Microbial limits", "BP monograph", "TAMC NMT 10^3 CFU/g"),
+    ]
+    return [
+        SpecificationTest(
+            test_name=name,
+            method=method,
+            acceptance_criterion=criterion,
+            sort_order=i,
+        )
+        for i, (name, method, criterion) in enumerate(rows)
+    ]
+
+
+def amlodipine_impurities():
+    """The impurity profile of amlodipine besilate (3.2.S.3.2).
+
+    The pyridine analogue is the one worth knowing: amlodipine is a
+    1,4-dihydropyridine, and its characteristic degradation is oxidation of
+    that ring to the aromatic pyridine, which light accelerates. That is
+    why the product is packed in an opaque blister and why the label says
+    to protect it from light -- one impurity explaining a packaging
+    decision and a storage statement, which is exactly the cross-read
+    3.2.P.2.4 and the label are for.
+    """
+    return [
+        Impurity(
+            name="Impurity D (amlodipine pyridine analogue)",
+            impurity_type=ImpurityType.DEGRADATION,
+            limit="NMT 0.3 %",
+            limit_source="BP monograph",
+            origin=(
+                "Oxidation of the 1,4-dihydropyridine ring to the pyridine, accelerated "
+                "by light."
+            ),
+        ),
+        Impurity(
+            name="Impurity A (dehydro amlodipine ester)",
+            impurity_type=ImpurityType.PROCESS_RELATED,
+            limit="NMT 0.3 %",
+            limit_source="BP monograph",
+            origin="Ester by-product carried through from the synthesis.",
+        ),
+        Impurity(
+            name="Any other unspecified impurity",
+            impurity_type=ImpurityType.DEGRADATION,
+            limit="NMT 0.10 %",
+            limit_source="ICH Q3A identification threshold",
+            origin="Unidentified; controlled at the identification threshold.",
+        ),
+        Impurity(
+            name="Methanol",
+            impurity_type=ImpurityType.RESIDUAL_SOLVENT,
+            limit="NMT 3000 ppm",
+            limit_source="ICH Q3C Class 2 limit",
+            origin="Solvent used in the final crystallisation step.",
+        ),
+    ]
+
+
 def excipient_specification(compendial: str = "BP"):
     """A short compendial excipient specification (3.2.P.4.1).
 
@@ -122,7 +219,13 @@ def drug_product_specification(assay_lower: str = "90.0", assay_upper: str = "11
     ]
 
 
-def batches_against(specification, batch_numbers, results_by_test, manufacturer=None):
+def batches_against(
+    specification,
+    batch_numbers,
+    results_by_test,
+    manufacturer=None,
+    batch_size: str = "250,000 capsules",
+):
     """Build BatchAnalysis rows whose results point at `specification`'s
     own test objects.
 
@@ -153,7 +256,11 @@ def batches_against(specification, batch_numbers, results_by_test, manufacturer=
         batch = BatchAnalysis(
             batch_number=number,
             manufacture_date=date(2025, 3 + index, 12),
-            batch_size="250,000 capsules",
+            # P24e: a parameter, because it used to read "capsules" for
+            # every fixture and the Amlodipine worked example is a tablet.
+            # A batch analysis whose size is stated in the wrong dosage
+            # form is the kind of detail an assessor reads as carelessness.
+            batch_size=batch_size,
             purpose="Stability and bioequivalence batches",
             manufacturer=manufacturer,
         )
@@ -241,7 +348,12 @@ def drug_product_impurities():
     ]
 
 
-def attach_control_data(product, oos: bool = False) -> None:
+def attach_control_data(
+    product,
+    oos: bool = False,
+    substance_results: dict | None = None,
+    batch_size: str = "250,000 capsules",
+) -> None:
     """Wire P20's control-section data onto a seeded product.
 
     Called once per seed, AFTER the actives, excipients and manufacturers
@@ -259,6 +371,17 @@ def attach_control_data(product, oos: bool = False) -> None:
     rule R22 in exactly the spirit of LAMOX's planted copy-paste bugs
     (R01-R03) -- a defect the platform must catch, not a real defect in
     anyone's product.
+
+    `substance_results` overrides the drug substance's batch results, and
+    P24e's amlodipine needs it for the same reason it needs its own
+    stability table: the defaults report ~13 % water, which is amoxicillin
+    trihydrate's water of crystallisation and twenty-five times amlodipine
+    besilate's own limit. Rule R22 caught it, correctly, on the first build
+    of that fixture -- which is the rule doing exactly its job on the
+    fixture written to demonstrate it.
+
+    `batch_size` likewise: it read "250,000 capsules" for every fixture
+    until a tablet product needed one.
     """
     finished_site = next(
         (m for m in product.manufacturers if m.role is not ManufacturerRole.API_MANUFACTURER),
@@ -288,19 +411,21 @@ def attach_control_data(product, oos: bool = False) -> None:
         if api.batch_analyses:
             continue
         assays = ["99.1 % w/w", "103.4 % w/w" if oos else "99.8 % w/w", "100.2 % w/w"]
+        results = substance_results or {
+            "Description": ["Complies"] * 3,
+            "Assay (anhydrous basis)": assays,
+            "Related substances - total": ["0.42 %", "0.51 %", "0.38 %"],
+            "Water content": ["12.8 %", "13.1 %", "12.4 %"],
+        }
         api.batch_analyses = batches_against(
             api.specification,
             [
                 f"API/{api.inn_name[:3].upper()}/24/{n:04d}"
                 for n in (11 + index, 21 + index, 31 + index)
             ],
-            {
-                "Description": ["Complies"] * 3,
-                "Assay (anhydrous basis)": assays,
-                "Related substances - total": ["0.42 %", "0.51 %", "0.38 %"],
-                "Water content": ["12.8 %", "13.1 %", "12.4 %"],
-            },
+            results,
             manufacturer=api_site,
+            batch_size=batch_size,
         )
 
     # 3.2.P.5.4 -- batches of the finished product.
@@ -319,4 +444,5 @@ def attach_control_data(product, oos: bool = False) -> None:
                 "Related substances - total": ["0.8 %", "1.1 %", "0.9 %"],
             },
             manufacturer=finished_site,
+            batch_size=batch_size,
         )

@@ -11,9 +11,17 @@ Run (both spellings must give identical output -- see the sys.path pin below):
     uv run python -m scripts.check_target_toc            # report
     uv run python scripts/check_target_toc.py --strict   # exit 1 on any gap
 
-`--strict` is for CI once coverage is complete. Until then it will fail every
-run, which is accurate but not useful, so it is opt-in: a permanently red build
-teaches everyone to ignore the build.
+`--strict` IS CI, as of P24e. It was opt-in while coverage was incomplete --
+"accurate but not useful", since a permanently red build teaches everyone to
+ignore the build. Now that every leaf in the target has a route to
+production, it stops being a progress report and becomes a contract: a new
+`applicable` leaf with nowhere to come from fails the build that adds it.
+
+What `--strict` fails on depends on the scope, and the distinction is the
+whole point (see `is_gap`): without `--project` it asks whether the PLATFORM
+can produce or place every leaf, and a placeholder passes because a route
+exists; with `--project` it asks whether a FILING is complete, and a
+placeholder is exactly the gap.
 """
 
 from __future__ import annotations
@@ -175,6 +183,48 @@ def resolve_status(entry: dict, producible: set[str], attached: set[str] = froze
     return "done" if is_producible else "missing"
 
 
+# The two scopes this check can be run in, and the reason it needs two.
+#
+# PLATFORM (no --project): "does every leaf in the target have a route to
+# production?" A `placeholder` IS a route -- the platform can place a file
+# at that leaf, checksum it and refuse to export without it. What it cannot
+# do is author a regulator's certificate, and it never will.
+#
+# PROJECT (--project <id>): "is this filing complete?" There a placeholder
+# is exactly the gap: the CPP is not in.
+PLATFORM, PROJECT = "platform", "project"
+
+# P24e. Statuses that mean "no route to production" -- the strict gate's
+# definition of failure in platform scope.
+#
+# WHY `placeholder` is NOT here, when P18 was so careful to keep it out of
+# `done`: those are two different questions and P18's comment answers the
+# other one. Crediting a placeholder as a finished DOCUMENT would launder
+# the platform's largest gap -- and `resolve_status` still refuses to, so
+# the report still prints 22 leaves as placeholders and a project-scoped
+# run still counts them against the filing. What changes here is only what
+# FAILS THE BUILD: a leaf whose document must arrive from outside has a
+# complete route the day the upload path exists, and failing CI because
+# nobody has attached a CPP to a hypothetical project would be a red build
+# that no commit can turn green. That is the build everyone learns to
+# ignore.
+_NO_ROUTE = frozenset({"missing", "blocked"})
+
+
+def is_gap(status: str, scope: str) -> bool:
+    """Whether `status` fails the gate, in the scope being reported."""
+    if scope == PROJECT:
+        # "not-owed" is a filing's scoping ANSWER, not a hole in it. See
+        # `not_owed_keys`.
+        return status not in ("done", "not-owed")
+    return status in _NO_ROUTE
+
+
+def has_route(status: str) -> bool:
+    """Whether the platform can produce or place this leaf at all."""
+    return not is_gap(status, PLATFORM)
+
+
 def attached_keys(project_id: str) -> set[str]:
     """Leaf keys that `project_id` has a real uploaded document for (P18).
 
@@ -210,6 +260,68 @@ def attached_keys(project_id: str) -> set[str]:
     return asyncio.run(_load())
 
 
+def not_owed_keys(project_id: str) -> set[str]:
+    """Leaf numbers `project_id` legitimately does not owe (P24e).
+
+    A conditional leaf the filer has answered "no" to is not a gap in that
+    filing -- it is a scoping ANSWER. An applicant with no previous
+    marketing authorization owes nothing at 1.2.13; one whose excipients are
+    all compendial owes nothing at 3.2.P.4.3.
+
+    WHY this had to be added the moment `--strict` went on: without it,
+    project scope counted those leaves as missing paper and no correct
+    filing could ever reach 98/98 -- so the number would have been unusable
+    for the one question it exists to answer. Worse, it would have pushed a
+    filer towards attaching SOMETHING at a leaf they had already correctly
+    declared out of scope, which is how a dossier acquires a document
+    contradicting its own scoping answers.
+
+    This reads the same `resolve_applicability` the builders read, so the
+    check cannot disagree with the package about what the filing owes.
+    """
+    import asyncio
+
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.core.config import get_settings
+    from app.ctd.region_profiles import resolve_applicability
+    from app.models import Project
+
+    async def _load() -> set[str]:
+        engine = create_async_engine(get_settings().database_url)
+        try:
+            async with engine.connect() as conn:
+                row = (
+                    await conn.execute(
+                        select(
+                            Project.region,
+                            Project.submission_type,
+                            Project.condition_answers,
+                        ).where(Project.id == project_id)
+                    )
+                ).first()
+        finally:
+            await engine.dispose()
+
+        if row is None:
+            raise SystemExit(f"No project {project_id!r}.")
+
+        # A stand-in carrying only what resolve_applicability reads. Loading
+        # the real ORM object would drag the whole product graph across an
+        # async boundary for three scalar columns.
+        class _Filing:
+            region, submission_type, condition_answers = row
+
+        return {
+            number
+            for number, decision in resolve_applicability(_Filing()).items()
+            if not decision.is_applicable
+        }
+
+    return asyncio.run(_load())
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--strict", action="store_true", help="exit 1 on any gap")
@@ -227,30 +339,57 @@ def main() -> int:
     sections = target["sections"]
     producible = producible_keys(sections)
     attached = attached_keys(args.project) if args.project else frozenset()
+    not_owed = not_owed_keys(args.project) if args.project else frozenset()
 
     by_module: dict[int, Counter] = defaultdict(Counter)
     by_production = Counter()
     blocker_counts = Counter()
     gaps: list[tuple[str, str, str]] = []
 
+    scope = PROJECT if args.project else PLATFORM
+    covered = 0
+    placeholders = 0
+    outstanding: set[str] = set()
+
     for entry in sections:
         status = resolve_status(entry, producible, attached)
+        if entry["number"] in not_owed:
+            # Scoped OUT by this filing's own answers, so it owes no
+            # document. Reported as its own status rather than folded into
+            # `done`: "we decided this does not apply" and "we filed it"
+            # are different facts, and an assessor reads them differently.
+            status = "not-owed"
         by_module[entry["module"]][status] += 1
         by_production[entry["production"]] += 1
+        if status == "placeholder":
+            placeholders += 1
         for blocker in entry.get("blocked_by", []):
             blocker_counts[blocker] += 1
-        if status != "done":
+            if is_gap(status, scope):
+                outstanding.add(blocker)
+        if is_gap(status, scope):
             gaps.append((entry["number"], entry["title"], status))
+        else:
+            covered += 1
 
     total = len(sections)
-    done = sum(m["done"] for m in by_module.values())
 
     print(f"TARGET: {target['meta']['name']}")
     print(f"Source: {target['meta']['derived_from']}")
     # Pasteable into the README verbatim -- progress that only exists in a
     # terminal is progress nobody outside this shell can see.
-    scope = f"project {args.project}" if args.project else "platform capability"
-    print(f"\nCOVERAGE: {done}/{total} leaves  ({scope})\n")
+    label = f"project {args.project}" if args.project else "platform capability"
+    print(f"\nCOVERAGE: {covered}/{total} leaves  ({label})\n")
+    if scope == PLATFORM and placeholders:
+        # Said out loud, every run. 98/98 in platform scope means "every
+        # leaf has somewhere to come from", NOT "a dossier is complete" --
+        # and a coverage number that let anyone believe the second thing
+        # would be the most expensive sentence in this repo.
+        print(
+            f"  {placeholders} of those are uploaded leaves: the platform can place the "
+            f"file,\n  and the file itself arrives per filing. Run with --project <id> "
+            f"to ask\n  whether a particular dossier actually has them.\n"
+        )
 
     print("By module:")
     for module in sorted(by_module):
@@ -262,9 +401,16 @@ def main() -> int:
     for production, n in by_production.most_common():
         print(f"  {production:<14} {n:>3}")
 
-    print("\nLeaves blocked, by capability (build these first):")
+    # P24e: this used to read "build these first", which stopped being true
+    # the moment the last capability landed. A `blocked_by` is a permanent
+    # record of what a leaf DEPENDS ON, not a to-do that deletes itself --
+    # so the list stays and the heading now says which, if any, are still
+    # outstanding. Silently dropping landed capabilities would erase the
+    # dependency map that made the build order legible in the first place.
+    print("\nLeaves by the capability they depend on:")
     for blocker, n in blocker_counts.most_common():
-        print(f"  {blocker:<28} {n:>3} leaves")
+        state = "OUTSTANDING" if blocker in outstanding else "landed"
+        print(f"  {blocker:<28} {n:>3} leaves  ({state})")
 
     if gaps:
         print(f"\n{len(gaps)} leaves not yet produced:")
@@ -272,7 +418,12 @@ def main() -> int:
             print(f"  [{status:<11}] {number:<10} {title}")
 
     if args.strict and gaps:
-        print(f"\nFAIL: {len(gaps)} applicable leaves have no route to production.")
+        reason = (
+            "have no route to production"
+            if scope == PLATFORM
+            else "are not yet filed for this project"
+        )
+        print(f"\nFAIL: {len(gaps)} applicable leaves {reason}.")
         return 1
     return 0
 

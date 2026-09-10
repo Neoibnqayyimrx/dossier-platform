@@ -65,10 +65,17 @@ Python 3.11 · FastAPI · Pydantic v2 · SQLAlchemy 2.x (async) · Alembic · Po
 
 ## Coverage against a real dossier
 
-**55/98 leaves** of a filed NAFDAC multisource dossier (Me Cure, Amlodipine
-Tablets 5 mg) are produced from data today — including the fourteen sections
-the dossier declares *not applicable*, which are filed as generated
-statements citing the guideline that excuses them, not omitted. Sections that
+**98/98 leaves** of a filed NAFDAC multisource dossier (Me Cure, Amlodipine
+Tablets 5 mg) now have a route to production, and CI fails the build if one
+ever does not. That number means *every leaf has somewhere to come from* —
+76 the platform renders from data, 22 it accepts as an uploaded file and
+refuses to export without. It is deliberately **not** a claim that a
+particular dossier is finished; that is the other question, and it is asked
+per filing with `--project <id>`.
+
+Those leaves include the fourteen sections the dossier declares *not
+applicable*, which are filed as generated statements citing the guideline
+that excuses them, not omitted. Sections that
 repeat do so along whichever axis they belong to: a combination product owes
 one 3.2.S per active, a three-pack product one 3.2.P.7 per pack, one 3.2.P.4.1
 per excipient, each in its own folder named after its subject rather than an
@@ -112,16 +119,43 @@ leaflet's drafted prose is judged in a *patient* register — a different system
 prompt and a different output check from the SmPC's, because "contraindicated
 in hepatic impairment" is correct in one document and a failure in the other.
 
+The three documents that are *derived from other documents* — the per-module
+tables of contents (**1.1**, **2.1**, **3.1**, **5.1**), the Quality
+Information Summary (**1.4.2**) and the Quality Overall Summary (**2.3**) —
+hold no data of their own at all. A TOC is built from the files actually
+placed in the package, so it cannot list a document that is not there or omit
+one that is. The QIS and the QOS read the very context dicts their Module 3
+sections render from: the QIS is NAFDAC's form layout and the QOS is ICH
+M4Q's fourteen subsections, and neither is ever handed a model to re-query.
+The consequence is worth stating plainly, because it is the defect the whole
+platform exists to remove — a QOS that disagrees with Module 3 is the most
+commonly raised quality deficiency there is, and it is never a decision, only
+a second copy of a number updated once. Here 2.3.P.8 *is* 3.2.P.8.1's
+sentence, so an unsupported shelf life is unprintable in the summary rather
+than merely blocked at export.
+
 Two kinds of coverage, kept apart on purpose: run the check with no arguments
 for what the *platform* can do, and with `--project <id>` for what one
 *filing* actually has in. A route to attach a CPP is not the same fact as the
-CPP being attached. The target is data, not prose —
-`docs/target-toc.yaml` declares every leaf that dossier owes and how it is
-produced; `uv run python -m scripts.check_target_toc` (run in CI on every push)
-compares it against what the platform can actually render, and prints the gap
-broken down by module, by production type, and by the foundation capability
-blocking each leaf. The largest single blocker is the upload path: 22 leaves
-are third-party artifacts the platform can only place, not author.
+CPP being attached, and a leaf a filing has scoped out (no biowaiver claimed,
+no previous marketing authorization) is an answer rather than a hole. The
+target is data, not prose — `docs/target-toc.yaml` declares every leaf that
+dossier owes and how it is produced; `uv run python -m scripts.check_target_toc
+--strict` runs in CI on every push and **fails the build** if an applicable
+leaf has no route to production. The largest single dependency is the upload
+path: 22 leaves are third-party artifacts the platform can only place, not
+author.
+
+The whole of it is proved end to end on a worked example. `app/seed/
+amlodipine.py` seeds a complete, defect-free amlodipine 5 mg filing — the
+product the target was derived from — and `tests/test_worked_example.py`
+builds it: **102 leaf PDFs covering 93 target leaves**, with the other five
+scoped out by the filer's own conditional answers, a table of contents per
+module, and an eCTD backbone that validates against
+`reference/ectd_dtd/ich-ectd-3-2.dtd`. 102 rather than 98 because a leaf
+number is not a document count: 3.2.P.4.1 repeats per excipient, 3.2.P.3.1
+per manufacturing site, 3.2.P.7 per pack, and three leaves file a generated
+document beside an uploaded one.
 
 ## Roadmap
 

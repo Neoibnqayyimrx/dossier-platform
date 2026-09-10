@@ -140,6 +140,12 @@ Full field definitions and relationships are specified in Phase 01.
 - [x] P21 — Stability as data: timepoint results, study axes, real OOS checking (48/98 leaves)
 - [x] P22 — Bioequivalence as data: structured study, the CI window as region config, 1.4.1 generated from Module 5 (52/98 leaves)
 - [x] P23 — Product information: SmPC, label and leaflet rendered from one dataset; the leaflet as a distinct narrative register (55/98 leaves)
+- [x] P24 — Derived documents, and closing the target (98/98 leaves; `--strict` is the CI gate)
+  - [x] P24a — Per-module tables of contents, built from the placed package
+  - [x] P24b — The Quality Information Summary (1.4.2), with no fields of its own
+  - [x] P24c — The Quality Overall Summary (2.3) in full: fourteen subsections
+  - [x] P24d — The remaining hybrids, the 1.2 → 1.2.2 renumber, and the two open regulatory questions answered
+  - [x] P24e — `--strict` in CI, and the Amlodipine worked example proved end to end
 - [ ] P12 — eCTD v4.0 (RPS) — future
 
 ## 8. How to work through the prompts

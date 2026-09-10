@@ -27,10 +27,12 @@ from datetime import datetime, timezone
 from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.storage import StorageClient, get_storage_client
-from app.ctd.region_profiles import REGION_PROFILES
+from app.ctd.region_profiles import REGION_PROFILES, resolve_applicability
 from app.documents.ingest import PDF_CONTENT_TYPE, ingest_document
 from app.models.project import Project
 from app.models.section_document import SectionDocument
+from app.target_toc import load_target_leaves
+from app.templating.instances import slugify_subject
 
 
 # The smallest thing that is genuinely a PDF: header, one page WITH A LINE OF
@@ -186,5 +188,107 @@ def attach_certificate_documents(
     # MissingGreenlet rather than merely being slow. This says "the
     # collection is already loaded, and here it is", which is true: nothing
     # else has attached documents to a freshly seeded project.
+    set_committed_value(project, "documents", created)
+    return created
+
+
+def attach_every_uploaded_leaf(
+    project: Project, storage: StorageClient | None = None
+) -> list[SectionDocument]:
+    """Attach a stand-in document at EVERY uploaded leaf this project owes
+    (P24e).
+
+    `attach_certificate_documents` above covers the certificates and the
+    CRO's two reports -- enough to make a fixture exportable, which is what
+    it was for. This covers the whole of `production: uploaded` in the
+    target: the process validation reports, the elucidation of structure,
+    the analytical validations, the literature packs, the electronic review
+    copies.
+
+    ## Why this is what "the end-to-end proof" needs
+
+    Platform-scope coverage answers "can a file go here". It reads 98/98
+    because every leaf has a route. Project-scope coverage answers "is the
+    paper in", and until something attaches these it reads 76/98 for every
+    project that ever exists -- which is correct, and which is also why the
+    phase needed one project where the answer is 98.
+
+    ## Applicability is consulted, not ignored
+
+    A leaf the filing does not owe does not get a document. Attaching one
+    at 1.2.13 for an applicant with no previous marketing authorization
+    would put a file in the package contradicting the answer the filer
+    gave -- the same defect P22 avoided by attaching the CRO's report only
+    to a filing that actually has a study.
+
+    ## Repeating leaves get one document per subject
+
+    3.2.S.2.5, 3.2.S.3.1 and 3.2.S.4.3 are per drug substance: an
+    elucidation-of-structure report is about ONE molecule, and filing
+    ampicillin's spectra under a number meaning "the drug substance" puts
+    the wrong material in front of an assessor.
+    """
+    storage = storage or get_storage_client()
+    profile = REGION_PROFILES.get(project.region)
+    resolved = resolve_applicability(project)
+    substances = [slugify_subject(api.inn_name) for api in project.product.apis]
+
+    # Whatever is already attached -- typically by
+    # `attach_certificate_documents`, which a caller may have run first.
+    existing = {document.instance_key for document in project.documents}
+    created: list[SectionDocument] = list(project.documents)
+
+    for leaf in load_target_leaves():
+        if leaf.production != "uploaded":
+            continue
+        decision = resolved.get(leaf.number)
+        if decision is not None and not decision.is_applicable:
+            continue
+
+        # A Module 1 leaf this REGION has no slot for cannot be placed --
+        # Module 1 is the regional module, and `folder_for_section` refuses
+        # to guess rather than inventing a path. EU Module 1 is unmodelled
+        # (EU_PROFILE says so of itself), so attaching NAFDAC's certificate
+        # leaves to an EU filing would build a package the eCTD builder
+        # then raises on.
+        #
+        # The same instinct as R20's silence for a certificate with no
+        # declared leaf: do not create an obligation the platform gives no
+        # way to satisfy.
+        if leaf.module == 1 and profile is not None:
+            if profile.document_slot(leaf.number) is None:
+                continue
+
+        # A repeating leaf owes one document per subject; every other leaf
+        # owes exactly one, which is a subject list of one empty slug.
+        slugs = substances if leaf.repeat == "drug_substance" else [""]
+        for slug in slugs:
+            key = f"{leaf.number}-{slug}" if slug else leaf.number
+            if key in existing:
+                continue
+            filename = f"{leaf.number}{'-' + slug if slug else ''}.pdf"
+            ingested = ingest_document(
+                project_id=project.id,
+                instance_key=key,
+                data=MINIMAL_PDF,
+                content_type=PDF_CONTENT_TYPE,
+                filename=filename,
+                storage=storage,
+            )
+            created.append(
+                SectionDocument(
+                    project_id=project.id,
+                    section_number=leaf.number,
+                    subject_slug=slug,
+                    storage_key=ingested.storage_key,
+                    md5=ingested.md5,
+                    size_bytes=ingested.size_bytes,
+                    original_filename=filename,
+                    content_type=ingested.content_type,
+                    uploaded_at=datetime.now(timezone.utc),
+                )
+            )
+            existing.add(key)
+
     set_committed_value(project, "documents", created)
     return created

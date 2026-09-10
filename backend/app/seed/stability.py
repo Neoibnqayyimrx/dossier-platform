@@ -94,6 +94,36 @@ DRUG_SUBSTANCE_LONG_TERM = {
     "Water content": ("12.8 %", "12.9 %", "13.1 %", "13.2 %", "13.4 %"),
 }
 
+
+# P24e: the same five timepoints for amlodipine besilate, and the reason it
+# needs its own table is a lesson rather than a detail.
+#
+# The shared DRUG_SUBSTANCE_LONG_TERM above reports about 13 % water,
+# because amoxicillin TRIHYDRATE carries three waters of crystallisation by
+# design. Amlodipine besilate carries almost none, and its specification
+# says NMT 0.5 % -- so reusing that table would have filed a drug substance
+# whose every stability timepoint was twenty-five times its own limit.
+#
+# The platform catches it: results are judged against the acceptance
+# criterion they point at, so rule R23 blocks the export and R05 refuses
+# the retest period. The fixture was caught by the rules the fixture
+# exists to demonstrate, which is the strongest evidence they work.
+AMLODIPINE_SUBSTANCE_LONG_TERM = {
+    "Description": ("Complies",) * 5,
+    "Assay (anhydrous basis)": (
+        "99.7 % w/w",
+        "99.6 % w/w",
+        "99.4 % w/w",
+        "99.2 % w/w",
+        "99.0 % w/w",
+    ),
+    # Rising slowly, which is the pyridine analogue forming -- the
+    # oxidative degradation the opaque blister and the "protect from
+    # light" storage statement exist to slow.
+    "Related substances - total": ("0.08 %", "0.14 %", "0.21 %", "0.29 %", "0.36 %"),
+    "Water content": ("0.18 %", "0.20 %", "0.23 %", "0.25 %", "0.28 %"),
+}
+
 # The planted defect, in the same spirit as LAMOX's copy-paste bugs: a
 # dossier claiming 24 months whose own table shows dissolution failing at
 # 12. NOT a real defect in anyone's product -- a fixture for rule R23.
@@ -178,7 +208,11 @@ def _substance_pack(product, api):
     )
 
 
-def attach_stability_data(product, oos: bool = False) -> None:
+def attach_stability_data(
+    product,
+    oos: bool = False,
+    substance_long_term: dict | None = None,
+) -> None:
     """Wire P21's stability studies onto a seeded product.
 
     Called AFTER `attach_control_data`, because every study points at a
@@ -190,6 +224,11 @@ def attach_stability_data(product, oos: bool = False) -> None:
     claiming 24 months. That is a fixture for rule R23 in exactly the
     spirit of LAMOX's planted copy-paste bugs -- a defect the platform must
     catch, not a real defect in anyone's product.
+
+    `substance_long_term` overrides the drug substance's timepoint values,
+    which P24e's amlodipine needs: the default table's water content is
+    amoxicillin trihydrate's and would be twenty-five times amlodipine
+    besilate's own limit. See AMLODIPINE_SUBSTANCE_LONG_TERM.
     """
     if product.stability:
         # Already seeded (or hand-built by a caller). Never top up: a
@@ -215,9 +254,7 @@ def attach_stability_data(product, oos: bool = False) -> None:
                 "and 24 months against the finished-product specification (3.2.P.5.1)."
             ),
         )
-        study.results = results_at(
-            product.specification, LONG_TERM_TIMEPOINTS, values
-        )
+        study.results = results_at(product.specification, LONG_TERM_TIMEPOINTS, values)
         product.stability.append(study)
 
     # ---- 3.2.P.8: accelerated, on the first batch only -------------------
@@ -261,6 +298,8 @@ def attach_stability_data(product, oos: bool = False) -> None:
             ),
         )
         study.results = results_at(
-            api.specification, LONG_TERM_TIMEPOINTS, DRUG_SUBSTANCE_LONG_TERM
+            api.specification,
+            LONG_TERM_TIMEPOINTS,
+            substance_long_term or DRUG_SUBSTANCE_LONG_TERM,
         )
         api.stability.append(study)

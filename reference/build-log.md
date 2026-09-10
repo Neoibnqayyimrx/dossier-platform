@@ -31,6 +31,241 @@ Newest entry at the top.
 
 ---
 
+## P24 — Derived documents, and closing the target (2026-09-10)
+
+**Platform capability: 55/98 → 98/98 leaves, and `--strict` is now the CI
+gate.** Twenty-one sections registered, three derived-document modules
+added, one numbering drift fixed, two open regulatory questions answered,
+and a worked example that builds the whole dossier end to end.
+
+The phase's real deliverable is not the sections. It is that the target
+stopped being a progress bar and became a contract CI enforces — and,
+below, the record of **everything the 98-leaf target got wrong**, because
+that file is what every future submission type will be derived from.
+
+### What the target got wrong
+
+Written first because it is the part worth re-reading. None of these was
+visible while the target lived in prose; each surfaced only once a machine
+compared the contract against the platform.
+
+**1. A leaf was filed at a heading's number, for eight phases.** The
+registry registered the registration form as `"1.2"` from P04. In the
+target — derived leaf by leaf from a real filed dossier — 1.2 is a
+*heading* and the document is 1.2.2. Nothing rendered wrongly, nothing
+failed, and no test noticed: the number is just a string until something
+compares it to a contract. Renumbering was not free (the instance key, the
+leaf filename, the storage key, the narrative lookup and rule R26's
+`section` pointer all contain it), and it was done rather than annotated,
+because a permanent asterisk in the contract poisons everything derived
+from it later.
+
+**2. `production` is single-valued, and three leaves produce two
+documents.** 3.3, 5.4 and 5.3.1.2 each ship an *uploaded* artifact and a
+*generated* companion — the literature pack plus its reference list, the
+CRO's study report plus a structured summary. The YAML can only say one
+thing per leaf, so it says `uploaded` and the generated half is invisible
+to the contract. The platform handles it (`SectionSpec.leaf_suffix`, from
+P22), but the target cannot express it. **A future schema_version should
+make `production` a list.**
+
+**3. `production: uploaded` conflates two different situations.** For a
+CPP the file *is* the leaf and nothing else belongs there. For 3.3 the file
+is *evidence* filed under a heading that also carries our own content.
+Same declared production type, opposite meanings for assembly.
+
+**4. A leaf number is not a document count.** 98 leaves produce **102 leaf
+PDFs** for the worked example: 3.2.P.4.1 repeats per excipient (four),
+3.2.P.3.1 per manufacturing site (two), 3.2.P.7 per pack (two), and the
+three leaves in point 2 file two documents each. Anyone reading "98" as
+"98 files" will write a test that fails on the first combination product.
+
+**5. `blocked_by` capabilities have no way to say they have landed.** The
+check printed them under "build these first", which stopped being true
+when the last one landed. Fixed by computing whether any leaf citing a
+capability is *still* a gap and printing `landed` / `OUTSTANDING`. The
+`blocked_by` entries themselves stay — they are the dependency map that
+made the build order legible, not a to-do list that deletes itself.
+
+**6. The contract implies every leaf is a registry section. Four are
+not.** A `production: toc` leaf cannot be: `render_section` is handed a
+Project, and a table of contents is a function of the *package*, which does
+not exist until every other leaf has been rendered and placed. They are
+built in `ctd/toc.py` and the check imports `MODULE_TOC_LEAVES` to credit
+them, rather than a second list of four numbers that could drift.
+
+**7. 1.2.6 is two documents under one heading.** "Power of Attorney /
+Contract Manufacturing Agreement" — the platform can author the first and
+never the second (an executed agreement between two companies is not ours
+to write). The target's own note flagged it; it is still unsplit, and the
+GMP compliance undertaking is what lands there today.
+
+**8. Three leaves had no identity in the built package.** 1.2.4, 1.2.5 and
+1.2.6 rendered and were placed correctly — and were *named*
+`power-of-attorney-<uuid>.pdf`, so an assessor working down the table of
+contents had to open three files to find one leaf. Found by the end-to-end
+reconciliation asking the reverse of the usual question: not "does every
+leaf have a document" but **"does every document name its leaf"**. Worth
+keeping as a technique.
+
+### The two open regulatory questions
+
+**1.2.1 "Application form" vs 1.2.2 "Registration form" — build both.**
+Not confirmed against NAFDAC's current form set, and the reasoning matters
+more than the answer: the cost of the two errors is wildly asymmetric.
+Filing two documents where the agency wanted one is a redundant page;
+filing one where it wanted two is a deficiency letter. Both render from the
+same applicant, product and project records through one dispatch branch, so
+the redundancy carries no risk of contradiction — which is the only thing
+that makes duplication acceptable. If it turns out to be one document,
+delete the leaf and its slot; nothing else changes.
+
+**1.6 "Samples" — a record of what was sent.** Confirmed from the leaf's
+own nature rather than from guidance: samples are physical, and a folder
+cannot hold a tablet. What the dossier owes there is a statement tying the
+samples arriving at the agency's laboratory to the batches the dossier
+files — so the batch numbers are the same rows 3.2.P.5.4 files, and a
+sample cannot be presented under a batch number the submission never
+described. The exact form NAFDAC expects is still unconfirmed, but that is
+presentation, not structure.
+
+### The derived documents, and the one mechanism behind them
+
+`app/templating/derived.py` renders the context dicts Module 3 itself
+renders from and returns them keyed by instance. The QIS (1.4.2) and the
+QOS (2.3) read their values out of *those*. Neither is ever handed a
+model, so there is nothing to re-query: `field()` raises when a context has
+no such key and `context_for()` raises when a section was not rendered, so
+a derived field with no Module 3 source fails at build time instead of
+rendering a blank somebody has to notice.
+
+The property this buys is worth stating precisely, because it is the defect
+the whole platform exists to remove. 3.2.P.8.1 refuses to print a claimed
+shelf life the long-term data do not reach — it prints a marker naming both
+figures. Because the QIS field and the QOS's 2.3.P.8 line *are that same
+string*, an unsupported shelf life is now **unprintable in the summary**,
+not merely blocked at export. A QIS with its own `shelf_life_months` lookup
+would print it happily, on the first page an assessor reads.
+
+Eighteen tests hold it by mutation: change a fact in Module 3, assert both
+documents follow. A field that did not follow would have its own copy of it,
+whatever the code looked like.
+
+One structural note: `derived.py` imports `build_context` *inside* the
+function. The cycle is real rather than accidental — a derived document is
+built from other sections' contexts, but reaches them through the same
+dispatcher every section goes through — and the honest place to break it is
+the higher layer.
+
+### 3.3's reference list, which turned out to be the interesting one
+
+A Module 3 bibliography is the monographs and ICH guidelines the quality
+case rests on, and the dossier already says which those are, in three
+places nobody thinks of as a bibliography: every specification row's
+`method`, every impurity's `limit_source`, every material's
+`compendial_std`. So 3.3 cannot cite a standard the dossier does not rely
+on, nor omit one it does.
+
+First version printed those strings verbatim and produced a list whose
+reference 4 was "GC, ICH Q3C" — a *method*, not a citation. Now the
+standard is extracted ("HPLC, BP monograph" → BP). The line being walked:
+recognising the token "ICH Q3C" in a string is reading what the filer
+wrote; splitting "Smith et al., J Pharm Sci 2019;108:1123" into authors,
+journal and year would be inferring a structure they never entered, and a
+citation pointing subtly elsewhere is worse than one passed through
+untouched. So 5.4's entries are printed exactly as typed.
+
+Monographs are **cited and never reproduced** — the same line
+`knowledge/ingest.py` holds for the KB, and the reason a reference list is
+the copyright-safe way to point at a pharmacopoeia at all.
+
+### Turning the gate on, and the semantic call it forced
+
+`--strict` in CI needed one decision: **is a placeholder a gap?**
+
+It depends on the question, and the check now has two scopes. Without
+`--project` it asks whether the *platform* can produce or place every leaf,
+and a placeholder passes — placing the file is everything the platform can
+do about a regulator's certificate, and failing CI because nobody has
+attached a CPP to a hypothetical project would be a red build no commit
+could turn green. With `--project` it asks whether a *filing* is complete,
+and there a placeholder is exactly the gap.
+
+`resolve_status` was left alone, so the report still prints 22 leaves as
+placeholders and P18's careful distinction survives intact. What changed is
+only what *fails the build*.
+
+Project scope then needed a third state. A conditional leaf the filer
+answered "no" to is not missing paper — it is a scoping **answer**. Without
+`not_owed_keys`, no correct filing could ever reach 98/98, and worse, the
+number would have pushed a filer to attach *something* at a leaf they had
+already declared out of scope. It reads the same `resolve_applicability` the
+builders read, so the check cannot disagree with the package about what the
+filing owes.
+
+### The worked example, and what the fixtures caught
+
+`app/seed/amlodipine.py` — AMLOVEX 5 mg tablets, a complete defect-free
+filing, seeded under this project's own fictional company. The target was
+*derived from* another company's dossier (a leaf list is not confidential);
+copying their specification, batch numbers and stability data would have
+been a different thing entirely.
+
+It builds: **102 leaf PDFs covering 93 of the 98 target leaves**, the other
+five scoped out by the filer's own conditional answers (no biowaiver, no
+previous marketing authorization, no BA-only study, no excipient method
+validation). Four module TOCs, a package TOC, and an eCTD backbone that
+passes the DTD and the mechanical checks.
+
+Three things the platform caught in its own fixture, which is the strongest
+evidence the rules work:
+
+- **Amoxicillin's water in amlodipine's specification.** The shared
+  substance tables report ~13 % water — amoxicillin *trihydrate*'s water of
+  crystallisation. Amlodipine besilate's own limit is NMT 0.5 %, so R22
+  rejected every batch result and R05 refused the retest period. The
+  fixture was wrong; the rules said so.
+- **A penicillin SmPC on a calcium-channel blocker.** Reusing the shared
+  clinical particulars would have warned an amlodipine patient about
+  penicillin allergy. Not a cosmetic fixture problem: a worked example whose
+  own particulars are for a different drug class undercuts the entire
+  demonstration on the first page a pharmacist reads. Hence
+  `ClassParticulars`.
+- **A NAFDAC-only leaf in an EU package.** 1.2.1, 1.2.14 and 1.6 were
+  registered without `only_when_applicable`, and building the same dossier
+  as an EU sequence raised on a Module 1 number the EU profile has no slot
+  for — `folder_for_section` refusing to guess, exactly as designed. P22
+  built that flag for this case and its comment says so; the leaves simply
+  did not use it.
+
+And one ordinary bug worth recording for how it announced itself: the
+3.2.P.2.2 overage column reported **−12.9 %** for a line with no overage at
+all. `BatchFormulaLine.qty_per_unit_mg` holds the *base* quantity — R04
+multiplies by the salt factor itself — so the arithmetic was comparing
+500 mg of base against 574 mg of trihydrate and calling the difference a
+formulation decision. Overage is base against base. It was visible only
+because the section was rendered and read, not because a test failed.
+
+Also: a project committed with an empty `sections` collection raises
+`MissingGreenlet` the moment a rule touches it under the async engine.
+Every previous seed happened to append a Section; the first that did not,
+found it.
+
+### Known gaps
+
+- **No rule blocks the export when a non-certificate uploaded leaf is
+  simply absent.** R20 covers certificates (it generated the placeholder,
+  so it knows). A filing with nothing attached at 3.2.P.5.3 builds a
+  package quietly missing that leaf. `--project` strict reports it; the
+  export gate does not. That asymmetry should close.
+- 1.2.6 is still two documents under one heading (point 7 above).
+- `confirmed_against_guideline` in the target is still `null`. Every
+  regulatory fact in this repo is re-confirmable from one file, and none of
+  it has been re-confirmed against NAFDAC's *current* published guideline.
+  That is the single largest caveat on the number 98.
+
+---
+
 ## P23 — Product information: one dataset, three audiences (2026-09-08)
 
 **Platform capability: 52/98 → 55/98 leaves.** Three sections registered

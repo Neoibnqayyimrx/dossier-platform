@@ -89,3 +89,78 @@ def test_status_is_never_hand_maintained_as_a_real_value():
     """
     target = load_target()
     assert {entry["status"] for entry in target["sections"]} == {"unknown"}
+
+
+# ---- P24e: the gate ---------------------------------------------------------
+
+
+def test_every_leaf_has_a_route_to_production():
+    """The contract, closed. This is what `--strict` runs in CI.
+
+    Asserted here as well as in CI so that the failure arrives with a name
+    attached: CI prints the report, and this prints the leaf.
+    """
+    from scripts.check_target_toc import PLATFORM, is_gap
+
+    target = load_target()
+    producible = producible_keys(target["sections"])
+
+    without_a_route = [
+        (entry["number"], resolve_status(entry, producible))
+        for entry in target["sections"]
+        if is_gap(resolve_status(entry, producible), PLATFORM)
+    ]
+    assert not without_a_route, f"leaves with no route to production: {without_a_route}"
+
+
+def test_a_placeholder_is_a_route_for_the_platform_but_not_for_a_filing():
+    """The distinction the whole two-scope design rests on.
+
+    A CPP placeholder means the platform can place the certificate when it
+    arrives -- which is everything the platform can do, since nobody here
+    can author a regulator's certificate. It does NOT mean the CPP is in,
+    and for a named project it is exactly the gap.
+
+    Getting this wrong in either direction is expensive: treat a
+    placeholder as done for a filing and the platform reports a complete
+    dossier that is missing eleven documents; treat it as a gap for the
+    platform and CI is red on every commit forever.
+    """
+    from scripts.check_target_toc import PLATFORM, PROJECT, is_gap
+
+    target = load_target()
+    producible = producible_keys(target["sections"])
+    cpp = next(e for e in target["sections"] if e["number"] == "1.2.7")
+
+    status = resolve_status(cpp, producible)
+    assert status == "placeholder"
+    assert not is_gap(status, PLATFORM)
+    assert is_gap(status, PROJECT)
+
+    # And with the document actually attached, it is done in both scopes.
+    attached = resolve_status(cpp, producible, {"1.2.7"})
+    assert attached == "done"
+    assert not is_gap(attached, PROJECT)
+
+
+def test_strict_would_fail_on_a_leaf_with_nowhere_to_come_from():
+    """The gate has to be able to FAIL, or it is decoration.
+
+    A synthetic leaf, checked through the same resolver CI uses: a newly
+    declared applicable section with no registry entry, no folder and no
+    slot is `missing`, and `missing` fails in both scopes.
+    """
+    from scripts.check_target_toc import PLATFORM, PROJECT, is_gap
+
+    invented = {
+        "number": "3.2.P.9",
+        "module": 3,
+        "title": "A section nobody has built",
+        "applicable": True,
+        "production": "generated",
+        "status": "unknown",
+    }
+    status = resolve_status(invented, producible_keys(load_target()["sections"]))
+    assert status == "missing"
+    assert is_gap(status, PLATFORM)
+    assert is_gap(status, PROJECT)

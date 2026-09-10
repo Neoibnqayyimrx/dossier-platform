@@ -60,13 +60,16 @@ jobs:
         run: uv run pytest -q
 
       # P16: the target TOC is the contract for "what a finished dossier is".
-      # This reports coverage against it on every push, so the gap is a number
-      # that moves rather than an audit someone remembers to run.
+      # P24e: --strict is ON. It was deliberately off while coverage was
+      # incomplete, because --strict exits 1 on any gap and a permanently red
+      # build teaches everyone to ignore the build. Every one of the 98 leaves
+      # now has a route to production, so the check stops being a progress
+      # report and becomes a gate: an applicable leaf with nowhere to come
+      # from fails the build that adds it.
       #
-      # Deliberately WITHOUT --strict: --strict exits 1 on any gap, which today
-      # means every build fails, and a permanently red build teaches everyone
-      # to ignore the build. Switch --strict on when coverage approaches
-      # complete -- at that point the report stops being information and
-      # becomes a gate.
-      - name: Target TOC coverage
-        run: uv run python -m scripts.check_target_toc
+      # Without --project this asks whether the PLATFORM can produce or place
+      # every leaf, so an uploaded leaf passes on having a slot. Whether a
+      # particular FILING has the documents is the other question, and it is
+      # asked per project (--project <id>) against a real database.
+      - name: Target TOC coverage (gate)
+        run: uv run python -m scripts.check_target_toc --strict

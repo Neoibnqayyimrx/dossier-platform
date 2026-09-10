@@ -17,6 +17,7 @@ import hashlib
 import io
 import json
 import zipfile
+from collections import Counter
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +29,7 @@ from app.ctd.region_profiles import get_region_profile, satisfied_certificate_ty
 from app.ctd.structure import folder_for_section_instance
 from app.ctd.toc import MODULE_TOC_LEAVES, build_module_toc_pdf, build_toc_pdf
 from app.models.project import Project
+from app.target_toc import target_leaves_by_number
 from app.templating.certificates import render_certificate_placeholder
 from app.templating.declarations import render_declaration
 
@@ -122,15 +124,47 @@ async def build_ctd_package(
                 titles[path] = title
 
         if slot.declaration_types:
+            # P24e: how many rows of each type, so a leaf-numbered filename
+            # can be used where it is unambiguous. Counted first rather than
+            # tracked while looping, because the answer has to be known
+            # before the first file is named.
+            per_type = Counter(d.declaration_type for d in project.declarations)
             for declaration in project.declarations:
                 if declaration.declaration_type not in slot.declaration_types:
                     continue
                 result = render_declaration(declaration, project, storage=storage)
-                title = declaration.declaration_type.value.replace("-", " ").title()
+                leaf_number = profile.declaration_leaves.get(declaration.declaration_type)
+                # The TARGET's title for the leaf, not a prettified enum
+                # value. "Notarized declaration of applicant" is what an
+                # assessor is looking for at 1.2.5; "Declaration Of
+                # Authenticity" is what this platform calls it internally.
+                leaf = target_leaves_by_number().get(leaf_number) if leaf_number else None
+                title = (
+                    leaf.title
+                    if leaf is not None
+                    else declaration.declaration_type.value.replace("-", " ").title()
+                )
                 pdf_bytes = convert_docx_to_pdf(
                     storage.get(result.storage_key), bookmark_title=title
                 )
-                path = f"{slot.folder}/{declaration.declaration_type.value}-{declaration.id}.pdf"
+                # P24e: name the file after the LEAF it answers. It used to
+                # be "power-of-attorney-<uuid>.pdf", which is a correct
+                # document filed in the correct folder under a name that
+                # says nothing about which of 1.2.4-1.2.6 it satisfies --
+                # so an assessor working down the table of contents had to
+                # open three files to find one leaf. Found by the P24e
+                # reconciliation, which asked "does every document name its
+                # leaf" rather than the usual "does every leaf have a
+                # document".
+                #
+                # The uuid stays when a filing has two declarations of one
+                # type, because two files cannot share a name; that is rare
+                # and the fallback is the old behaviour.
+                if leaf_number and per_type[declaration.declaration_type] == 1:
+                    filename = f"{leaf_number}.pdf"
+                else:
+                    filename = f"{declaration.declaration_type.value}-{declaration.id}.pdf"
+                path = f"{slot.folder}/{filename}"
                 files[path] = pdf_bytes
                 titles[path] = title
 
