@@ -22,6 +22,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 MODULE_2_5_FOLDERS: dict[str, str] = {
+    # P24d: 2.2 sits above the QOS, as it does in the CTD itself -- the
+    # introduction orients a reader before the summaries begin.
+    "2.2": "m2/22-introduction",
     "2.3": "m2/23-quality-overall-summary",
     "3.2.P.1": "m3/32-body-data/32p/32p1-description-and-composition",
     "3.2.P.8.1": "m3/32-body-data/32p/32p8-stability/32p81-stability-summary-and-conclusion",
@@ -74,6 +77,37 @@ MODULE_2_5_FOLDERS: dict[str, str] = {
     ),
     "3.2.P.5.6": (
         "m3/32-body-data/32p/32p5-control-of-drug-product/" "32p56-justification-of-specifications"
+    ),
+    # P24d: pharmaceutical development and the two narrative manufacture
+    # sections. Note that 3.2.P.2.1-.2.5 each get their own folder even
+    # though the eCTD DTD files them all under ONE element
+    # (m3-2-p-2-pharmaceutical-development has a flat `(leaf|node-extension)*`
+    # content model, no sub-elements). The CTD tree is what a human
+    # navigates, and five documents in one folder called "pharmaceutical
+    # development" is worse for that reader than five named folders; the
+    # backbone can still put all five leaves under the one element it
+    # declares, because placement and backbone structure are separate maps
+    # on purpose.
+    "3.2.P.2.1": (
+        "m3/32-body-data/32p/32p2-pharmaceutical-development/32p21-components-of-the-drug-product"
+    ),
+    "3.2.P.2.2": "m3/32-body-data/32p/32p2-pharmaceutical-development/32p22-drug-product",
+    "3.2.P.2.3": (
+        "m3/32-body-data/32p/32p2-pharmaceutical-development/"
+        "32p23-manufacturing-process-development"
+    ),
+    "3.2.P.2.4": (
+        "m3/32-body-data/32p/32p2-pharmaceutical-development/32p24-container-closure-system"
+    ),
+    "3.2.P.2.5": (
+        "m3/32-body-data/32p/32p2-pharmaceutical-development/32p25-microbiological-attributes"
+    ),
+    "3.2.P.3.3": (
+        "m3/32-body-data/32p/32p3-manufacture/"
+        "32p33-description-of-manufacturing-process-and-process-controls"
+    ),
+    "3.2.P.3.4": (
+        "m3/32-body-data/32p/32p3-manufacture/32p34-controls-of-critical-steps-and-intermediates"
     ),
     "3.2.R": "m3/32-body-data/32r-regional-information",
     "3.2.A": "m3/32-body-data/32a-appendices",
@@ -164,6 +198,18 @@ REPEAT_FOLDERS: dict[str, RepeatFolders] = {
             "3.2.S.4.3": (
                 "32s4-control-of-drug-substance/32s43-validation-of-analytical-procedures"
             ),
+            # P24d: the four narrative manufacture sections. They sit beside
+            # 32s21-manufacturer and 32s25-process-validation under the same
+            # per-substance 32s2-manufacture folder -- a combination
+            # product's two actives have two processes, two APIMF positions
+            # and two sets of starting materials.
+            "3.2.S.2.2": (
+                "32s2-manufacture/"
+                "32s22-description-of-manufacturing-process-and-process-controls"
+            ),
+            "3.2.S.2.3": "32s2-manufacture/32s23-control-of-materials",
+            "3.2.S.2.4": "32s2-manufacture/32s24-controls-of-critical-steps-and-intermediates",
+            "3.2.S.2.6": "32s2-manufacture/32s26-manufacturing-process-development",
             # P19.
             "3.2.S.2.1": "32s2-manufacture/32s21-manufacturer",
             "3.2.S.5": "32s5-reference-standards",
@@ -183,8 +229,7 @@ REPEAT_FOLDERS: dict[str, RepeatFolders] = {
             # of an assessor.
             "3.2.S.7.1": "32s7-stability/32s71-stability-summary-and-conclusions",
             "3.2.S.7.2": (
-                "32s7-stability/"
-                "32s72-post-approval-stability-protocol-and-stability-commitment"
+                "32s7-stability/" "32s72-post-approval-stability-protocol-and-stability-commitment"
             ),
             "3.2.S.7.3": "32s7-stability/32s73-stability-data",
         },

@@ -1423,9 +1423,13 @@ def study_comparator_matches_the_declared_reference_product(project) -> list[Fin
                     Severity.WARNING,
                     "completeness",
                     f"Study {study.study_identifier} was run against {reference.identity}, "
-                    f"but the application declares no reference product, so 1.2 and 2.3 "
-                    f"have nothing to name.",
-                    section="1.2",
+                    f"but the application declares no reference product, so 1.2.2 and "
+                    f"2.3 have nothing to name.",
+                    # P24d: renumbered with the section itself. A finding
+                    # that points at a leaf number the package does not
+                    # contain sends the filer to a section that is not
+                    # there.
+                    section="1.2.2",
                 )
             )
             continue

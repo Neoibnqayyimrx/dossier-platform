@@ -39,10 +39,10 @@ async def test_sections_match_the_registry(client):
 
 
 async def test_a_data_only_section_reports_no_narrative_slots(client):
-    """1.2 (Registration Form) is pure structured data -- the UI must not
-    offer to draft prose for it."""
+    """1.2.2 (Registration Form) is pure structured data -- the UI must not
+    offer to draft prose for it. Renumbered from 1.2 in P24d."""
     response = await client.get("/sections")
-    registration_form = next(s for s in response.json() if s["number"] == "1.2")
+    registration_form = next(s for s in response.json() if s["number"] == "1.2.2")
     assert registration_form["narrative_slots"] == []
 
 

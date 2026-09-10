@@ -151,9 +151,14 @@ capabilities:
       them earlier means writing them by hand — which is the failure mode
       they exist to prevent. Both leaves cited `stability_timepoints` until
       P21 landed it; the data they were waiting on now exists, and what
-      remains is the assembly itself. That is P24's job, so the blocker was
-      re-pointed rather than removed: 2.3 is registered and rendering but
-      is a thin overview, and crediting it as done would launder the gap.
+      remains is the assembly itself. LANDED IN P24: app/templating/derived.py
+      renders the Module 3 section contexts and hands them to
+      app/templating/qis.py (1.4.2) and app/templating/qos.py (2.3), neither
+      of which is ever given a model to re-query. `field()` raises on a
+      context that has no such key and `context_for()` on a section that was
+      not rendered, so a derived field with no Module 3 source fails at build
+      time instead of rendering a blank. Eighteen tests hold the line by
+      mutation: change a fact in Module 3 and assert both documents follow.
 
   be_study_model:
     summary: Structured bioequivalence study data.
@@ -266,8 +271,25 @@ capabilities:
   literature_references:
     summary: A citation model for 3.3 and 5.4.
     detail: >
-      Low priority, but these are real leaves in the target and currently have
-      nowhere to live.
+      LANDED IN P24, and in a smaller shape than "a citation model" suggests.
+      The PAPERS stay `uploaded` -- nobody here can author someone else's
+      journal article. What is generated is the reference LIST that ships
+      beside them (`leaf_suffix`, the P22 mechanism, so attaching the pack
+      does not silently drop the list).
+      3.3's list is DERIVED, and that is the part worth having: a Module 3
+      bibliography is the monographs and ICH guidelines the quality case
+      rests on, and the dossier already says which those are -- in every
+      specification row's `method`, every impurity's `limit_source` and every
+      material's `compendial_std`. So 3.3 cannot cite a standard the dossier
+      does not rely on, nor omit one it does. The citation TOKEN is extracted
+      from those strings ("HPLC, BP monograph" -> BP) because printing the
+      method verbatim produced a list where "GC, ICH Q3C" was reference 4.
+      5.4's entries come from ClinicalEntry rows of kind `literature` and are
+      printed AS ENTERED. Splitting free text into authors/journal/year would
+      be inferring a structure the filer never entered, and a citation
+      pointing subtly elsewhere is worse than one passed through untouched. A
+      structured Citation model remains the right eventual shape; it needs
+      fields on a form, not a parser.
 
 # -----------------------------------------------------------------------------
 # SECTIONS
@@ -305,11 +327,27 @@ sections:
     title: Application form
     applicable: true
     production: generated
+    registry_key: "1.2.1"
     data_sources: [Applicant, Product, Project]
     notes: >
-      Distinct from 1.2.2 in the source TOC. Confirm against the current
-      NAFDAC form set whether these are two forms or one; if one, fold and
-      record the decision here.
+      OPEN QUESTION ANSWERED IN P24, and the reasoning matters more than the
+      answer because the answer is not confirmed. DECISION: build BOTH, as
+      two leaves. Evidence for: the source dossier's own TOC lists them as
+      separate items, and reference/dossier-anatomy.md records NAFDAC's
+      Module 1 as holding "registration forms" plural. Evidence against:
+      neither has been checked against NAFDAC's currently published form
+      set, and NAPAMS collects some of this through the portal rather than
+      as an attachment.
+      WHY BUILDING BOTH IS THE SAFE DIRECTION: the cost of the two errors is
+      wildly asymmetric. Filing two documents where the agency wanted one is
+      a redundant page. Filing one where it wanted two is a deficiency
+      letter. And because both render from the same applicant, product and
+      project records (app/templating/context.py dispatches them through one
+      branch), the redundancy carries no risk of contradiction -- which is
+      the only reason duplication is acceptable here at all.
+      TO CONFIRM: NAFDAC's current guideline and the NAPAMS portal's own
+      attachment list. If it is one document, delete this leaf and its
+      Module1Slot; nothing else needs to change.
     status: unknown
 
   - number: "1.2.2"
@@ -317,12 +355,19 @@ sections:
     title: Registration form
     applicable: true
     production: generated
-    registry_key: "1.2"
+    registry_key: "1.2.2"
     data_sources: [Applicant, Product, Manufacturer, Project]
     notes: >
-      NUMBERING DRIFT: registry registers this as "1.2", but 1.2 is a heading
-      in the target and this document is 1.2.2. Renumber the registry entry
-      and its region-profile slot.
+      NUMBERING DRIFT FIXED IN P24. The registry registered this as "1.2"
+      from P04 until P24, while 1.2 is a HEADING in this target and the
+      document is 1.2.2. Both the registry entry and the region-profile slot
+      were renumbered, along with rule R26's `section` pointer -- a finding
+      pointing at a leaf number the package does not contain sends the filer
+      to a section that is not there.
+      Worth keeping as the record of what this file was FOR. The drift was
+      invisible while the target lived in prose: nothing rendered wrongly,
+      nothing failed, and a leaf simply sat at a heading's number until a
+      machine-readable contract compared the two.
     status: unknown
 
   - number: "1.2.3"
@@ -590,9 +635,21 @@ sections:
     title: Samples
     applicable: true
     production: generated
+    registry_key: "1.6"
     notes: >
-      Physical samples, not a document. What the dossier owes is a statement
-      of what was submitted. Confirm the expected form against NAFDAC.
+      OPEN QUESTION ANSWERED IN P24. CONFIRMED from the leaf's own nature:
+      1.6 refers to physical samples submitted for laboratory analysis, and
+      a folder cannot hold a tablet. What the dossier owes at that leaf is a
+      RECORD of what was sent, so the samples arriving at the agency's
+      laboratory can be tied to the batches the dossier files.
+      So the leaf is generated, and its batch numbers are the same rows
+      3.2.P.5.4 files -- which means a sample cannot be presented under a
+      batch number this dossier has no analysis for. That disconnect is the
+      practical failure the leaf exists to prevent: a laboratory result on a
+      batch the submission never described cannot be reconciled with it.
+      NOT CONFIRMED: the exact form NAFDAC expects (a covering note, a
+      numbered form, or a receipt from the sample-receiving unit), and how
+      many units of each batch. Both are presentation, not structure.
     status: unknown
 
   # ===========================================================================
@@ -636,8 +693,19 @@ sections:
       - 2.3.P.5 Control of drug product
       - 2.3.P.6 Reference standards or materials
       - 2.3.P.7 Container closure system
-    blocked_by: [derived_document_assembly]
     notes: >
+      BUILT IN FULL IN P24. All fourteen subsections above are emitted --
+      2.3.S.1 to 2.3.S.7 once PER DRUG SUBSTANCE, 2.3.P.1 to 2.3.P.7 once --
+      and every value in them is pulled out of the very context dict the
+      Module 3 section it mirrors renders from (app/templating/qos.py, on
+      app/templating/derived.py). Each subsection prints the Module 3
+      section it summarises, so a reviewer is never left to do the mapping.
+      Three narrative slots, all summary judgement and none able to carry a
+      figure: every number is printed from the derived blocks above them, so
+      a contradiction would appear on the same page rather than three
+      hundred pages away. The retest-period and shelf-life lines inherit
+      3.2.S.7.1/3.2.P.8.1's refusal to print an unsupported claim.
+      Original note kept below; it is why this leaf was left until last.
       Registered and rendering, but currently a thin overview. Every
       subsection above mirrors a Module 3 section, so the QOS should be
       ASSEMBLED from the same data those sections render from — never written
@@ -1161,7 +1229,7 @@ sections:
     title: Literature references
     applicable: true
     production: uploaded
-    blocked_by: [upload_path, literature_references]
+    blocked_by: [upload_path]
     status: unknown
 
   # ===========================================================================
@@ -1318,5 +1386,5 @@ sections:
     title: Literature references
     applicable: true
     production: uploaded
-    blocked_by: [upload_path, literature_references]
+    blocked_by: [upload_path]
     status: unknown

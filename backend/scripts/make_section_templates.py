@@ -1263,6 +1263,407 @@ P20_BUILDERS = (
 # ---- P24: the derived documents --------------------------------------------
 
 
+def _label_value_table(doc, loop: str = "item in details") -> None:
+    """The label/value table every development section opens with."""
+    _looping_table(
+        doc,
+        ["Item", "Value"],
+        ["{{ item.label }}", "{{ item.value }}"],
+        loop=loop,
+    )
+
+
+def build_module_2_introduction() -> Path:
+    """2.2 -- the Introduction to Module 2.
+
+    ICH M4 asks for a page: the product, its pharmacological class, its
+    mode of action, and the proposed indication, dosage form, strength and
+    route. Six of those seven are facts already on file, which is why this
+    is hybrid rather than a blank page -- the slot carries the
+    pharmacological class and mode of action, which are properties of the
+    molecule rather than of this filing.
+    """
+    doc = Document()
+    doc.add_heading("2.2 Introduction", level=1)
+    doc.add_paragraph("{{ introduction_statement }}")
+
+    _looping_table(
+        doc,
+        ["Item", "Value"],
+        ["{{ item.label }}", "{{ item.value }}"],
+        loop="item in particulars",
+    )
+
+    doc.add_heading("Pharmacological class and mode of action", level=2)
+    doc.add_paragraph(
+        "{{ narrative.pharmacological_class or "
+        "'[[AI DRAFT PENDING -- 2.2 pharmacological class and mode of action]]' }}"
+    )
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "The product particulars above are the same values printed in 1.3.1, on the "
+        "label and in 3.2.P.1. Nothing on this page is separately entered."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "module_2_introduction.docx"
+    doc.save(path)
+    return path
+
+
+def build_literature_references() -> Path:
+    """3.3 and 5.4 -- the reference list that ships beside the papers.
+
+    Numbered, because a reference list an assessor cannot cite back to
+    ("reference 4 does not support that claim") is harder to use than one
+    they can. `loop.index` is Jinja's 1-based counter within a loop.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    doc.add_paragraph("{{ product_name }}")
+    doc.add_paragraph("{{ statement }}")
+    doc.add_paragraph("{{ empty_statement }}")
+
+    _looping_table(
+        doc,
+        ["#", "Reference", "Relied upon at"],
+        ["{{ loop.index }}", "{{ row.citation }}", "{{ row.cited_at }}"],
+        loop="row in entries",
+    )
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "Pharmacopoeial monographs are CITED here and never reproduced. The documents "
+        "themselves are attached at this leaf."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "literature_references.docx"
+    doc.save(path)
+    return path
+
+
+def build_application_form() -> Path:
+    """1.2.1 -- the application form, filed BESIDE the registration form.
+
+    See the target TOC's note on 1.2.1 for the regulatory finding behind
+    building two documents rather than folding them into one. Both render
+    from the same applicant, product and project data, so filing both costs
+    a page and risks nothing: they cannot disagree.
+
+    What distinguishes this from 1.2.2 is what it is FOR. An application
+    form identifies the submission -- who applies, for what, under which
+    registration type, to which authority. The registration form describes
+    the product in detail. NAFDAC's NAPAMS portal asks for both facts at
+    different points, which is why the source dossier files two items.
+    """
+    doc = Document()
+    doc.add_heading("1.2.1 Application Form", level=1)
+    doc.add_paragraph("To: The Director-General, {{ authority }}")
+    doc.add_paragraph("Application type: {{ registration_type }}")
+
+    _looping_table(
+        doc,
+        ["Item", "Value"],
+        ["{{ item.label }}", "{{ item.value }}"],
+        loop="item in application_details",
+    )
+
+    doc.add_paragraph("Signed: {{ authorized_representative }}")
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "This form and the registration form (1.2.2) render from the same applicant, "
+        "product and project records. Neither restates the other; both print the same "
+        "values, so they cannot disagree."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "application_form.docx"
+    doc.save(path)
+    return path
+
+
+def build_gmp_inspection_invitation() -> Path:
+    """1.2.14 -- the invitation letter for GMP inspection.
+
+    The sites, their addresses and their licences are on file and printed
+    from it; the invitation itself is a letter the applicant writes, so it
+    has a slot. That split matters: an applicant who invites an agency to
+    inspect a site whose address is a typo has invited them nowhere.
+    """
+    doc = Document()
+    doc.add_heading("1.2.14 Invitation Letter for GMP Inspection", level=1)
+    doc.add_paragraph("To: The Director-General, {{ authority }}")
+    doc.add_paragraph("From: {{ applicant_name }}")
+    doc.add_paragraph("Re: {{ product_name }} — {{ registration_type }}")
+
+    doc.add_paragraph("{{ invitation_statement }}")
+
+    doc.add_heading("Sites offered for inspection", level=2)
+    _looping_table(
+        doc,
+        ["Site", "Address", "Responsibility", "GMP status / licence"],
+        [
+            "{{ row.name }}",
+            "{{ row.address }}",
+            "{{ row.role }}",
+            "{{ row.gmp }}",
+        ],
+        loop="row in sites",
+    )
+
+    doc.add_paragraph(
+        "{{ narrative.invitation or " "'[[AI DRAFT PENDING -- 1.2.14 terms of the invitation]]' }}"
+    )
+    doc.add_paragraph("Signed: {{ authorized_representative }}")
+
+    path = TEMPLATES_DIR / "gmp_inspection_invitation.docx"
+    doc.save(path)
+    return path
+
+
+def build_samples_statement() -> Path:
+    """1.6 -- Samples.
+
+    The second of the target's two open questions, and the answer is in the
+    target TOC's note: 1.6 refers to PHYSICAL SAMPLES, not a document. A
+    folder cannot hold a tablet. What the dossier owes there is a statement
+    of what was submitted, so that the samples an assessor receives at the
+    laboratory can be tied to the batches this dossier files.
+
+    Which is why the batch numbers here are the SAME rows 3.2.P.5.4 files.
+    A sample statement naming a batch the dossier has no analysis for is
+    the exact disconnect the leaf exists to close.
+    """
+    doc = Document()
+    doc.add_heading("1.6 Samples", level=1)
+    doc.add_paragraph("{{ samples_statement }}")
+
+    _looping_table(
+        doc,
+        ["Batch", "Manufactured", "Pack presented", "Filed at"],
+        [
+            "{{ row.batch_number }}",
+            "{{ row.manufacture_date }}",
+            "{{ row.pack }}",
+            "{{ row.filed_at }}",
+        ],
+        loop="row in samples",
+    )
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "Batch numbers above are those filed at 3.2.P.5.4, so a sample cannot be "
+        "presented under a batch number this dossier has no analysis for. The samples "
+        "themselves are delivered physically; this leaf is the record of what was sent."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "samples_statement.docx"
+    doc.save(path)
+    return path
+
+
+def build_drug_substance_manufacture() -> Path:
+    """3.2.S.2.2, 3.2.S.2.3, 3.2.S.2.4 and 3.2.S.2.6 -- one template, four
+    sections, one document per drug substance.
+
+    The coverage statement is the first thing on the page, and that is the
+    regulatory point of the template: an assessor needs to know within one
+    line whether they are reading an applicant's own process description or
+    a cross-reference to a CEP/APIMF restricted part they will assess
+    separately. See app/templating/development.py `_api_coverage`.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    doc.add_paragraph("Drug substance: {{ substance.inn_name }}")
+    doc.add_paragraph("{{ coverage_statement }}")
+
+    doc.add_heading("Drug substance and manufacturer", level=2)
+    _label_value_table(doc)
+
+    doc.add_heading("{{ section_title }}", level=2)
+    doc.add_paragraph(
+        "{{ narrative.description or "
+        "'[[AI DRAFT PENDING -- ' ~ section_number ~ ' ' ~ section_title ~ ']]' }}"
+    )
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "The identity, manufacturer and CEP/APIMF status above are read from the drug "
+        "substance record that 3.2.S.1 and 3.2.S.2.1 also render from. Where a CEP or "
+        "an APIMF is claimed, the manufacturing detail is filed by the API manufacturer "
+        "and this section is a cross-reference."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "drug_substance_manufacture.docx"
+    doc.save(path)
+    return path
+
+
+def build_pharmaceutical_development() -> Path:
+    """3.2.P.2.1 to 3.2.P.2.5, and 3.2.P.3.3 / 3.2.P.3.4 alongside them.
+
+    ONE template with a four-column table whose HEADERS come from the
+    context. The five development sections each want a differently-shaped
+    table and an otherwise identical page, so five templates would be five
+    binary files differing in four strings. Rows are padded to four cells
+    by `development._table`, because a Jinja index past the end of a list
+    raises during render -- and a section that fails to render is a leaf
+    missing from the package.
+    """
+    doc = Document()
+    doc.add_heading("{{ section_number }} {{ section_title }}", level=1)
+    doc.add_paragraph("{{ statement }}")
+
+    doc.add_paragraph("{%p if details %}")
+    _label_value_table(doc)
+    doc.add_paragraph("{%p endif %}")
+
+    doc.add_paragraph("{{ table_caption }}")
+    _looping_table(
+        doc,
+        [
+            "{{ table.columns[0] }}",
+            "{{ table.columns[1] }}",
+            "{{ table.columns[2] }}",
+            "{{ table.columns[3] }}",
+        ],
+        [
+            "{{ row.cells[0] }}",
+            "{{ row.cells[1] }}",
+            "{{ row.cells[2] }}",
+            "{{ row.cells[3] }}",
+        ],
+        loop="row in table.rows",
+    )
+
+    doc.add_heading("Discussion", level=2)
+    doc.add_paragraph(
+        "{{ narrative.discussion or "
+        "'[[AI DRAFT PENDING -- ' ~ section_number ~ ' ' ~ section_title ~ ']]' }}"
+    )
+
+    note = doc.add_paragraph()
+    note.add_run(
+        "Every figure in the table above is rendered from the section named in the "
+        "statement -- the composition, the batch formula, the specification or the "
+        "packaging records -- and none of it is separately entered here."
+    ).font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "pharmaceutical_development.docx"
+    doc.save(path)
+    return path
+
+
+def build_qos() -> Path:
+    """2.3 -- the Quality Overall Summary, in full.
+
+    This template REPLACES the hand-authored one that P04 wrote and that
+    this script's docstring deliberately left alone. It comes here because
+    the change is not cosmetic: the old page carried a product heading, the
+    structural formulae and one overview paragraph, and the target lists
+    fourteen subsections under 2.3. Rewriting it changes what the document
+    SAYS, so it belongs where the change is diffable -- the same call P21
+    made when it took stability_summary.docx off that list.
+
+    What is preserved exactly: the heading, the product line, the structure
+    loop and the overview slot. A QOS without the structural formulae would
+    be a regression in the one thing the thin version did well.
+
+    The nesting is three deep -- substances, then their subsections, then
+    each subsection's rows -- and `{%p %}` (paragraph-level) loops are what
+    make that possible around `{%tr %}` (row-level) ones: a `{%tr %}` loop
+    cannot span a heading, so each subsection's table has to sit inside a
+    paragraph loop rather than the other way round.
+    """
+    doc = Document()
+    doc.add_heading("2.3 Quality Overall Summary", level=1)
+    doc.add_paragraph("Product: {{ product.brand_name }} — {{ product.generic_name }}")
+    doc.add_paragraph("Strength: {{ product.strength_display }} {{ product.dosage_form.value }}")
+
+    doc.add_paragraph("{%p for s in structures %}")
+    doc.add_paragraph("Structural formula — {{ s.name }}:")
+    doc.add_paragraph("{{ s.image }}")
+    doc.add_paragraph("{%p endfor %}")
+
+    doc.add_paragraph(
+        "Overview: {{ narrative.overview or '[[AI DRAFT PENDING -- 2.3 QOS overview]]' }}"
+    )
+
+    # ---- 2.3.S, once per drug substance -----------------------------------
+    doc.add_heading("2.3.S Drug Substance", level=2)
+    doc.add_paragraph("{%p for substance in drug_substances %}")
+    doc.add_heading("{{ substance.name }}", level=3)
+
+    doc.add_paragraph("{%p for sub in substance.subsections %}")
+    doc.add_heading("{{ sub.number }} {{ sub.title }}", level=4)
+    doc.add_paragraph("Summarises {{ sub.mirrors }}.")
+    doc.add_paragraph("{%p for item in sub.values %}")
+    doc.add_paragraph("{{ item.label }}: {{ item.value }}  ({{ item.source }})")
+    doc.add_paragraph("{%p endfor %}")
+    doc.add_paragraph("{{ sub.table_caption }}")
+    _generic_cells_table(doc)
+    doc.add_paragraph("{%p endfor %}")
+
+    doc.add_paragraph(
+        "Summary of the control of {{ substance.name }}: "
+        "{{ narrative.drug_substance_summary or "
+        "'[[AI DRAFT PENDING -- 2.3.S summary of the control of the drug substance]]' }}"
+    )
+    doc.add_paragraph("{%p endfor %}")
+
+    # ---- 2.3.P, once ------------------------------------------------------
+    doc.add_heading("2.3.P Drug Product", level=2)
+    doc.add_paragraph("{%p for sub in drug_product_subsections %}")
+    doc.add_heading("{{ sub.number }} {{ sub.title }}", level=4)
+    doc.add_paragraph("Summarises {{ sub.mirrors }}.")
+    doc.add_paragraph("{%p for item in sub.values %}")
+    doc.add_paragraph("{{ item.label }}: {{ item.value }}  ({{ item.source }})")
+    doc.add_paragraph("{%p endfor %}")
+    doc.add_paragraph("{{ sub.table_caption }}")
+    _generic_cells_table(doc)
+    doc.add_paragraph("{%p endfor %}")
+
+    doc.add_paragraph(
+        "Summary of the control of the drug product: "
+        "{{ narrative.drug_product_summary or "
+        "'[[AI DRAFT PENDING -- 2.3.P summary of the control of the drug product]]' }}"
+    )
+
+    note = doc.add_paragraph()
+    note.add_run("{{ derivation_note }}").font.size = Pt(9)
+
+    path = TEMPLATES_DIR / "section_2_3_qos.docx"
+    doc.save(path)
+    return path
+
+
+def _generic_cells_table(doc) -> None:
+    """A four-column table whose headers AND cells come from the context.
+
+    Shared by every QOS subsection: they have between two and four columns
+    and are otherwise the same table. `QosSubsection` pads neither -- the
+    template reads `sub.table_columns` and `row.cells` by index, so a
+    missing index would raise, which is why every builder in
+    app/templating/qos.py emits full rows.
+    """
+    _looping_table(
+        doc,
+        [
+            "{{ sub.table_columns[0] }}",
+            "{{ sub.table_columns[1] }}",
+            "{{ sub.table_columns[2] }}",
+            "{{ sub.table_columns[3] }}",
+        ],
+        [
+            "{{ row.cells[0] }}",
+            "{{ row.cells[1] }}",
+            "{{ row.cells[2] }}",
+            "{{ row.cells[3] }}",
+        ],
+        loop="row in sub.table_rows",
+    )
+
+
 def build_qis() -> Path:
     """1.4.2 -- the Quality Information Summary.
 
@@ -1395,7 +1796,17 @@ def build_qis() -> Path:
     return path
 
 
-P24_BUILDERS = (build_qis,)
+P24_BUILDERS = (
+    build_qos,
+    build_module_2_introduction,
+    build_literature_references,
+    build_application_form,
+    build_gmp_inspection_invitation,
+    build_samples_statement,
+    build_drug_substance_manufacture,
+    build_pharmaceutical_development,
+    build_qis,
+)
 
 
 if __name__ == "__main__":

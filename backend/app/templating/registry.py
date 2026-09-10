@@ -132,9 +132,40 @@ SECTIONS: dict[str, SectionSpec] = {
         narrative_slots=["purpose"],
         grounding_query="administrative submission requirements cover letter",
     ),
-    "1.2": SectionSpec(
-        number="1.2",
-        title="Application / Registration Form",
+    # ---- P24d: Module 1's forms, renumbered ------------------------------
+    #
+    # THE NUMBERING DRIFT, fixed. This section was registered as "1.2" from
+    # P04 until P24. In the target TOC -- derived leaf by leaf from a real
+    # filed dossier -- 1.2 is a HEADING ("Administrative information") and
+    # the registration form is 1.2.2. A leaf filed at a heading's number is
+    # the kind of error an agency's validator catches and a human does not,
+    # and it is exactly what P16 built the target contract to surface.
+    #
+    # Renumbering a section is not free: the instance key, the leaf
+    # filename, the storage key and the narrative lookup all contain it. It
+    # is done here rather than left because the alternative is a permanent
+    # asterisk in the contract, and every future submission type is derived
+    # from that contract.
+    "1.2.1": SectionSpec(
+        number="1.2.1",
+        title="Application Form",
+        template_filename="application_form.docx",
+        # No narrative slots, for the same reason 1.2.2 has none: every
+        # fact on an agency form is already structured data.
+        narrative_slots=[],
+        grounding_query=None,
+        # P24e: NAFDAC-only, so emitted only where the filing declares it.
+        # `only_when_applicable` is exactly the mechanism P22 built for
+        # this and its comment names the case: "it keeps a NAFDAC-only
+        # Module 1 leaf out of an EU package". Found by building the
+        # worked example as an EU sequence, where the eCTD builder raised
+        # on a Module 1 number the EU profile has no slot for -- correctly,
+        # since `folder_for_section` refuses to guess.
+        only_when_applicable=True,
+    ),
+    "1.2.2": SectionSpec(
+        number="1.2.2",
+        title="Registration Form",
         template_filename="registration_form.docx",
         # No narrative slots: unlike the cover letter, every fact on a
         # registration form is already structured data (applicant, product,
@@ -142,6 +173,45 @@ SECTIONS: dict[str, SectionSpec] = {
         # example that not every Module 1 document needs narrative prose.
         narrative_slots=[],
         grounding_query=None,
+    ),
+    "1.2.14": SectionSpec(
+        number="1.2.14",
+        title="Invitation Letter for GMP Inspection",
+        template_filename="gmp_inspection_invitation.docx",
+        # HYBRID in the target, and the slot is real: the letter's facts
+        # (which sites, which addresses, which licences) are on file, but
+        # the invitation itself is a letter the applicant writes to an
+        # agency, and its terms -- when, what access, who hosts -- are
+        # theirs.
+        narrative_slots=["invitation"],
+        grounding_query="GMP inspection invitation manufacturing site foreign inspection NAFDAC",
+        # P24e: NAFDAC-only, so emitted only where the filing declares it.
+        # `only_when_applicable` is exactly the mechanism P22 built for
+        # this and its comment names the case: "it keeps a NAFDAC-only
+        # Module 1 leaf out of an EU package". Found by building the
+        # worked example as an EU sequence, where the eCTD builder raised
+        # on a Module 1 number the EU profile has no slot for -- correctly,
+        # since `folder_for_section` refuses to guess.
+        only_when_applicable=True,
+    ),
+    "1.6": SectionSpec(
+        number="1.6",
+        title="Samples",
+        template_filename="samples_statement.docx",
+        # NO narrative slots. What this leaf owes is a STATEMENT of what
+        # was physically submitted -- batch numbers, quantities, the pack.
+        # Every one of those is on file, and a drafted sentence here could
+        # only claim a sample was sent that was not.
+        narrative_slots=[],
+        grounding_query=None,
+        # P24e: NAFDAC-only, so emitted only where the filing declares it.
+        # `only_when_applicable` is exactly the mechanism P22 built for
+        # this and its comment names the case: "it keeps a NAFDAC-only
+        # Module 1 leaf out of an EU package". Found by building the
+        # worked example as an EU sequence, where the eCTD builder raised
+        # on a Module 1 number the EU profile has no slot for -- correctly,
+        # since `folder_for_section` refuses to guess.
+        only_when_applicable=True,
     ),
     "3.2.P.1": SectionSpec(
         number="3.2.P.1",
@@ -435,6 +505,158 @@ SECTIONS: dict[str, SectionSpec] = {
         grounding_query=None,
         only_when_applicable=True,
     ),
+    "2.2": SectionSpec(
+        number="2.2",
+        title="Introduction",
+        template_filename="module_2_introduction.docx",
+        # ONE slot, and a narrow one. The product's particulars are on
+        # file; what a model may draft is the pharmacological class and
+        # mode of action, which are properties of the molecule described in
+        # the literature -- exactly what the knowledge base grounds.
+        narrative_slots=["pharmacological_class"],
+        grounding_query=(
+            "pharmacological class mode of action therapeutic indication dosage form "
+            "route of administration"
+        ),
+    ),
+    # ---- P24d: the literature reference lists ---------------------------
+    #
+    # `leaf_suffix` is the P22 mechanism: these ship BESIDE the uploaded
+    # papers rather than instead of them. Without it, attaching the
+    # literature pack would silently drop the reference list, which is the
+    # "looks complete, is not" failure the flag exists to prevent.
+    "3.3": SectionSpec(
+        number="3.3",
+        title="Literature References (Quality)",
+        template_filename="literature_references.docx",
+        # No narrative slots: a reference list is a list. The entries are
+        # derived from what the dossier's own methods and limits cite (see
+        # app/templating/literature.py), and a drafted sentence here could
+        # only add a citation nothing relies on.
+        narrative_slots=[],
+        grounding_query=None,
+        leaf_suffix="reference-list",
+    ),
+    "5.4": SectionSpec(
+        number="5.4",
+        title="Literature References (Clinical)",
+        template_filename="literature_references.docx",
+        narrative_slots=[],
+        grounding_query=None,
+        leaf_suffix="reference-list",
+    ),
+    # ---- P24d: how the material and the medicine are made ---------------
+    #
+    # The most narrative-led sections in the dossier, and the last to be
+    # built for that reason: a section that is ALL slot is a section where
+    # a model writes the regulatory content. Each has a derived data half
+    # (see app/templating/development.py) and one slot carrying what is
+    # genuinely prose.
+    #
+    # The four 3.2.S.2 sections share a template and repeat per drug
+    # substance -- a combination product's two actives have two
+    # manufacturers, two APIMF positions and two processes.
+    "3.2.S.2.2": SectionSpec(
+        number="3.2.S.2.2",
+        title="Description of Manufacturing Process and Process Controls (Drug Substance)",
+        template_filename="drug_substance_manufacture.docx",
+        narrative_slots=["description"],
+        grounding_query=(
+            "drug substance manufacturing process description process controls " "synthetic route"
+        ),
+        repeat="drug_substance",
+    ),
+    "3.2.S.2.3": SectionSpec(
+        number="3.2.S.2.3",
+        title="Control of Materials (Drug Substance)",
+        template_filename="drug_substance_manufacture.docx",
+        narrative_slots=["description"],
+        grounding_query="control of materials starting materials reagents solvents drug substance",
+        repeat="drug_substance",
+    ),
+    "3.2.S.2.4": SectionSpec(
+        number="3.2.S.2.4",
+        title="Control of Critical Steps and Intermediates (Drug Substance)",
+        template_filename="drug_substance_manufacture.docx",
+        narrative_slots=["description"],
+        grounding_query="critical steps intermediates in-process controls drug substance",
+        repeat="drug_substance",
+    ),
+    "3.2.S.2.6": SectionSpec(
+        number="3.2.S.2.6",
+        title="Manufacturing Process Development (Drug Substance)",
+        template_filename="drug_substance_manufacture.docx",
+        narrative_slots=["description"],
+        grounding_query="manufacturing process development drug substance route changes scale",
+        repeat="drug_substance",
+    ),
+    # 3.2.P.2 and the two 3.2.P.3 narrative sections share the development
+    # template. None of them repeats: there is one formulation, developed
+    # once, however many actives it contains.
+    "3.2.P.2.1": SectionSpec(
+        number="3.2.P.2.1",
+        title="Components of the Drug Product",
+        template_filename="pharmaceutical_development.docx",
+        narrative_slots=["discussion"],
+        grounding_query=(
+            "components of the drug product excipient compatibility drug substance "
+            "pharmaceutical development"
+        ),
+    ),
+    "3.2.P.2.2": SectionSpec(
+        number="3.2.P.2.2",
+        title="Drug Product (Formulation Development, Overages, Physicochemical Properties)",
+        template_filename="pharmaceutical_development.docx",
+        narrative_slots=["discussion"],
+        grounding_query=(
+            "formulation development overages justification physicochemical properties "
+            "dissolution ICH Q8"
+        ),
+    ),
+    "3.2.P.2.3": SectionSpec(
+        number="3.2.P.2.3",
+        title="Manufacturing Process Development (Drug Product)",
+        template_filename="pharmaceutical_development.docx",
+        narrative_slots=["discussion"],
+        grounding_query="manufacturing process development drug product scale up equipment",
+    ),
+    "3.2.P.2.4": SectionSpec(
+        number="3.2.P.2.4",
+        title="Container Closure System (Development)",
+        template_filename="pharmaceutical_development.docx",
+        narrative_slots=["discussion"],
+        grounding_query=(
+            "container closure system suitability protection compatibility safety " "performance"
+        ),
+    ),
+    "3.2.P.2.5": SectionSpec(
+        number="3.2.P.2.5",
+        title="Microbiological Attributes",
+        template_filename="pharmaceutical_development.docx",
+        narrative_slots=["discussion"],
+        grounding_query=(
+            "microbiological attributes non-sterile products microbial limits "
+            "preservative efficacy"
+        ),
+    ),
+    "3.2.P.3.3": SectionSpec(
+        number="3.2.P.3.3",
+        title="Description of Manufacturing Process and Process Controls (Drug Product)",
+        template_filename="pharmaceutical_development.docx",
+        narrative_slots=["discussion"],
+        grounding_query=(
+            "drug product manufacturing process description process controls batch " "record"
+        ),
+    ),
+    "3.2.P.3.4": SectionSpec(
+        number="3.2.P.3.4",
+        title="Controls of Critical Steps and Intermediates (Drug Product)",
+        template_filename="pharmaceutical_development.docx",
+        narrative_slots=["discussion"],
+        grounding_query=(
+            "controls of critical steps intermediates in-process controls drug product"
+        ),
+    ),
     # ---- P24: the derived documents ------------------------------------
     #
     # 1.4.2 and 2.3 are the two leaves whose content lives entirely in
@@ -453,6 +675,13 @@ SECTIONS: dict[str, SectionSpec] = {
         # exact divergence this document is built to eliminate.
         narrative_slots=[],
         grounding_query=None,
+        # NAFDAC (and WHO prequalification) ask for a QIS; the EU does not,
+        # and this profile has no slot for it. Same reasoning as 1.2.1,
+        # 1.2.14 and 1.6 -- see the note on 1.2.1, and
+        # test_every_module_1_section_is_placeable_in_every_region, which
+        # is what turns this class of mistake into a failing test rather
+        # than a KeyError during someone's build.
+        only_when_applicable=True,
     ),
     "5.2": SectionSpec(
         number="5.2",
@@ -581,7 +810,13 @@ SECTIONS: dict[str, SectionSpec] = {
         number="2.3",
         title="Quality Overall Summary",
         template_filename="section_2_3_qos.docx",
-        narrative_slots=["overview"],
+        # P24c: two slots added beside the original `overview`. Each one is
+        # a place where a QOS owes genuine summary JUDGEMENT -- the case
+        # for the control of the substance, and of the product. Every
+        # number in the document is derived and printed above them, so a
+        # slot here cannot state a figure; it can only argue about the ones
+        # already on the page.
+        narrative_slots=["overview", "drug_substance_summary", "drug_product_summary"],
         grounding_query="quality overall summary drug substance drug product",
         structure_images_slot="structures",
     ),

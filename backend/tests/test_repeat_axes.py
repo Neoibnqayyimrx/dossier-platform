@@ -107,11 +107,13 @@ def test_a_combination_product_owes_two_copies_of_every_per_substance_section():
     for instance in per_substance:
         by_number.setdefault(instance.number, []).append(instance.key)
 
-    # Eleven sections repeat per substance after P21 (3.2.S.1, 3.2.S.4.1
+    # Fifteen sections repeat per substance after P24 (3.2.S.1, 3.2.S.4.1
     # from P13; 3.2.S.2.1, 3.2.S.5, 3.2.S.6 from P19; 3.2.S.3.2, 3.2.S.4.2,
     # 3.2.S.4.4 with the impurity and batch-analysis models in P20; the
     # three 3.2.S.7 stability leaves in P21, once a study could belong to a
-    # substance at all).
+    # substance at all; and the four 3.2.S.2 manufacture sections in P24 --
+    # a combination product's two actives have two processes, two APIMF
+    # positions and two sets of starting materials).
     #
     # An exact set rather than a subset, deliberately: what this test is
     # for is that EVERY per-substance section is expanded per substance, so
@@ -121,6 +123,10 @@ def test_a_combination_product_owes_two_copies_of_every_per_substance_section():
     assert set(by_number) == {
         "3.2.S.1",
         "3.2.S.2.1",
+        "3.2.S.2.2",
+        "3.2.S.2.3",
+        "3.2.S.2.4",
+        "3.2.S.2.6",
         "3.2.S.3.2",
         "3.2.S.4.1",
         "3.2.S.4.2",

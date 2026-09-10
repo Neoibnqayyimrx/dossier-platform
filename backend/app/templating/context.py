@@ -16,9 +16,23 @@ which would raise a Jinja Undefined error instead of rendering a placeholder.
 from __future__ import annotations
 
 from app.ctd.region_profiles import REGION_PROFILES, resolve_applicability
-from app.models.enums import CertificateType, PackagingRole, TSE_RELEVANT_ORIGINS
+from app.models.enums import (
+    CertificateType,
+    PackagingComponent,
+    PackagingRole,
+    TSE_RELEVANT_ORIGINS,
+)
 from app.models.project import Project
-from app.templating import bioequivalence, product_information, qis, quality_control, stability
+from app.templating import (
+    bioequivalence,
+    development,
+    literature,
+    product_information,
+    qis,
+    qos,
+    quality_control,
+    stability,
+)
 from app.templating.registry import get_section
 
 # What a context prints where a fact should be but is not. Shared rather
@@ -83,7 +97,14 @@ def build_context(
             "narrative": narrative,
         }
 
-    if section_number == "1.2":
+    # ---- P24d: the two Module 1 forms, and the two open questions -------
+    #
+    # 1.2.1 and 1.2.2 share this branch because they render from the same
+    # records -- which is the whole reason filing both is safe (see the
+    # target TOC's note on 1.2.1). `application_details` is added for
+    # 1.2.1's own table; 1.2.2's template does not read it and is
+    # unchanged.
+    if section_number in ("1.2.1", "1.2.2"):
         applicant = project.applicant
         authorized_representative = MISSING
         if applicant and applicant.authorized_representative_name:
@@ -109,7 +130,34 @@ def build_context(
                 applicant.contact_email if applicant and applicant.contact_email else MISSING
             ),
             "authorized_representative": authorized_representative,
+            "application_details": [
+                {"label": "Product", "value": product.brand_name},
+                {"label": "Strength", "value": product.strength_display},
+                {
+                    "label": "Dosage form",
+                    "value": product.dosage_form.value if product.dosage_form else MISSING,
+                },
+                {
+                    "label": "Applicant",
+                    "value": applicant.company_name if applicant else MISSING,
+                },
+                {
+                    "label": "Applicant address",
+                    "value": applicant.address if applicant and applicant.address else MISSING,
+                },
+                {
+                    "label": "Submission type",
+                    "value": project.submission_type.value,
+                },
+                {"label": "Authority", "value": project.region.value},
+            ],
         }
+
+    if section_number == "1.2.14":
+        return _gmp_inspection_context(project, narrative)
+
+    if section_number == "1.6":
+        return _samples_context(project)
 
     if section_number == "3.2.P.1":
         return {
@@ -172,6 +220,30 @@ def build_context(
     # because two of them are Module 1 documents: a BTI form names the
     # applicant and a biowaiver request is a claim the filing makes, and
     # neither is a fact about a material.
+    if section_number == "2.2":
+        return _module_2_introduction_context(project, narrative)
+
+    if section_number in ("3.3", "5.4"):
+        return literature.literature_context(section, project)
+
+    # ---- P24d: manufacture and pharmaceutical development ---------------
+    #
+    # Dispatched through a table for the same reason the quality-control
+    # sections are: eleven sections built from three shapes. See
+    # app/templating/development.py, and note that the 3.2.S.2 group takes
+    # a SUBJECT (they repeat per drug substance) while the 3.2.P group
+    # takes the project.
+    if section_number in _DRUG_SUBSTANCE_MANUFACTURE:
+        if subject is None:
+            raise ValueError(
+                f"Section {section_number} repeats per drug substance, so it needs a "
+                f"subject; none was passed."
+            )
+        return development.drug_substance_manufacture_context(section, subject, narrative)
+
+    if section_number in _DEVELOPMENT_SECTIONS:
+        return _DEVELOPMENT_SECTIONS[section_number](section, project, narrative)
+
     # ---- P24: the derived documents -------------------------------------
     #
     # Dispatched before everything else in Module 1 because they are not
@@ -377,12 +449,171 @@ def build_context(
         # holds the live DocxTemplate instance an InlineImage must be bound
         # to. This function stays synchronous, DB-free, and Word-library-
         # free, same as every other branch.
-        return {
-            "product": product,
-            "narrative": narrative,
-        }
+        #
+        # P24c: what WAS a two-key dict is now the fourteen-subsection QOS,
+        # assembled from Module 3's own contexts (app/templating/qos.py).
+        # `product` and `narrative` are still returned, unchanged, because
+        # the template's heading, structure loop and overview slot are
+        # unchanged -- the summary grew, it did not move.
+        return qos.qos_context(section, project, narrative)
 
     raise ValueError(f"No context builder for section {section_number!r}")
+
+
+def _module_2_introduction_context(project, narrative) -> dict:
+    """2.2 -- the one page that orients an assessor before Module 2's
+    summaries.
+
+    Every particular here is printed from the same records 1.3.1, the label
+    and 3.2.P.1 print, so the introduction cannot open Module 2 with a
+    strength or a route that the rest of the dossier contradicts. That is
+    not a hypothetical: the introduction is written first, early in a
+    project, and is the page least likely to be revisited when a strength
+    or a pack changes.
+    """
+    product = project.product
+    applicant = project.applicant
+    particulars = [
+        ("Product", product.brand_name),
+        ("Generic name", product.generic_name or MISSING),
+        ("Strength", product.strength_display),
+        ("Dosage form", product.dosage_form.value if product.dosage_form else MISSING),
+        ("Route of administration", product.route_of_administration or MISSING),
+        ("Pack size", product.pack_size or MISSING),
+        ("Applicant", applicant.company_name if applicant else MISSING),
+        ("Submission type", project.submission_type.value),
+    ]
+    return {
+        "introduction_statement": (
+            f"This application is made by "
+            f"{applicant.company_name if applicant else MISSING} for the registration of "
+            f"{product.brand_name} with {project.region.value}, as a "
+            f"{project.submission_type.value.replace('-', ' ')} application. The "
+            f"particulars are those filed throughout this dossier."
+        ),
+        "particulars": [{"label": label, "value": value} for label, value in particulars],
+        "narrative": narrative,
+    }
+
+
+def _gmp_inspection_context(project, narrative) -> dict:
+    """1.2.14 -- the invitation letter for GMP inspection.
+
+    NAFDAC inspects the sites that make the medicine, and the invitation
+    has to name them with the addresses an inspector will travel to. Those
+    come from the manufacturer records that 3.2.P.3.1 also renders, so an
+    address corrected in the wizard is corrected in the invitation.
+
+    The API manufacturer is INCLUDED here, unlike in 3.2.P.3.1 (which is
+    about the finished product only). An agency inspecting a generic's
+    supply chain may inspect the API site too, and omitting it from an
+    invitation would be the applicant deciding what the agency may look at.
+    """
+    product = project.product
+    applicant = project.applicant
+    sites = [m for m in product.manufacturers if m.role is not None]
+    return {
+        "authority": project.region.value,
+        "applicant_name": applicant.company_name if applicant else MISSING,
+        "product_name": product.brand_name,
+        "registration_type": (
+            product.registration_type.value if product.registration_type else MISSING
+        ),
+        "invitation_statement": (
+            f"{applicant.company_name if applicant else MISSING} invites "
+            f"{project.region.value} to inspect the manufacturing sites listed below in "
+            f"connection with this application for {product.brand_name}."
+        ),
+        "sites": [
+            {
+                "name": site.name,
+                "address": site.site_address or MISSING,
+                "role": site.role.value,
+                "gmp": (
+                    f"{site.gmp_status.value if site.gmp_status else MISSING}"
+                    f" / {site.manufacturing_licence or 'no licence on file'}"
+                ),
+            }
+            for site in sites
+        ],
+        "authorized_representative": (
+            applicant.authorized_representative_name
+            if applicant and applicant.authorized_representative_name
+            else MISSING
+        ),
+        "narrative": narrative,
+    }
+
+
+def _samples_context(project) -> dict:
+    """1.6 -- Samples, the target's second open question.
+
+    Physical samples are not a document, so what this leaf owes is a record
+    of what was sent: which batches, made when, in which pack. The batches
+    are the SAME rows 3.2.P.5.4 files, so a sample cannot be presented
+    under a batch number the dossier has no analysis for -- which is
+    precisely the disconnect that makes a laboratory result impossible to
+    reconcile with a submission.
+    """
+    product = project.product
+    batches = sorted(product.batch_analyses, key=lambda b: b.batch_number)
+    packs = [
+        pack.description
+        for pack in product.packaging
+        if pack.role is not PackagingRole.DRUG_SUBSTANCE
+        and pack.component is PackagingComponent.SECONDARY
+    ]
+    pack = packs[0] if packs else (product.pack_size or MISSING)
+    return {
+        "samples_statement": (
+            f"Samples of {product.brand_name} from the batches below are submitted to "
+            f"{project.region.value} for laboratory analysis."
+            if batches
+            else (
+                f"[[NO BATCHES ON FILE -- 1.6 cannot state which samples of "
+                f"{product.brand_name} were submitted]]"
+            )
+        ),
+        "samples": [
+            {
+                "batch_number": batch.batch_number,
+                "manufacture_date": (
+                    batch.manufacture_date.isoformat() if batch.manufacture_date else MISSING
+                ),
+                "pack": pack,
+                "filed_at": "3.2.P.5.4",
+            }
+            for batch in batches
+        ],
+    }
+
+
+# ---- P24d dispatch ---------------------------------------------------------
+#
+# The four 3.2.S.2 sections that repeat per drug substance and share one
+# builder: what differs between them is the section number, the title and
+# which paragraph the narrative slot holds -- all of which the SectionSpec
+# already carries.
+_DRUG_SUBSTANCE_MANUFACTURE = frozenset({"3.2.S.2.2", "3.2.S.2.3", "3.2.S.2.4", "3.2.S.2.6"})
+
+# The drug-product development sections, each with its own builder because
+# each derives a genuinely different table. Section number -> builder,
+# rather than a shape name and a second lookup: there is one builder per
+# section here, so the indirection would buy nothing.
+_DEVELOPMENT_SECTIONS = {
+    "3.2.P.2.1": development.components_context,
+    "3.2.P.2.2": development.formulation_context,
+    "3.2.P.2.3": development.process_development_context,
+    "3.2.P.2.4": development.container_development_context,
+    "3.2.P.2.5": development.microbiological_context,
+    # Both 3.2.P.3 sections take the same builder. They are two questions
+    # about one process -- how it runs, and where it is controlled -- and
+    # the frame an assessor reads either against (sites, batch size,
+    # composition) is identical. The narrative slot is what differs, and
+    # the registry already says so.
+    "3.2.P.3.3": development.drug_product_manufacture_context,
+    "3.2.P.3.4": development.drug_product_manufacture_context,
+}
 
 
 def _batch_quantity_kg(line) -> float:

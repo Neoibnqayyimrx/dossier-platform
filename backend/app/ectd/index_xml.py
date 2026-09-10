@@ -42,6 +42,7 @@ DTD_PATH = (
 # ICH heading element names from just under the ectd:ectd root down to the
 # element the leaf itself is filed under.
 ICH_HEADING_PATH: dict[str, tuple[str, ...]] = {
+    "2.2": ("m2-common-technical-document-summaries", "m2-2-introduction"),
     "2.3": ("m2-common-technical-document-summaries", "m2-3-quality-overall-summary"),
     "3.2.P.1": (
         "m3-quality",
@@ -155,6 +156,59 @@ ICH_HEADING_PATH: dict[str, tuple[str, ...]] = {
         "m3-2-p-drug-product",
         "m3-2-p-5-control-of-drug-product",
         "m3-2-p-5-3-validation-of-analytical-procedures",
+    ),
+    # P24d: pharmaceutical development. All five 3.2.P.2 leaves share ONE
+    # heading element, and that is the DTD's own shape rather than a
+    # simplification: `m3-2-p-2-pharmaceutical-development` is declared
+    # `((leaf | node-extension)*)` with no sub-elements, unlike
+    # m3-2-p-3-manufacture beside it, which declares five. So the CTD
+    # folder tree has five named folders (a human navigates that) and the
+    # backbone has five leaves under one element (an agency's software
+    # renders that). Placement and backbone structure are separate maps for
+    # exactly this reason.
+    "3.2.P.2.1": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-2-pharmaceutical-development",
+    ),
+    "3.2.P.2.2": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-2-pharmaceutical-development",
+    ),
+    "3.2.P.2.3": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-2-pharmaceutical-development",
+    ),
+    "3.2.P.2.4": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-2-pharmaceutical-development",
+    ),
+    "3.2.P.2.5": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-2-pharmaceutical-development",
+    ),
+    "3.2.P.3.3": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-3-manufacture",
+        "m3-2-p-3-3-description-of-manufacturing-process-and-process-controls",
+    ),
+    "3.2.P.3.4": (
+        "m3-quality",
+        "m3-2-body-of-data",
+        "m3-2-p-drug-product",
+        "m3-2-p-3-manufacture",
+        "m3-2-p-3-4-controls-of-critical-steps-and-intermediates",
     ),
     "3.3": ("m3-quality", "m3-3-literature-references"),
     # P19: the data-ready generated leaves. 3.2.P.3.1 and 3.2.P.7 REPEAT
@@ -319,6 +373,21 @@ DRUG_SUBSTANCE_HEADING_PATH: dict[str, tuple[str, ...]] = {
     ),
     # P19.
     "3.2.S.2.1": ("m3-2-s-2-manufacture", "m3-2-s-2-1-manufacturer"),
+    # P24d: the four narrative manufacture sections, filed under the
+    # per-substance element beside 3.2.S.2.1 and 3.2.S.2.5.
+    "3.2.S.2.2": (
+        "m3-2-s-2-manufacture",
+        "m3-2-s-2-2-description-of-manufacturing-process-and-process-controls",
+    ),
+    "3.2.S.2.3": ("m3-2-s-2-manufacture", "m3-2-s-2-3-control-of-materials"),
+    "3.2.S.2.4": (
+        "m3-2-s-2-manufacture",
+        "m3-2-s-2-4-controls-of-critical-steps-and-intermediates",
+    ),
+    "3.2.S.2.6": (
+        "m3-2-s-2-manufacture",
+        "m3-2-s-2-6-manufacturing-process-development",
+    ),
     "3.2.S.5": ("m3-2-s-5-reference-standards-or-materials",),
     "3.2.S.6": ("m3-2-s-6-container-closure-system",),
     # P21: filed under the per-substance element, like every other 3.2.S

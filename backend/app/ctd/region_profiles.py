@@ -290,6 +290,21 @@ class RegionProfile:
     # region whose Module 1 has not been modelled (EU), which means "we do
     # not know where these go", not "they cannot be uploaded".
     document_slots: tuple[DocumentSlot, ...] = ()
+    # P24e: which target leaf each generated declaration answers.
+    #
+    # WHY this was missing until the worked example was built: the
+    # declarations render and are placed correctly, so nothing failed. They
+    # were simply filed under their own names -- "power-of-attorney-<uuid>
+    # .pdf" -- and an assessor looking for leaf 1.2.4 had no way to tell
+    # which of the three files was it. The end-to-end reconciliation in
+    # P24e found it by asking the opposite question from the usual one:
+    # not "does every leaf have a document" but "does every document name
+    # its leaf", and three did not.
+    #
+    # Like `DocumentSlot.section_number`, this is regional: the same
+    # power of attorney sits at a different number in a different agency's
+    # Module 1, so the mapping belongs to the profile and not to the enum.
+    declaration_leaves: dict[DeclarationType, str] = field(default_factory=dict)
 
     # P19: what this region asks for at 3.2.R. Empty means "this region
     # declares no additional regional information", which the rendered leaf
@@ -525,6 +540,17 @@ NAFDAC_REGIONAL_INFORMATION: tuple[RegionalInformationItem, ...] = (
 NAFDAC_PROFILE = RegionProfile(
     region=Region.NAFDAC,
     document_slots=NAFDAC_DOCUMENT_SLOTS,
+    # 1.2.6's target note flags that it may need splitting once uploads
+    # exist -- "Power of Attorney / Contract Manufacturing Agreement" is
+    # two documents under one heading, and only the first is one the
+    # platform can author. The GMP compliance undertaking is what it
+    # generates there today; the executed agreement is an upload nobody
+    # has modelled yet, and that is recorded rather than papered over.
+    declaration_leaves={
+        DeclarationType.POWER_OF_ATTORNEY: "1.2.4",
+        DeclarationType.DECLARATION_OF_AUTHENTICITY: "1.2.5",
+        DeclarationType.GMP_COMPLIANCE_UNDERTAKING: "1.2.6",
+    },
     regional_information=NAFDAC_REGIONAL_INFORMATION,
     applicability={
         SubmissionType.MULTISOURCE_GENERIC: _multisource_applicability(),
@@ -542,11 +568,33 @@ NAFDAC_PROFILE = RegionProfile(
             folder="m1/10-cover-letter",
             section_number="1.0",
         ),
+        # P24d: renumbered from "1.2" (a heading in the target) to 1.2.2,
+        # and joined by 1.2.1, 1.2.14 and 1.6. See the registry's note on
+        # the drift, and the target TOC's notes on 1.2.1 and 1.6 for the
+        # two regulatory findings behind these three leaves.
+        Module1Slot(
+            slot_id="application-form",
+            title="Application Form",
+            folder="m1/12-administrative-information",
+            section_number="1.2.1",
+        ),
         Module1Slot(
             slot_id="registration-form",
-            title="Application / Registration Form",
+            title="Registration Form",
             folder="m1/12-administrative-information",
-            section_number="1.2",
+            section_number="1.2.2",
+        ),
+        Module1Slot(
+            slot_id="gmp-inspection-invitation",
+            title="Invitation Letter for GMP Inspection",
+            folder="m1/12-administrative-information",
+            section_number="1.2.14",
+        ),
+        Module1Slot(
+            slot_id="samples",
+            title="Samples",
+            folder="m1/16-samples",
+            section_number="1.6",
         ),
         # ---- P23: the three product-information leaves ------------------
         #
@@ -683,7 +731,11 @@ EU_PROFILE = RegionProfile(
             slot_id="registration-form",
             title="Application Form",
             folder="m1/eu/12-administrative-information",
-            section_number="1.2",
+            # Renumbered with NAFDAC's (P24d), because the registry is
+            # common to both profiles and 1.2 is a heading in it now. The
+            # EU's own Module 1 numbering has never been confirmed here --
+            # see this profile's opening note.
+            section_number="1.2.2",
         ),
         # P23: the EU's own product information group. Unlike the rest of
         # this profile, this one is NOT a guess -- eu-regional.dtd declares

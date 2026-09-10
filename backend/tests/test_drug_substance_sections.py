@@ -53,9 +53,18 @@ def test_a_combination_product_owes_one_copy_of_each_3_2_s_section_per_active():
 def test_non_repeating_sections_keep_exactly_the_identity_they_already_had():
     """The compatibility guarantee that let P13 skip a data migration: every
     pre-P13 section's key is still its bare number, so stored narratives and
-    persisted sequence leaves keep resolving."""
+    persisted sequence leaves keep resolving.
+
+    P24d renumbered ONE of them, 1.2 -> 1.2.2, and deliberately: 1.2 is a
+    heading in the target and a leaf was sitting at it (see the registry's
+    note). That is the exception this test now records rather than hides --
+    the guarantee is "identity is stable unless the contract says it was
+    wrong", which is a different and more honest promise than "identity
+    never changes".
+    """
     keys = [i.key for i in expand_sections(_load(build_examox))]
-    assert {"1.0", "1.2", "2.3", "3.2.P.1", "3.2.P.8.1"} <= set(keys)
+    assert {"1.0", "1.2.2", "2.3", "3.2.P.1", "3.2.P.8.1"} <= set(keys)
+    assert "1.2" not in keys
 
 
 def test_titles_name_the_substance():

@@ -80,12 +80,12 @@ def test_applicant_is_reusable_across_projects():
     assert len(applicant.projects) == 2
 
 
-# ---- Registration form template (section 1.2) ------------------------------
+# ---- Registration form template (section 1.2.2) ----------------------------
 
 
 def test_registration_form_fills_applicant_and_product_data(project):
     storage = InMemoryStorageClient()
-    result = render_section("1.2", project, storage=storage)
+    result = render_section("1.2.2", project, storage=storage)
 
     text = _document_text(storage.get(result.storage_key))
     assert "NAFDAC" in text
@@ -106,7 +106,7 @@ def test_registration_form_falls_back_when_applicant_missing():
     session.refresh(project)
 
     storage = InMemoryStorageClient()
-    result = render_section("1.2", project, storage=storage)
+    result = render_section("1.2.2", project, storage=storage)
 
     text = _document_text(storage.get(result.storage_key))
     assert "[[NOT YET ON FILE]]" in text
@@ -233,3 +233,51 @@ def test_examox_clean_project_still_fully_exportable():
     attach_certificate_documents(project, InMemoryStorageClient())
     report = run_all(project)
     assert report.is_exportable()
+
+
+# ---- P24e: the invariant that keeps a regional leaf regional ----------------
+
+
+def test_every_module_1_section_is_placeable_in_every_region():
+    """A Module 1 leaf must either have a slot in a region, or be declared
+    conditional so that region never emits it.
+
+    Module 1 is the regional module, so a section registered without a slot
+    somewhere is not a hypothetical: it is a build that raises. Placement in
+    Modules 2-5 comes from one shared folder map, but Module 1's comes from
+    the region profile, and `folder_for_section` refuses to guess -- which
+    is right, and which means the failure arrives as a KeyError in the
+    middle of assembling a package.
+
+    That happened three times in P24 alone (1.2.1, 1.2.14, 1.6, then 1.4.2),
+    each found by building the worked example as an EU sequence rather than
+    by anything in the test suite. `SectionSpec.only_when_applicable` is the
+    mechanism P22 built for exactly this and its own comment names the case;
+    what was missing was something that noticed when a new leaf forgot to
+    use it.
+    """
+    from app.ctd.region_profiles import REGION_PROFILES
+    from app.templating.registry import SECTIONS
+
+    module_1 = [
+        spec for spec in SECTIONS.values() if spec.number.startswith("1.") and not spec.is_statement
+    ]
+    assert module_1, "no Module 1 sections registered -- this test would pass vacuously"
+
+    unplaceable = []
+    for region, profile in REGION_PROFILES.items():
+        placed = {slot.section_number for slot in profile.module1_slots if slot.section_number}
+        placed |= {slot.section_number for slot in profile.document_slots}
+        for spec in module_1:
+            if spec.number in placed:
+                continue
+            # No slot here. That is fine ONLY if the section is conditional,
+            # because a region with no applicability table (EU) then emits
+            # nothing for it -- see app/templating/instances.py.
+            if not spec.only_when_applicable:
+                unplaceable.append((region.value, spec.number))
+
+    assert not unplaceable, (
+        "Module 1 sections with no slot in a region and no only_when_applicable "
+        f"flag, so a build for that region raises: {sorted(unplaceable)}"
+    )
