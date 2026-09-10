@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { CHILD_STEPS, PRODUCT_FIELDS, RUNTIME_VOCABULARIES } from "@/lib/wizard-steps";
+import {
+  CHILD_STEPS,
+  PRODUCT_FIELDS,
+  RUNTIME_VOCABULARIES,
+  TOTAL_STEPS,
+  lockForStep,
+  stepIndexOfResource,
+  titleOfStep,
+} from "@/lib/wizard-steps";
 
 describe("wizard step specs", () => {
   it("gives every step with a row list an editor of some kind", () => {
@@ -120,5 +128,63 @@ describe("cross-reference fields", () => {
     expect(ids).toContain("clinical");
     expect(ids).toContain("batch-formula");
     expect(ids).toContain("certificates");
+  });
+});
+
+describe("lockForStep", () => {
+  const nothing = {};
+
+  it("never locks the product step, which is what creates the product", () => {
+    expect(lockForStep(0, false, nothing)).toBeNull();
+  });
+
+  it("locks every later step until the product is saved", () => {
+    for (let index = 1; index < TOTAL_STEPS; index += 1) {
+      expect(lockForStep(index, false, nothing)?.goToStep).toBe(0);
+    }
+  });
+
+  it("opens the collections once the product exists", () => {
+    // Everything except the one step with a real prerequisite.
+    const open = CHILD_STEPS.map((step, position) => [step.id, position + 1])
+      .filter(([id]) => id !== "apis")
+      .map(([, index]) => index as number);
+
+    for (const index of open) {
+      expect(lockForStep(index, true, nothing)).toBeNull();
+    }
+  });
+
+  it("holds active ingredients until a manufacturer exists (R17)", () => {
+    // An active ingredient names the site that makes it, and that select
+    // is built from the manufacturers step's rows.
+    const apis = stepIndexOfResource("apis");
+    const manufacturers = stepIndexOfResource("manufacturers");
+
+    const lock = lockForStep(apis, true, nothing);
+    expect(lock?.goToStep).toBe(manufacturers);
+    // Against the real title rather than a copy of it: a reason naming a
+    // step the wizard does not call by that name is worse than no reason.
+    expect(lock?.reason).toContain(titleOfStep(manufacturers));
+
+    expect(
+      lockForStep(apis, true, { manufacturers: [{ id: "m1" }] }),
+    ).toBeNull();
+  });
+
+  it("does not lock a step over an OPTIONAL cross-reference", () => {
+    // Packaging, batch formula and certificates all offer a select fed by
+    // an earlier step, but each one's help text says to leave it empty.
+    // Locking them would invent a requirement no regulator asked for.
+    for (const id of ["packaging", "batch-formula", "certificates"] as const) {
+      expect(lockForStep(stepIndexOfResource(id), true, nothing)).toBeNull();
+    }
+  });
+
+  it("opens the review step on the product alone", () => {
+    // A project needs a product id. It does not need every collection
+    // filled -- what a filing actually owes is decided later, per region
+    // and submission type, by rules that can see the whole dossier.
+    expect(lockForStep(TOTAL_STEPS - 1, true, nothing)).toBeNull();
   });
 });

@@ -68,6 +68,23 @@ export interface ChildStepSpec {
    */
   addLabel: string;
   blurb: string;
+  /**
+   * Collections that must already have a row before this step can be
+   * FILLED IN. Looking at it is never gated -- see `lockForStep`.
+   *
+   * Deliberately hand-written and deliberately short. The tempting
+   * version derives it: four field specs point at a runtime vocabulary
+   * (a select fed by rows you saved earlier), so a step could be said to
+   * require whatever feeds those. Three of those four are OPTIONAL fields
+   * whose own help text says to leave them empty -- packaging's drug
+   * substance, batch-formula's active, a certificate's site -- and
+   * locking a step over a dropdown the filer is entitled to ignore would
+   * be inventing a rule no regulator asked for. Only the fourth is real:
+   * rule R17 says the backbone cannot name a drug substance without its
+   * manufacturer, so an active ingredient genuinely cannot be entered
+   * before a site exists.
+   */
+  requires?: readonly ProductChildResource[];
   /** How one saved row is summarised in the list. Absent for a step with
    * a `customEditor`, which renders no such list -- a summariser nothing
    * calls is a summariser that quietly goes stale. */
@@ -195,6 +212,9 @@ export const CHILD_STEPS: ChildStepSpec[] = [
   {
     id: "apis",
     title: "Active ingredients",
+    // R17: an active ingredient names the site that makes it, and the
+    // dropdown that names it is built from the previous step's rows.
+    requires: ["manufacturers"],
     addLabel: "Add active ingredient",
     blurb:
       "Strength lives on each active ingredient, not on the product — that is what makes a combination product (e.g. ampicillin + cloxacillin) representable at all.",
@@ -454,3 +474,82 @@ export const CHILD_STEPS: ChildStepSpec[] = [
     ],
   },
 ];
+
+/**
+ * The product form, one step per child collection, then the review.
+ * Exported so the wizard and the stepper cannot disagree about how many
+ * circles to draw.
+ */
+export const TOTAL_STEPS = 1 + CHILD_STEPS.length + 1;
+
+/** Where a collection's step sits, so a lock can offer to take you there. */
+export function stepIndexOfResource(resource: ProductChildResource): number {
+  return CHILD_STEPS.findIndex((step) => step.id === resource) + 1;
+}
+
+/** The human name of any step, including the two that are not children. */
+export function titleOfStep(index: number): string {
+  if (index === 0) return "Product";
+  if (index === TOTAL_STEPS - 1) return "Create the project";
+  return CHILD_STEPS[index - 1]?.title ?? "";
+}
+
+/** The lock every step but the first wears until the product exists. */
+export const PRODUCT_FIRST: StepLock = {
+  reason:
+    "Save the product on step 1 first. Every later step attaches its rows to that product, so there is nowhere to put them until it exists.",
+  goToStep: 0,
+};
+
+export interface StepLock {
+  /** What has to happen first, written for the filer, not the developer. */
+  reason: string;
+  /** The step that fixes it. */
+  goToStep: number;
+}
+
+/**
+ * Whether step `index` can be filled in, and if not, why.
+ *
+ * WHY this is a pure function in this file rather than a condition inside
+ * the wizard component: it is the rule, and a rule you can call with three
+ * plain arguments is a rule you can test without rendering anything. The
+ * wizard decides what a lock LOOKS like; this decides whether there is one.
+ *
+ * Note what it deliberately does NOT do: require every step in order. Most
+ * of these collections are legitimately empty in a real filing -- a
+ * generic with a biowaiver files no bioequivalence study, a filing with no
+ * literature files no clinical entry -- so a strict "finish step N before
+ * step N+1" chain would block dossiers that are correct as they stand.
+ * What is genuinely required is decided later, per region and submission
+ * type, by the validation rules the project runs (P06/P17), which can see
+ * the whole filing. This gate only enforces what is structurally
+ * impossible: attaching a row to a product that does not exist yet, and
+ * the one cross-reference R17 makes mandatory.
+ */
+export function lockForStep(
+  index: number,
+  productSaved: boolean,
+  rows: Readonly<Record<string, readonly unknown[]>>,
+): StepLock | null {
+  // Step 1 is where the product is created, so it can never be waiting on it.
+  if (index === 0) return null;
+
+  if (!productSaved) return PRODUCT_FIRST;
+
+  const step = CHILD_STEPS[index - 1];
+  // The review step: past the children, and gated only on the product.
+  if (step === undefined) return null;
+
+  for (const resource of step.requires ?? []) {
+    if ((rows[resource] ?? []).length === 0) {
+      const blocking = stepIndexOfResource(resource);
+      return {
+        reason: `Add at least one entry on step ${blocking + 1} (${titleOfStep(blocking)}) first — this step points at it.`,
+        goToStep: blocking,
+      };
+    }
+  }
+
+  return null;
+}

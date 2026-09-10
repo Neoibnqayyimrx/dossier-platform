@@ -88,17 +88,106 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Subscribers to the token store.
+ *
+ * WHY this lives here rather than in lib/auth.tsx, next to the React hook
+ * that reads it: localStorage fires its own `storage` event only in OTHER
+ * tabs, never the one that made the change, so a same-tab write has to
+ * announce itself by hand. Keeping the listener set beside the two
+ * functions that can write means every write notifies -- including the
+ * sign-out below, which is triggered by a fetch RESPONSE rather than by a
+ * click, and so has no component around to do it. The alternative
+ * (auth.tsx exports `notify`, this module calls it) is an import cycle:
+ * auth.tsx already imports this file.
+ */
+const listeners = new Set<() => void>();
+
+function notify(): void {
+  for (const listener of listeners) listener();
+}
+
+/**
+ * The `subscribe` half of every useSyncExternalStore that reads this
+ * module -- the token itself, and the "your session expired" flag below.
+ * Listens for the cross-tab `storage` event as well as same-tab writes,
+ * which is what makes signing out in one tab sign out the rest.
+ */
+export function subscribeToAuthStore(onStoreChange: () => void): () => void {
+  listeners.add(onStoreChange);
+  window.addEventListener("storage", onStoreChange);
+  return () => {
+    listeners.delete(onStoreChange);
+    window.removeEventListener("storage", onStoreChange);
+  };
+}
+
 export function getStoredToken(): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(TOKEN_STORAGE_KEY);
 }
 
+// WHY the `window` guard on the writers too, when only the reader used to
+// need one: clearStoredToken is now reachable from any failed request, so
+// it must be a no-op rather than a crash if a call ever runs where there
+// is no browser.
 export function storeToken(token: string): void {
+  if (typeof window === "undefined") return;
   window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  notify();
 }
 
 export function clearStoredToken(): void {
+  if (typeof window === "undefined") return;
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  notify();
+}
+
+const SESSION_EXPIRED_KEY = "dossier.session_expired";
+
+/**
+ * Record that the session ended ON ITS OWN, so the login page can say so
+ * rather than leaving the user to work out why they are suddenly back
+ * here in the middle of a form.
+ *
+ * WHY sessionStorage and not a module variable: the redirect is a
+ * client-side navigation today, but someone who reloads a guarded URL
+ * carrying a stale token gets a full page load, and a module variable
+ * does not survive one. WHY sessionStorage and not localStorage: this is
+ * a note about THIS tab's interrupted work, and it should not still be
+ * waiting in a window opened tomorrow.
+ *
+ * Never set by logout(): a person who signed out on purpose does not need
+ * to be told their session ended.
+ */
+function markSessionExpired(): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(SESSION_EXPIRED_KEY, "1");
+  notify();
+}
+
+/**
+ * Whether the last session ended by itself. A PURE read -- it does not
+ * clear the flag.
+ *
+ * WHY reading and clearing are two functions when one call site wants
+ * both: this is the `getSnapshot` of a useSyncExternalStore, and React
+ * calls it during render, more than once, whenever it likes. A snapshot
+ * that mutated the thing it samples would clear the flag on the render
+ * that displays it and answer differently the next time it was asked.
+ * Clearing is a separate, deliberate act -- see clearSessionExpired.
+ */
+export function getSessionExpired(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.sessionStorage.getItem(SESSION_EXPIRED_KEY) !== null;
+}
+
+/** The story is over once the user is back in. Called on a successful
+ * sign-in, which is an event, not a render. */
+export function clearSessionExpired(): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(SESSION_EXPIRED_KEY);
+  notify();
 }
 
 /**
@@ -138,6 +227,39 @@ async function extractError(
   };
 }
 
+/**
+ * Turn a non-2xx response into the ApiError callers catch -- and, on a
+ * 401, end the session first.
+ *
+ * WHY the sign-out belongs here rather than in each caller: a 401 means
+ * the token this request just carried is expired, revoked, or issued to a
+ * user who no longer exists. Nothing a retry can fix, and the only honest
+ * state left is "signed out". Without this, an expired token was INVISIBLE
+ * until the first write: AuthGuard checks that a token EXISTS, not that it
+ * works, and /enums is public, so a wizard whose session had died still
+ * rendered with every dropdown filled -- and then answered the Save button
+ * with "Could not validate credentials", backend wording that means
+ * nothing to a filer halfway through a form.
+ *
+ * Clearing the token notifies the token store, which flips the auth status
+ * to "anonymous", which is what AuthGuard already redirects on. That is
+ * the whole mechanism -- no new routing, no new state.
+ *
+ * NOT used by login(): a wrong password is a 401 too, and it must not be
+ * dressed up as an expired session. That call builds its own error.
+ */
+async function toApiError(response: Response): Promise<ApiError> {
+  if (response.status === 401) {
+    // Only a token that EXISTED and was refused means a session ended. A
+    // 401 while already signed out is just an unauthenticated call, and
+    // announcing "your session expired" for one would be a lie.
+    if (getStoredToken() !== null) markSessionExpired();
+    clearStoredToken();
+  }
+  const failure = await extractError(response);
+  return new ApiError(response.status, failure.message, failure.blocking);
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getStoredToken();
   const headers = new Headers(init.headers);
@@ -156,10 +278,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
-  if (!response.ok) {
-    const failure = await extractError(response);
-    throw new ApiError(response.status, failure.message, failure.blocking);
-  }
+  if (!response.ok) throw await toApiError(response);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
@@ -177,9 +296,13 @@ export const api = {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
+    // WHY this builds its own error instead of calling toApiError: a wrong
+    // password answers 401 as well, and routing it through the shared
+    // handler would clear a token that has nothing to do with the failure
+    // and report a bad credential as an expired session.
     if (!response.ok) {
       const failure = await extractError(response);
-    throw new ApiError(response.status, failure.message, failure.blocking);
+      throw new ApiError(response.status, failure.message, failure.blocking);
     }
     return (await response.json()) as AuthToken;
   },
@@ -793,10 +916,9 @@ export const api = {
       `${API_BASE_URL}/projects/${projectId}/artifacts?${params}`,
       { headers },
     );
-    if (!response.ok) {
-      const failure = await extractError(response);
-    throw new ApiError(response.status, failure.message, failure.blocking);
-    }
+    // Its own fetch (see the WHY above), so the shared 401 handling has to
+    // be asked for by name here rather than coming free from request().
+    if (!response.ok) throw await toApiError(response);
 
     const blob = await response.blob();
     const objectUrl = URL.createObjectURL(blob);

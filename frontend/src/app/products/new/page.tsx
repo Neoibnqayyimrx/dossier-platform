@@ -34,8 +34,13 @@ import { StabilityGrid } from "@/components/StabilityGrid";
 import {
   CHILD_STEPS,
   PRODUCT_FIELDS,
+  PRODUCT_FIRST,
+  TOTAL_STEPS,
+  lockForStep,
+  titleOfStep,
   type ChildStepSpec,
   type RuntimeVocabulary,
+  type StepLock,
 } from "@/lib/wizard-steps";
 import type { EnumOption } from "@/lib/types";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -72,24 +77,154 @@ const APPLICANT_FIELDS = [
   },
 ];
 
-function Stepper({ current, total }: { current: number; total: number }) {
+/** A preview's controls are disabled, so nothing can call this. */
+const NO_OP = () => {};
+
+/**
+ * The twelve circles, and the only way to move between steps other than
+ * Back/Next.
+ *
+ * WHY a locked step is still clickable: the filer is being asked for a
+ * dossier's worth of data across twelve screens, and "what am I going to
+ * be asked for?" is a fair question to want answered before starting. The
+ * lock is on TYPING, not on LOOKING -- so every circle navigates, and a
+ * step you have not earned yet opens read-only instead of refusing.
+ */
+function Stepper({
+  current,
+  total,
+  lockAt,
+  onJump,
+}: {
+  current: number;
+  total: number;
+  lockAt: (index: number) => StepLock | null;
+  onJump: (index: number) => void;
+}) {
   return (
     <ol className="mb-6 flex flex-wrap gap-2 text-xs">
-      {Array.from({ length: total }, (_, index) => (
-        <li
-          key={index}
-          className={`rounded-full px-2.5 py-1 ${
-            index === current
-              ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-              : index < current
-                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
-          }`}
-        >
-          {index + 1}
-        </li>
-      ))}
+      {Array.from({ length: total }, (_, index) => {
+        const locked = lockAt(index) !== null;
+        const isCurrent = index === current;
+        return (
+          <li key={index}>
+            <button
+              type="button"
+              onClick={() => onJump(index)}
+              // Screen readers get the step's name and its state, and
+              // sighted users get the same on hover. A bare number is not
+              // a label anyone can act on.
+              aria-current={isCurrent ? "step" : undefined}
+              title={`${index + 1}. ${titleOfStep(index)}${
+                locked ? " — preview only" : ""
+              }`}
+              className={`rounded-full px-2.5 py-1 transition-colors ${
+                isCurrent
+                  ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                  : locked
+                    ? "border border-dashed border-slate-300 text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:border-slate-700 dark:text-slate-500 dark:hover:text-slate-300"
+                    : index < current
+                      ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200 dark:bg-emerald-950 dark:text-emerald-300"
+                      : "bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+              }`}
+            >
+              {index + 1}
+            </button>
+          </li>
+        );
+      })}
     </ol>
+  );
+}
+
+/** The banner a locked step wears, plus the shortcut that unlocks it. */
+function LockNotice({
+  lock,
+  onJump,
+}: {
+  lock: StepLock;
+  onJump: (index: number) => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-200"
+    >
+      <p>
+        <strong className="font-medium">Preview only.</strong> {lock.reason}
+      </p>
+      <button
+        type="button"
+        onClick={() => onJump(lock.goToStep)}
+        className="mt-2 rounded-md border border-amber-300 px-2.5 py-1 text-xs font-medium hover:bg-amber-100 dark:border-amber-800 dark:hover:bg-amber-900/50"
+      >
+        Go to step {lock.goToStep + 1}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A step you can read but not fill.
+ *
+ * WHY it draws its own disabled copy of the form instead of mounting the
+ * real one behind a `disabled` prop: the live steps mount editors that
+ * fetch on mount against a product id, and the step that is locked
+ * precisely BECAUSE there is no product yet has no id to fetch with.
+ * Showing the shape of the form is the whole ask; running it is not.
+ *
+ * The `disabled` sits on a <fieldset>, which natively disables every
+ * control inside it -- one attribute, and nothing to keep in sync as
+ * fields are added to the step spec.
+ */
+function LockedStepPreview({
+  step,
+  lock,
+  vocabularies,
+  onJump,
+}: {
+  step: ChildStepSpec;
+  lock: StepLock;
+  vocabularies: Vocabularies;
+  onJump: (index: number) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-600 dark:text-slate-400">{step.blurb}</p>
+      <LockNotice lock={lock} onJump={onJump} />
+      <Card>
+        <fieldset disabled className="space-y-3 opacity-60">
+          {step.fields.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {step.fields.map((spec) => (
+                <div
+                  key={spec.name}
+                  className={spec.type === "textarea" ? "sm:col-span-2" : ""}
+                >
+                  <Field
+                    spec={spec}
+                    value={undefined}
+                    vocabularies={vocabularies}
+                    onChange={NO_OP}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            // The three custom editors declare no field specs, so there is
+            // no form to draw -- say what opens here rather than showing
+            // an empty card.
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              This step is a table rather than a form. It opens once the step
+              it depends on is done.
+            </p>
+          )}
+          <button type="button" className={secondaryButtonClass}>
+            {step.addLabel}
+          </button>
+        </fieldset>
+      </Card>
+    </div>
   );
 }
 
@@ -367,8 +502,6 @@ function Wizard() {
     api.listApplicants().then(setApplicants).catch(() => {});
   }, []);
 
-  const totalSteps = 1 + CHILD_STEPS.length + 1; // product + children + review
-
   /**
    * Two of the wizard's selects cross-reference rows the user created in
    * an EARLIER step -- an active ingredient names its manufacturer (R17),
@@ -474,12 +607,18 @@ function Wizard() {
     }
   }
 
+  // One rule, asked twice: for the step on screen, and once per circle in
+  // the stepper. Both go through lockForStep, so the badge and the page
+  // can never disagree about whether a step is open.
+  const lockAt = (index: number) => lockForStep(index, productId !== null, rows);
+  const stepLock = lockAt(stepIndex);
+
   if (error && vocabularies === null) return <ErrorNotice message={error} />;
   if (vocabularies === null || allVocabularies === null)
     return <p className="text-sm text-slate-500">Loading…</p>;
 
   const isProductStep = stepIndex === 0;
-  const isReviewStep = stepIndex === totalSteps - 1;
+  const isReviewStep = stepIndex === TOTAL_STEPS - 1;
   const childStep = !isProductStep && !isReviewStep ? CHILD_STEPS[stepIndex - 1] : null;
 
   return (
@@ -488,7 +627,12 @@ function Wizard() {
         title="New product"
         subtitle="Capture the data. The dossier is generated from it — you never upload one."
       />
-      <Stepper current={stepIndex} total={totalSteps} />
+      <Stepper
+        current={stepIndex}
+        total={TOTAL_STEPS}
+        lockAt={lockAt}
+        onJump={setStepIndex}
+      />
 
       {isProductStep && (
         <Card>
@@ -512,17 +656,29 @@ function Wizard() {
         </Card>
       )}
 
-      {childStep && productId && (
+      {childStep && (
         <>
           <h2 className="mb-3 text-lg font-medium">{childStep.title}</h2>
-          <ChildStep
-            step={childStep}
-            productId={productId}
-            vocabularies={allVocabularies}
-            rows={rows[childStep.id] ?? []}
-            onSaved={handleSaved}
-            onDeleted={handleDeleted}
-          />
+          {productId !== null && stepLock === null ? (
+            <ChildStep
+              step={childStep}
+              productId={productId}
+              vocabularies={allVocabularies}
+              rows={rows[childStep.id] ?? []}
+              onSaved={handleSaved}
+              onDeleted={handleDeleted}
+            />
+          ) : (
+            <LockedStepPreview
+              step={childStep}
+              // Unreachable: lockForStep always returns a lock when there
+              // is no product, so a null lock here implies an id. Spelled
+              // out because the compiler cannot see that.
+              lock={stepLock ?? PRODUCT_FIRST}
+              vocabularies={allVocabularies}
+              onJump={setStepIndex}
+            />
+          )}
         </>
       )}
 
@@ -534,105 +690,118 @@ function Wizard() {
             which Module 1 documents and which builders apply; the submission
             type decides how much of Modules 2–5 the dossier owes.
           </p>
+          {stepLock !== null && (
+            <div className="mb-4">
+              <LockNotice lock={stepLock} onJump={setStepIndex} />
+            </div>
+          )}
           <form onSubmit={createProject} className="space-y-4">
             {error && <ErrorNotice message={error} />}
-            <Field
-              spec={{ name: "name", label: "Project name", type: "text", required: true }}
-              value={projectDraft.name}
-              vocabularies={vocabularies}
-              onChange={(name, value) =>
-                setProjectDraft((previous) => ({ ...previous, [name]: value }))
-              }
-            />
-            <Field
-              spec={{
-                name: "region",
-                label: "Region",
-                type: "select",
-                vocabulary: "region",
-                required: true,
-              }}
-              value={projectDraft.region}
-              vocabularies={vocabularies}
-              onChange={(name, value) =>
-                setProjectDraft((previous) => ({ ...previous, [name]: value }))
-              }
-            />
+            {/* The whole form in one disabled fieldset when the step is
+                locked -- see LockedStepPreview for why a fieldset rather
+                than a `disabled` prop on each control. */}
+            <fieldset
+              disabled={stepLock !== null}
+              className={`space-y-4 ${stepLock !== null ? "opacity-60" : ""}`}
+            >
+              <Field
+                spec={{ name: "name", label: "Project name", type: "text", required: true }}
+                value={projectDraft.name}
+                vocabularies={vocabularies}
+                onChange={(name, value) =>
+                  setProjectDraft((previous) => ({ ...previous, [name]: value }))
+                }
+              />
+              <Field
+                spec={{
+                  name: "region",
+                  label: "Region",
+                  type: "select",
+                  vocabulary: "region",
+                  required: true,
+                }}
+                value={projectDraft.region}
+                vocabularies={vocabularies}
+                onChange={(name, value) =>
+                  setProjectDraft((previous) => ({ ...previous, [name]: value }))
+                }
+              />
 
-            <Field
-              spec={{
-                name: "submission_type",
-                label: "Submission type",
-                type: "select",
-                vocabulary: "submission_type",
-                required: true,
-                // The one sentence that explains why this field exists at
-                // all: a generic does not repeat the originator's animal
-                // studies, so its dossier DECLARES those modules excluded
-                // rather than omitting them.
-                help:
-                  "A multisource (generic) filing declares Modules 2.4–2.7, " +
-                  "Module 4 and most of 5.3 not applicable, and files a cited " +
-                  "statement in each. Change this and the section list changes.",
-              }}
-              value={projectDraft.submission_type}
-              vocabularies={vocabularies}
-              onChange={(name, value) =>
-                setProjectDraft((previous) => ({ ...previous, [name]: value }))
-              }
-            />
+              <Field
+                spec={{
+                  name: "submission_type",
+                  label: "Submission type",
+                  type: "select",
+                  vocabulary: "submission_type",
+                  required: true,
+                  // The one sentence that explains why this field exists at
+                  // all: a generic does not repeat the originator's animal
+                  // studies, so its dossier DECLARES those modules excluded
+                  // rather than omitting them.
+                  help:
+                    "A multisource (generic) filing declares Modules 2.4–2.7, " +
+                    "Module 4 and most of 5.3 not applicable, and files a cited " +
+                    "statement in each. Change this and the section list changes.",
+                }}
+                value={projectDraft.submission_type}
+                vocabularies={vocabularies}
+                onChange={(name, value) =>
+                  setProjectDraft((previous) => ({ ...previous, [name]: value }))
+                }
+              />
 
-            <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
-              <h3 className="mb-1 text-sm font-medium">Applicant</h3>
-              <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
-                The legal entity submitting this filing — often a local agent
-                acting for a foreign manufacturer. Required before export
-                (rule R14), and reusable across your other filings.
-              </p>
+              <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
+                <h3 className="mb-1 text-sm font-medium">Applicant</h3>
+                <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+                  The legal entity submitting this filing — often a local agent
+                  acting for a foreign manufacturer. Required before export
+                  (rule R14), and reusable across your other filings.
+                </p>
 
-              {applicants.length > 0 && (
-                <div className="mb-3">
-                  <label
-                    htmlFor="applicant-select"
-                    className="mb-1 block text-sm font-medium"
-                  >
-                    Use an existing applicant
-                  </label>
-                  <select
-                    id="applicant-select"
-                    value={applicantId}
-                    onChange={(e) => setApplicantId(e.target.value)}
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
-                  >
-                    <option value="">— create a new one below —</option>
-                    {applicants.map((applicant) => (
-                      <option key={applicant.id} value={applicant.id}>
-                        {applicant.company_name}
-                      </option>
+                {applicants.length > 0 && (
+                  <div className="mb-3">
+                    <label
+                      htmlFor="applicant-select"
+                      className="mb-1 block text-sm font-medium"
+                    >
+                      Use an existing applicant
+                    </label>
+                    <select
+                      id="applicant-select"
+                      value={applicantId}
+                      onChange={(e) => setApplicantId(e.target.value)}
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                    >
+                      <option value="">— create a new one below —</option>
+                      {applicants.map((applicant) => (
+                        <option key={applicant.id} value={applicant.id}>
+                          {applicant.company_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {applicantId === "" && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {APPLICANT_FIELDS.map((spec) => (
+                      <Field
+                        key={spec.name}
+                        spec={spec}
+                        value={newApplicant[spec.name]}
+                        vocabularies={vocabularies}
+                        onChange={(name, value) =>
+                          setNewApplicant((previous) => ({ ...previous, [name]: value }))
+                        }
+                      />
                     ))}
-                  </select>
-                </div>
-              )}
-
-              {applicantId === "" && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {APPLICANT_FIELDS.map((spec) => (
-                    <Field
-                      key={spec.name}
-                      spec={spec}
-                      value={newApplicant[spec.name]}
-                      vocabularies={vocabularies}
-                      onChange={(name, value) =>
-                        setNewApplicant((previous) => ({ ...previous, [name]: value }))
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-            <button type="submit" disabled={busy} className={buttonClass}>
-              {busy ? "Creating…" : "Create project"}
-            </button>
+                  </div>
+                )}
+              </div>
+              <button type="submit" disabled={busy} className={buttonClass}>
+                {busy ? "Creating…" : "Create project"}
+              </button>
+            </fieldset>
           </form>
         </Card>
       )}

@@ -11,6 +11,12 @@
  * free: the `storage` event fires in OTHER tabs, so signing out in one
  * tab signs out the rest.
  *
+ * WHY the store half lives in lib/api.ts and not here: the API client has
+ * to be able to END a session, because an expired token is discovered by
+ * a 401 on some ordinary request rather than by anything the user clicks.
+ * Subscribing here while the writes (and their notifications) live beside
+ * the token itself is what lets that happen without an import cycle.
+ *
  * WHY the server snapshot is `undefined` while the client snapshot is
  * `string | null`: those are three genuinely different states --
  * "not read yet" (server render and the hydration pass), "signed out"
@@ -31,7 +37,14 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { api, clearStoredToken, getStoredToken, storeToken } from "@/lib/api";
+import {
+  api,
+  clearSessionExpired,
+  clearStoredToken,
+  getStoredToken,
+  storeToken,
+  subscribeToAuthStore,
+} from "@/lib/api";
 import type { User } from "@/lib/types";
 
 type AuthStatus = "loading" | "authenticated" | "anonymous";
@@ -53,23 +66,6 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-/** Same-tab writes must notify by hand -- the `storage` event only fires
- * in OTHER tabs, never the one that made the change. */
-const listeners = new Set<() => void>();
-
-function notify() {
-  for (const listener of listeners) listener();
-}
-
-function subscribe(onStoreChange: () => void) {
-  listeners.add(onStoreChange);
-  window.addEventListener("storage", onStoreChange);
-  return () => {
-    listeners.delete(onStoreChange);
-    window.removeEventListener("storage", onStoreChange);
-  };
-}
-
 // Must return a primitive (or a cached reference): React compares
 // snapshots with Object.is, so a fresh object every call would loop.
 const getSnapshot = (): string | null => getStoredToken();
@@ -77,7 +73,7 @@ const getServerSnapshot = (): undefined => undefined;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const token = useSyncExternalStore(
-    subscribe,
+    subscribeToAuthStore,
     getSnapshot,
     getServerSnapshot,
   );
@@ -106,10 +102,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!cancelled) setFetchedUser(current);
       })
       .catch(() => {
-        // An expired/invalid token: leave fetchedUser as-is. AuthGuard-
-        // protected pages still work off `status`; anything role-gated
-        // just stays hidden via the `user` derivation below, which is the
-        // safe default.
+        // Nothing to do on this side any more: a 401 here has ALREADY
+        // cleared the token inside the API client, which notifies the
+        // store, which flips `status` to "anonymous" and lets AuthGuard
+        // redirect. That is what makes an expired session surface on page
+        // load rather than waiting for the user's first save to fail.
+        //
+        // Still swallowed rather than re-thrown, because a NON-401 failure
+        // here (the API being down, say) should not tear down a session
+        // that may be perfectly valid -- `user` stays null, so anything
+        // role-gated stays hidden, which is the safe default.
       });
     return () => {
       cancelled = true;
@@ -127,13 +129,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // `user` from the prior session's fetchedUser while the fresh
     // GET /auth/me (fired by the effect above) is still in flight.
     setFetchedUser(null);
+    // storeToken/clearStoredToken notify the store themselves now, so
+    // there is no hand-written notify() left to forget here.
     storeToken(result.access_token);
-    notify();
+    // Whatever ended the last session, it is no longer news.
+    clearSessionExpired();
   }, []);
 
   const logout = useCallback(() => {
     clearStoredToken();
-    notify();
   }, []);
 
   const value = useMemo(
