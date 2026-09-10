@@ -285,7 +285,6 @@ def not_owed_keys(project_id: str) -> set[str]:
     from sqlalchemy.ext.asyncio import create_async_engine
 
     from app.core.config import get_settings
-    from app.ctd.region_profiles import resolve_applicability
     from app.models import Project
 
     async def _load() -> set[str]:
@@ -306,20 +305,49 @@ def not_owed_keys(project_id: str) -> set[str]:
 
         if row is None:
             raise SystemExit(f"No project {project_id!r}.")
-
-        # A stand-in carrying only what resolve_applicability reads. Loading
-        # the real ORM object would drag the whole product graph across an
-        # async boundary for three scalar columns.
-        class _Filing:
-            region, submission_type, condition_answers = row
-
-        return {
-            number
-            for number, decision in resolve_applicability(_Filing()).items()
-            if not decision.is_applicable
-        }
+        return not_owed_from(*row)
 
     return asyncio.run(_load())
+
+
+def not_owed_from(region, submission_type, condition_answers) -> set[str]:
+    """The pure half of `not_owed_keys`, split out so it can be tested.
+
+    WHY it is split at all: the database half needs a live Postgres, so
+    nothing covered the decision itself -- and the decision is the part
+    that can be wrong. `--strict --project` is a gate, and a gate whose
+    logic is exercised only by running it against a real database is a gate
+    nobody notices breaking.
+    """
+    from app.ctd.region_profiles import resolve_applicability
+
+    # A stand-in carrying only what `resolve_applicability` reads. Loading
+    # the real ORM object would drag the whole product graph across an
+    # async boundary for three scalar columns.
+    class _Filing:
+        pass
+
+    filing = _Filing()
+    filing.region = region
+    filing.submission_type = submission_type
+    filing.condition_answers = condition_answers
+
+    # `owes_statement`, NOT `not is_applicable`, and the difference is a
+    # bug this very distinction caught. An UNANSWERED conditional is not
+    # applicable either -- `is_applicable` requires a positive "yes" -- so
+    # the first version quietly excused every leaf nobody had answered.
+    #
+    # Silence is not a "no". A biowaiver claim going missing from a dossier
+    # that otherwise validates clean is exactly what rule R19 warns about,
+    # and a gate that excused the same silence would be contradicting the
+    # rule. `owes_statement` is the property that means POSITIVELY
+    # excluded: the guideline excludes it outright, or the filer answered
+    # "no".
+    return {
+        number
+        for number, decision in resolve_applicability(filing).items()
+        if decision.owes_statement
+    }
 
 
 def main() -> int:

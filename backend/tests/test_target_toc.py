@@ -164,3 +164,50 @@ def test_strict_would_fail_on_a_leaf_with_nowhere_to_come_from():
     assert status == "missing"
     assert is_gap(status, PLATFORM)
     assert is_gap(status, PROJECT)
+
+
+def test_a_filing_that_scopes_a_leaf_out_does_not_owe_it():
+    """The third state project scope needed (P24e).
+
+    A conditional leaf answered "no" is a scoping ANSWER, not missing
+    paper. Without it, no correct filing could ever reach 98/98 -- and the
+    number would have pushed a filer to attach *something* at a leaf they
+    had already declared out of scope, which is how a dossier acquires a
+    document contradicting its own answers.
+
+    Exercised through `not_owed_from` rather than `not_owed_keys` because
+    the latter needs a live Postgres: a gate whose logic is only ever run
+    against a real database is a gate nobody notices breaking.
+    """
+    from app.models.enums import Region, SubmissionType
+    from scripts.check_target_toc import PROJECT, is_gap, not_owed_from
+
+    answers = {"1.2.13": False, "1.2.17": False, "5.3.1.1": False}
+    not_owed = not_owed_from(Region.NAFDAC, SubmissionType.MULTISOURCE_GENERIC, answers)
+
+    # The three answered "no" are not owed...
+    assert {"1.2.13", "1.2.17", "5.3.1.1"} <= not_owed
+    # ...and so are the sections the multisource guideline excludes outright.
+    assert {"2.4", "2.5", "4.0"} <= not_owed
+    # ...but a required leaf is still owed, whatever the answers say.
+    assert "3.2.P.5.1" not in not_owed
+    assert "1.2.7" not in not_owed
+
+    assert not is_gap("not-owed", PROJECT)
+
+
+def test_an_unanswered_conditional_is_still_owed():
+    """Silence is not a "no".
+
+    An unanswered conditional must NOT be quietly scoped out -- that is
+    precisely how a biowaiver claim goes missing from a dossier that
+    otherwise validates clean, which is the failure rule R19 exists to
+    warn about. The check has to agree with the rule.
+    """
+    from app.models.enums import Region, SubmissionType
+    from scripts.check_target_toc import not_owed_from
+
+    not_owed = not_owed_from(Region.NAFDAC, SubmissionType.MULTISOURCE_GENERIC, {})
+
+    assert "1.2.17" not in not_owed
+    assert "1.2.13" not in not_owed

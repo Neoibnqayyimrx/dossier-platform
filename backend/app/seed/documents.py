@@ -243,6 +243,12 @@ def attach_every_uploaded_leaf(
             continue
         decision = resolved.get(leaf.number)
         if decision is not None and not decision.is_applicable:
+            # `is_applicable` here, where the CHECK uses `owes_statement`,
+            # and the asymmetry is deliberate. This decides whether to
+            # ATTACH a document, so an unanswered conditional must attach
+            # nothing -- a file at a leaf nobody has claimed is a claim
+            # nobody made. The check decides whether to EXCUSE a leaf, and
+            # there silence must not excuse anything.
             continue
 
         # A Module 1 leaf this REGION has no slot for cannot be placed --
