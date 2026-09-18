@@ -38,8 +38,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # python3-uno is NOT optional here despite --no-install-recommends:
+      # P1a converts through a persistent LibreOffice listener (unoserver),
+      # and unoserver talks to it through `uno` -- a compiled binding that
+      # ships with LibreOffice and cannot be pip-installed. Without this
+      # package the listener refuses to start and every conversion falls
+      # over. See docs/decisions/0002-document-converter.md.
       - name: Install LibreOffice (P07 DOCX->PDF conversion)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice python3-uno
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
@@ -49,6 +57,22 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --all-extras
+
+      # Fail here, with one legible message, rather than as a few hundred
+      # confusing conversion failures further down. `uno` is a COMPILED
+      # binding built against the distro's Python; if the runner's
+      # python3-uno targets a different minor version than the interpreter
+      # uv installed above, it cannot be imported and the listener cannot
+      # start. The fix when this fires is to match the versions (or set
+      # DOCUMENT_CONVERTER=soffice-subprocess and accept the ~6x slowdown).
+      - name: Check the LibreOffice UNO binding is importable
+        run: |
+          PYTHONPATH=/usr/lib/python3/dist-packages uv run python -c "import uno" || {
+            echo "::error::python3-uno is not importable by this interpreter."
+            echo "python3-uno is built for the distro Python; uv installed a different one."
+            python3 -V; ls /usr/lib/python3/dist-packages/uno.py
+            exit 1
+          }
 
       - name: Lint (ruff)
         run: uv run ruff check .

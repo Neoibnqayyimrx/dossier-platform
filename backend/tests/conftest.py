@@ -30,6 +30,26 @@ TEST_EMAIL = "tester@examox.example"
 TEST_PASSWORD = "s3cret-password"
 
 
+@pytest.fixture(scope="session", autouse=True)
+def libreoffice_listener_is_stopped_at_the_end():
+    """Start LibreOffice once per SESSION, not once per test.
+
+    The converter is a lazily-built process-wide singleton
+    (`app.assembly.converter.get_converter`), so the first test that
+    converts anything starts the listener and every later test reuses it --
+    which is the entire point of P1a: starting LibreOffice cost ~1.34 s and
+    the suite converts hundreds of documents.
+
+    What this fixture actually adds is the teardown. Without it a `soffice`
+    process outlives the run, holding its port, and the NEXT run's listener
+    either fails to bind or silently talks to the stale one.
+    """
+    yield
+    from app.assembly.converter import reset_converter
+
+    reset_converter()
+
+
 @pytest.fixture(autouse=True)
 def storage_is_always_in_memory(monkeypatch):
     """Pin object storage to the in-memory client for every test.

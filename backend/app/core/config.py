@@ -25,6 +25,29 @@ class Settings(BaseSettings):
     # MinIO/S3-compatible endpoint configured above.
     storage_provider: str = "memory"
 
+    # P1a -- how DOCX->PDF conversion reaches LibreOffice. This is a
+    # TRANSPORT choice, not a rendering one: all three produce PDFs from the
+    # same LibreOffice engine.
+    #   "libreoffice-listener" (default) -- one persistent soffice, reused.
+    #   "soffice-subprocess"             -- a fresh soffice per call. The
+    #                                       old behaviour; ~6x slower.
+    #                                       Escape hatch where no listener
+    #                                       can run (no python3-uno).
+    #   "gotenberg"                      -- HTTP to a Gotenberg container.
+    document_converter: str = "libreoffice-listener"
+    # 0 = let the kernel pick a free port. WHY the default is not a fixed
+    # number: a listener orphaned by an earlier run still holds a fixed
+    # port, and the next one then restart-loops instead of failing
+    # cleanly. Set a specific port only when something external must reach
+    # it.
+    soffice_listener_port: int = 0
+    # Where the distro keeps LibreOffice's `uno` module. It is a compiled
+    # binding shipped with LibreOffice, so it cannot be pip-installed into
+    # our virtualenv; the listener's client subprocesses get it on
+    # PYTHONPATH instead. Empty means "already importable".
+    uno_python_path: str = "/usr/lib/python3/dist-packages"
+    gotenberg_url: str = "http://localhost:3000"
+
     # "gemini" (real, needs LLM_API_KEY -- Google's free tier is generous
     # enough for this project's volume) or "fake" (deterministic offline
     # stub for dev/test, no network/key needed, same rule as

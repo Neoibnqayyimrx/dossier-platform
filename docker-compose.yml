@@ -33,6 +33,25 @@ services:
       timeout: 5s
       retries: 10
 
+  # P1a: optional. The default converter ("libreoffice-listener") runs
+  # LibreOffice inside the api container and needs nothing here. Gotenberg
+  # exists for the deployment where LibreOffice should NOT live in the API
+  # container -- a read-only image, separate scaling, a managed converter.
+  #
+  # Opt in with:  docker compose --profile gotenberg up
+  #   and set DOCUMENT_CONVERTER=gotenberg (plus GOTENBERG_URL for the api
+  #   container, which reaches it by service name, not localhost).
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    profiles: ["gotenberg"]
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     build: ./backend
     env_file:

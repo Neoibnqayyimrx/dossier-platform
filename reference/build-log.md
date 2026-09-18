@@ -31,6 +31,110 @@ Newest entry at the top.
 
 ---
 
+## Phase 1a — LibreOffice was the whole bill (2026-09-18)
+
+The suite took 1:11:14 and everyone assumed "PDF rendering is just slow".
+It was not rendering. It was starting.
+
+### The number that decided it
+
+    convert a 1-paragraph .docx     1109 ms
+    convert a 400-paragraph .docx   1134 ms
+
+399 extra paragraphs cost 25 ms. Laying out a page was tens of
+milliseconds; the other ~1.1 s of every conversion -- about 98% of it --
+was forking `soffice`, building a throwaway
+user profile, registering import/export filters and bootstrapping UNO --
+paid again for every document, and a NAFDAC package has dozens of leaves.
+
+**The first measurement was wrong, and that is the useful part.** Timing
+`soffice --version` as a proxy for startup gave 107 ms -- 8% of a call --
+which says "startup is not your problem" and would have ended the phase
+before it began. `--version` prints and exits; it never loads the filters
+or the UNO bridge that a real conversion pays for. The honest probe is to
+push the SMALLEST POSSIBLE document through the REAL code path: whatever
+that costs is fixed overhead, because there is nothing to lay out. Worth
+remembering the next time something here is benchmarked -- measure the real
+path, not a cheaper thing that resembles it.
+
+### The fix, and what was deliberately not changed
+
+Start LibreOffice once and keep it. `app/assembly/converter.py` now owns
+the transport behind a `DocumentConverter` protocol; `pdf.py` keeps the
+contract (deterministic, bookmarked, normalized) and applies it to whatever
+any transport returns.
+
+Warm conversion went 1109 ms -> 206 ms for a real section, 6.0x, ~924 ms
+saved per document. The rendering engine was NOT
+replaced: LibreOffice's DOCX fidelity is why P07 chose it and that reasoning
+still holds. The `lru_cache(256)` stayed too -- it helps only for identical
+input, which is orthogonal.
+
+**unoserver over a hand-rolled UNO bridge.** The bridge is ~150 lines and I
+could have written it. unoserver won mainly because it keeps the client OUT
+of our process: the API worker never imports `uno`, which matters because
+pyuno is a compiled binding built against the DISTRO's Python rather than
+ours, and because a LibreOffice crash then cannot take an API worker with
+it. Costs ~100 ms per call for spawning the client. Recorded in
+docs/decisions/0002-document-converter.md.
+
+### The check that actually mattered
+
+Byte-identical output, same MD5 from both transports. Not a nicety: P09's
+checksums ARE hashes of these bytes, and `resolve_lifecycle` decides `new`
+vs `replace` by comparing a leaf's checksum against the previous sequence.
+A transport that changed the output by one byte would have marked every
+unchanged document in the dossier as modified in the next sequence -- a
+defect visible to a regulator, produced by a change that looked purely
+internal. There is now a test asserting the two transports agree exactly.
+
+### Gotchas banked
+
+- **A process-wide singleton needs a restart path.** The listener is built
+  once and cached, so without automatic restart one crash fails every
+  conversion for the rest of the process's life -- the API would keep
+  accepting builds and keep failing them. Restart once, then propagate: if
+  a fresh listener also fails, the document is the problem.
+- **One UNO listener is not safely reentrant.** Concurrent conversions
+  through a single bridge interleave document open/close. Serialized with a
+  lock; at ~200 ms a conversion that is not the bottleneck. More throughput
+  means more listeners on more ports, never dropping the lock.
+- **A fixed port for a singleton is a trap, and it fails as a LOOP not an
+  error.** The listener originally used a fixed port (2003). A listener
+  orphaned by an earlier run still held it, so the next one could not bind
+  -- and because the failure surfaced as "conversion failed" rather than
+  "port in use", the restart-on-failure path fired, spawned another, and
+  repeated. The symptom was not an exception: it was the suite crawling at
+  ~14 s per test with five listeners alive at once, each burning CPU. The
+  fix is to bind port 0 and let the kernel choose, so collision is
+  impossible; an explicit port remains available for when something
+  external must reach the listener. Second fix in the same area: anything
+  that escaped `_start()` left `self._process` set and running, so
+  `_is_running()` reported healthy forever after -- every failure path now
+  tears the process down before propagating.
+
+- **`python3-uno` cannot be pip-installed** and is built against the
+  distro's Python. If the project interpreter is a different minor version,
+  `import uno` fails and the listener never starts. CI now checks this
+  explicitly as an early step, because the alternative is a few hundred
+  conversion failures that do not name their cause. This is the most likely
+  thing to break on a new platform.
+- **Benchmarks on a shared box lie.** A re-run while another test suite was
+  saturating the machine (load average 9.7) inflated every number ~5x --
+  6438 ms -> 1431 ms instead of 1109 -> 206. The RATIO held (4.5x vs 6.0x).
+  Trust ratios over absolutes unless the machine is quiet -- and re-measure
+  on an idle box before writing a number into a document.
+
+### Gotenberg, as a real option rather than a sentence
+
+Added behind a docker-compose profile and `DOCUMENT_CONVERTER=gotenberg`,
+with a test that runs against a live container and skips when none is up
+(the same courtesy the Postgres fixtures extend). It is the answer for
+"LibreOffice should not be in the API container at all". Not the default:
+it needs infrastructure, and the listener gets the same win without any.
+
+---
+
 ## Gap Phase 0-1 — The NAFDAC format question, and four landmines (2026-09-18)
 
 Working from `gap.md`: a phased plan to close the distance to a

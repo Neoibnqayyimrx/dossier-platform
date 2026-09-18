@@ -15,6 +15,11 @@ dependencies = [
     "docxtpl>=0.18",
     "pymupdf>=1.24",
     "pypdf>=4.3",
+    # P1a: drives a persistent LibreOffice listener so we stop paying ~1.34s
+    # of process startup per conversion. Pure-Python client; the compiled
+    # `uno` binding it talks through ships with LibreOffice itself
+    # (python3-uno), which is why that stays a system package.
+    "unoserver>=3.0",
     "lxml>=5.2",
     "httpx>=0.27",
     "jinja2>=3.0",

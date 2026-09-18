@@ -551,3 +551,68 @@ seed demo test, two older migrations). CI's format gate is therefore already
 red independent of these changes — most likely drift from the unpinned
 `black>=24.0`. Left alone to keep this phase's commit scoped; it needs its
 own decision (reformat, or pin black).
+
+### Phase 1a — DOCX→PDF conversion performance
+
+**Not one of the six areas — it is the reason §8.3 #9 said the suite takes
+1:11:14.** Re-diagnosed before changing anything, per the phase brief.
+
+**The measurement.** Timing the existing `convert_docx_to_pdf`:
+
+| input | time |
+|---|---|
+| 1-paragraph `.docx` | 1109 ms |
+| 400-paragraph `.docx` | 1134 ms |
+| rendered 3.2.P.1 (37 KB) | 1109 ms |
+
+399 extra paragraphs cost **25 ms**. So ~1.1 s of every conversion was
+fixed cost — forking `soffice`, building a throwaway profile, registering
+filters, bootstrapping UNO — and actual page layout was 10–70 ms. Startup
+was **~97%** of every call. §8.3 #9's diagnosis is confirmed.
+
+*A wrong measurement worth recording:* the first probe timed `soffice
+--version` and reported startup at 107 ms (8% of a call), which would have
+ended the phase. `--version` skips the filter/UNO bootstrap a real
+conversion pays for. The honest probe is to convert the smallest possible
+document through the real code path.
+
+**The change.** `app/assembly/converter.py` introduces a `DocumentConverter`
+protocol with three transports, selected by `DOCUMENT_CONVERTER`:
+`libreoffice-listener` (default — one persistent `soffice` driven through
+`unoserver`), `soffice-subprocess` (the old behaviour, retained as escape
+hatch and fidelity reference), and `gotenberg` (HTTP to a container, added
+to `docker-compose.yml` behind a profile). `pdf.py` keeps the contract —
+determinism, bookmarks, normalization — and now owns only that.
+
+**Result** (per-document, same machine):
+
+| transport | cold | warm |
+|---|---|---|
+| `soffice-subprocess` | ~1109 ms | ~1109 ms (every call is cold) |
+| `libreoffice-listener` | ~5.9 s (includes starting the listener) | **185–237 ms** |
+
+**6.0x per document, ~924 ms saved on each.** Measured on an idle machine;
+a run taken while a concurrent test suite saturated the box (load average
+9.7) gave 6438 ms → 1431 ms — absolutes inflated ~5x, ratio held.
+
+**Fidelity is byte-identical**, not merely similar — same MD5
+(`55cdceb8…`) from both transports on the 3.2.P.1 fixture. This is
+load-bearing, not cosmetic: P09 checksums *are* hashes of these bytes and
+`resolve_lifecycle` decides `new` vs `replace` by comparing a leaf's
+checksum across sequences, so a one-byte difference would silently mark
+every unchanged document as modified in the next sequence. Asserted by
+`test_the_listener_produces_byte_identical_output_to_a_fresh_soffice`.
+
+**Operational notes.** Conversions are serialized by a lock (one UNO
+listener is not safely reentrant). The listener binds a kernel-chosen free
+port, not a fixed one - a fixed port let an orphan from an earlier run
+block the next listener, which the restart path turned into a spawn loop
+(observed: five listeners alive, suite at ~14 s/test). A dead listener
+restarts automatically, once. The listener starts lazily, following this codebase's existing cached-
+singleton pattern rather than adding a FastAPI lifespan handler. `python3-uno`
+becomes a required system package and CI now installs it and checks it is
+importable as an early step. **Known sharp edge:** `python3-uno` is compiled
+against the distro's Python, so a minor-version mismatch with the project
+interpreter stops the listener starting — documented in
+`docs/decisions/0002-document-converter.md`, with `soffice-subprocess` as
+the fallback.

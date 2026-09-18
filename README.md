@@ -32,6 +32,46 @@ curl http://localhost:8000/health
 docker compose down
 ```
 
+## Document conversion
+
+Sections are rendered to `.docx` and converted to PDF by LibreOffice. How we
+*reach* LibreOffice is configurable via `DOCUMENT_CONVERTER`, because it used
+to dominate the runtime: a fresh `soffice` per conversion cost ~1.1 s of
+pure startup regardless of document size — about 98% of the call, with 399
+extra paragraphs adding only 25 ms. The listener does the same work in
+~206 ms, a 6.0x improvement.
+
+| `DOCUMENT_CONVERTER` | what it does | needs |
+|---|---|---|
+| `libreoffice-listener` *(default)* | one persistent `soffice`, reused | `python3-uno` system package |
+| `soffice-subprocess` | a fresh `soffice` per call — the old behaviour, ~6x slower | LibreOffice only |
+| `gotenberg` | HTTP to a Gotenberg container | a running Gotenberg |
+
+All three use the same LibreOffice engine and produce **byte-identical**
+PDFs — which matters because eCTD checksums are hashes of these bytes.
+
+The default needs one system package beyond LibreOffice itself:
+
+```bash
+sudo apt-get install -y libreoffice python3-uno
+```
+
+`python3-uno` is a compiled binding shipped with LibreOffice and cannot be
+pip-installed. It is built against the distribution's Python, so if your
+interpreter is a different minor version the listener will not start — align
+the versions, or set `DOCUMENT_CONVERTER=soffice-subprocess`.
+
+To use Gotenberg instead (for when LibreOffice should not live in the API
+container at all):
+
+```bash
+docker compose --profile gotenberg up -d gotenberg
+DOCUMENT_CONVERTER=gotenberg
+```
+
+Benchmark it yourself: `uv run python -m scripts.bench_pdf_conversion`.
+Reasoning and measurements in `docs/decisions/0002-document-converter.md`.
+
 ## Architecture
 
 ```

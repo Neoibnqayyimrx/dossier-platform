@@ -16,30 +16,32 @@ raw bytes. Normalizing both fields after conversion is what makes
 the same file twice, confirmed the MD5s differed before normalizing and
 matched after) before trusting this, not just assumed.
 
-WHY a fresh LibreOffice profile dir per call
-(`-env:UserInstallation=...`): headless LibreOffice locks its user profile
-while running; reusing one profile across concurrent/rapid calls is a
-well-known source of "soffice already running" failures. A throwaway
-profile per call trades a little startup overhead for real isolation.
+WHY the transport lives in `app.assembly.converter`, not here (P1a): this
+module owns the CONTRACT -- a deterministic, bookmarked, searchable PDF --
+and that contract must hold however the bytes were produced. Getting
+LibreOffice to do the conversion turned out to be where ~97% of the time
+went (measured: a 1-paragraph document cost 1341 ms, of which ~1.34 s was
+starting LibreOffice), so it became a swappable concern with its own
+module. Normalization below applies to every converter's output alike.
 """
 
 from __future__ import annotations
 
 import io
-import subprocess
-import tempfile
 from functools import lru_cache
-from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
+
+from app.assembly.converter import PdfConversionError, get_converter
 
 # A fixed, arbitrary placeholder -- never the actual conversion time. Any
 # constant works; what matters is that it never varies between runs.
 _FIXED_PDF_DATE = "D:20000101000000+00'00'"
 
 
-class PdfConversionError(RuntimeError):
-    """Raised when `soffice` fails to produce a PDF."""
+# Re-exported from `converter` so every existing caller and test keeps
+# importing it from here, where it has always lived.
+__all__ = ["convert_docx_to_pdf", "clear_conversion_cache", "PdfConversionError"]
 
 
 # WHY caching a subprocess call is SAFE here specifically: this function's
@@ -87,41 +89,7 @@ def clear_conversion_cache() -> None:
 
 @lru_cache(maxsize=_PDF_CACHE_SIZE)
 def _convert_docx_to_pdf_cached(docx_bytes: bytes, bookmark_title: str | None) -> bytes:
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        docx_path = tmp_path / "input.docx"
-        docx_path.write_bytes(docx_bytes)
-        profile_dir = tmp_path / "lo_profile"
-
-        try:
-            result = subprocess.run(
-                [
-                    "soffice",
-                    "--headless",
-                    "--norestore",
-                    f"-env:UserInstallation=file://{profile_dir}",
-                    "--convert-to",
-                    "pdf",
-                    "--outdir",
-                    str(tmp_path),
-                    str(docx_path),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-        except FileNotFoundError as exc:
-            raise PdfConversionError("soffice (LibreOffice) is not installed") from exc
-        except subprocess.TimeoutExpired as exc:
-            raise PdfConversionError("soffice conversion timed out") from exc
-
-        pdf_path = tmp_path / "input.pdf"
-        if result.returncode != 0 or not pdf_path.exists():
-            raise PdfConversionError(
-                f"soffice conversion failed (exit {result.returncode}): {result.stderr}"
-            )
-        raw_pdf = pdf_path.read_bytes()
-
+    raw_pdf = get_converter().convert(docx_bytes)
     return _normalize_pdf(raw_pdf, bookmark_title=bookmark_title)
 
 
