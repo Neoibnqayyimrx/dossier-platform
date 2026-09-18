@@ -28,6 +28,38 @@ from app.models.enums import UserRole
 
 TEST_EMAIL = "tester@examox.example"
 TEST_PASSWORD = "s3cret-password"
+
+
+@pytest.fixture(autouse=True)
+def storage_is_always_in_memory(monkeypatch):
+    """Pin object storage to the in-memory client for every test.
+
+    WHY this is autouse and not an opt-in: most of the app takes storage as
+    an injectable argument (`storage = storage or get_storage_client()`), so
+    tests hand it an InMemoryStorageClient directly. The API ROUTERS cannot
+    -- app/api/routers/artifacts.py and documents.py call
+    `get_storage_client()` with no injection point -- so a router test gets
+    whatever `STORAGE_PROVIDER` resolves to. A developer with
+    `STORAGE_PROVIDER=s3` in their (gitignored, untracked) .env therefore ran
+    the suite against a real MinIO and watched tests fail for reasons that
+    had nothing to do with their change.
+
+    Ambient environment must never decide whether a test passes. This makes
+    the router tests behave like every other test in the suite rather than
+    like the developer's shell.
+    """
+    from app.core import storage as storage_module
+
+    monkeypatch.setattr(get_settings(), "storage_provider", "memory")
+    # The factory is @lru_cache'd, so a client built under the old setting
+    # (or by a previous test) would survive the monkeypatch. Clear on the
+    # way in AND out: on the way in so this test gets a memory client, on
+    # the way out so the next test does not inherit this one's bucket.
+    storage_module.get_storage_client.cache_clear()
+    yield
+    storage_module.get_storage_client.cache_clear()
+
+
 ADMIN_EMAIL = "admin@examox.example"
 ADMIN_PASSWORD = "s3cret-admin-password"
 INTRUDER_EMAIL = "someone-else@examox.example"

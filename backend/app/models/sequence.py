@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Text, DateTime, ForeignKey
+from sqlalchemy import String, Text, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -22,6 +22,19 @@ if TYPE_CHECKING:
 
 class Sequence(Base):
     __tablename__ = "sequence"
+
+    # WHY a database constraint and not just care in the endpoint: the
+    # sequence number is a REGULATORY identifier. Every eCTD transaction to
+    # an agency is filed under it, and a lifecycle operation in sequence
+    # 0003 points back at a leaf in 0002 by that number. Two rows sharing a
+    # number is not a display bug -- it is a corrupt submission history that
+    # no later code can unambiguously repair, because nothing records which
+    # of the two was "really" 0003. Application-level checks cannot prevent
+    # it: two concurrent POSTs can both read max()=0002 before either
+    # inserts. Only the database can refuse the second write, so the
+    # constraint is the guarantee and the retry in create_sequence is merely
+    # the recovery.
+    __table_args__ = (UniqueConstraint("project_id", "number", name="uq_sequence_project_number"),)
 
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("project.id"))
 

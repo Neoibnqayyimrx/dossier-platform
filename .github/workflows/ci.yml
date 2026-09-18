@@ -73,3 +73,49 @@ jobs:
       # asked per project (--project <id>) against a real database.
       - name: Target TOC coverage (gate)
         run: uv run python -m scripts.check_target_toc --strict
+
+  # P25: the frontend had no CI job at all -- vitest and the Playwright
+  # happy-path spec were both configured in frontend/package.json and
+  # neither ever ran, so a frontend regression could merge with a green
+  # tick. Separate job, not a step on `backend`, because it needs Node
+  # rather than Python and nothing it does depends on the backend job.
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # `npm ci` not `npm install`: installs exactly the lockfile, so CI
+      # tests the dependency tree a developer actually has.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (eslint)
+        run: npm run lint
+
+      - name: Unit tests (vitest)
+        run: npm run test
+
+      # The e2e spec drives the REAL backend and skips itself when the API
+      # is unreachable (see frontend/e2e/happy-path.spec.ts). No backend is
+      # started here, so what this step actually gates is that the app
+      # builds and serves -- a broken build, a router error, or a missing
+      # dependency fails it. The full journey still has to be run locally
+      # against a live stack; wiring that into CI needs Postgres, a seeded
+      # KB and provider config, which is its own piece of work.
+      - name: Build
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end smoke (Playwright)
+        run: npm run e2e

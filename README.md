@@ -159,11 +159,32 @@ document beside an uploaded one.
 
 ## Roadmap
 
-- Grow the rule set and wire validation behind a `/readiness` API endpoint
-- Full `docxtpl` .docx rendering of CTD sections
-- eCTD v3.2.2 XML backbone generation (spec documented in `reference/`)
-- Advisory-only LLM reviewer for narrative sections
-- Frontend (React + TanStack)
+Everything this section used to list as "future" has shipped: the
+`/readiness` endpoint (`app/api/routers/validation.py`), `docxtpl` section
+rendering, eCTD v3.2.2 XML backbone generation for the EU region
+(`app/ectd/`), the advisory-only LLM reviewer (`app/ectd/ai_review.py`), and
+the frontend (Next.js, not TanStack as once planned). What is actually
+still ahead:
+
+- **A second publishing backbone — FDA.** `V322BackboneBuilder` raises
+  `NotImplementedError` for every region but EU, and `us-regional.xml` has
+  no builder. NAFDAC deliberately does *not* get one: it requires CTD, not
+  eCTD, and the folder-tree builder is already the right output for it — see
+  `docs/decisions/0001-nafdac-format.md`. Blocked on obtaining the US
+  regional DTD, without which the FDA path cannot self-validate the way the
+  EU path does.
+- **Document versioning.** Re-uploading a document for a leaf overwrites it;
+  there is no version history and no way to retrieve superseded bytes.
+- **Sequence status and regulator correspondence.** A `Sequence` records no
+  lifecycle state (submitted, acknowledged, approved) and nothing models
+  deficiency letters, queries or their due dates.
+- **Validation gaps.** No filename/path-convention rules (length limits,
+  allowed characters, folder naming), and findings are JSON only — no
+  human-readable report to hand a colleague.
+- **Organization and Application entities.** Ownership is per-user, and the
+  agency-assigned application number has nowhere to live.
+- **eCTD v4.0 (HL7 RPS).** Deliberately unbuilt; v3.2.2 remains valid at FDA
+  and EMA. See `AGENTS.md` P12.
 
 ## Repo guide
 

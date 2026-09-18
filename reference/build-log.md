@@ -31,6 +31,111 @@ Newest entry at the top.
 
 ---
 
+## Gap Phase 0-1 — The NAFDAC format question, and four landmines (2026-09-18)
+
+Working from `gap.md`: a phased plan to close the distance to a
+LORENZ/Extedo-class platform. Phase 0 was research, Phase 1 was hygiene.
+
+### NAFDAC does not need an eCTD backbone, and now we can prove it
+
+The whole build has assumed NAFDAC = CTD, no XML backbone. That assumption
+was inherited from `reference/nafdac-vs-fda-ema-scope.md` and had never been
+checked against NAFDAC's own current guidance. Phase 0 checked it.
+
+NAFDAC's in-force guideline (DR&R-GDL-005-03, effective 20/03/2025, review
+21/03/2030) requires the CTD dossier format uploaded to the NAPAMS/DMS
+portal. The load-bearing evidence is negative: across 12 pages it mentions
+eCTD, XML, backbone, checksum, MD5 and sequence **zero times**. An applicant
+cannot infer an XML backbone; an agency requiring one has to say so. Its
+total absence from the registration guideline is decisive.
+
+WHY this mattered enough to spend a phase on: it decides where the second
+publishing backbone goes. Had we guessed "NAFDAC next" we would have built a
+`NAFDACBackboneBuilder` producing a package NAFDAC cannot consume, and
+implied to users that their Nigerian filing needs machinery it does not.
+The second backbone goes to **FDA** instead, which genuinely rejects
+non-conforming packages at the gateway. Written up in
+`docs/decisions/0001-nafdac-format.md`.
+
+**A blocker that surfaced while deciding:** `reference/ectd_dtd/` has the
+ICH DTD and the EU regional set, but **no US regional DTD**. The FDA path
+cannot self-validate the way the EU path does until that is obtained. Better
+to know now than halfway through building it.
+
+### The sequence-numbering race was real, and reproducible
+
+`create_sequence` read `max(number)` then inserted — two statements, no
+constraint. The audit flagged it as theoretical. It is not: with the
+constraint removed, five concurrent POSTs against real Postgres returned
+`0000, 0001, 0001, 0001, 0002`. Three sequences sharing a number.
+
+WHY that is worse than an ordinary duplicate row: the sequence number is the
+id the AGENCY files the submission under, and a lifecycle operation in 0003
+points back at a leaf in 0002 *by that number*. Duplicates are not a display
+bug, they are a submission history that cannot be read back, and they are
+unrepairable once filed because the agency already has the number we gave it.
+
+Fix: `UniqueConstraint("project_id", "number")` as the guarantee, bounded
+retry as the recovery, 503 rather than a number we cannot prove is unique.
+
+**Rejected: a Postgres advisory lock.** It serializes writers more directly
+and avoids the retry entirely — but the suite also runs on SQLite
+(`tests/conftest.py`), and a guarantee that holds on only one backend is not
+a guarantee.
+
+The migration **refuses to run** if duplicates already exist, listing them,
+rather than picking a survivor. Renumbering a filed transaction id is a
+regulatory decision, not a data-cleanup step.
+
+**Gotcha worth remembering:** the obvious test — fire concurrent POSTs at
+the default `auth_client` — does not work and does not fail honestly. The
+in-memory SQLite fixture uses a StaticPool (one shared connection), so
+concurrent requests corrupt the connection itself (`sqlite3.OperationalError:
+no active connection`) rather than racing. A race test on that fixture tests
+the fixture. The real test needs Postgres, which gives each session its own
+connection; it skips when Postgres is not up.
+
+### The failing storage tests were the environment leaking in
+
+Two `test_artifacts_api.py` tests failed for developers with
+`STORAGE_PROVIDER=s3` set. Symptom: `EndpointConnectionError` from botocore,
+which reads like a MinIO problem and is actually a test-isolation problem.
+
+Cause: most of the app takes storage as an injectable argument
+(`storage = storage or get_storage_client()`), which is why every other test
+hands in an `InMemoryStorageClient`. The API **routers** cannot —
+`artifacts.py` and `documents.py` call `get_storage_client()` with no
+injection point — so router tests silently inherit whatever the ambient
+environment resolves to.
+
+Fix: an autouse fixture pinning storage to memory and clearing the
+`@lru_cache` on the way in and out. Ambient environment must never decide
+whether a test passes.
+
+Note the audit's premise here was wrong: `.env` is **not** committed, it is
+gitignored, and `.env.example` already matches the code default.
+
+### The frontend had no CI job at all
+
+Not "an incomplete one" — none. Vitest (73 tests) and the Playwright spec
+were both configured and neither had ever run in CI, so a frontend
+regression merged with a green tick. Added a `frontend` job.
+
+Honest about what the e2e step gates: the spec skips itself when no backend
+is reachable, and CI starts none, so it verifies the app builds and serves.
+Running the real journey in CI needs Postgres, a seeded KB and provider
+config — its own piece of work, not smuggled into a hygiene phase.
+
+### Known, untouched: `black --check` is already red
+
+Seven files fail formatting on clean HEAD, none of them touched by this
+work (stability model/router/templating, seed demo test, two older
+migrations). Almost certainly drift from the unpinned `black>=24.0`. Left
+alone so this phase's commit stays scoped; it needs its own call —
+reformat, or pin black to the version the code was written against.
+
+---
+
 ## P24 — Derived documents, and closing the target (2026-09-10)
 
 **Platform capability: 55/98 → 98/98 leaves, and `--strict` is now the CI

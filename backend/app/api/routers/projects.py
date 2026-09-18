@@ -9,6 +9,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, require_project_owner
@@ -18,6 +19,11 @@ from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.sequence import SequenceRead, SequenceUpdate
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+# Each retry costs one extra max() read; a handful is plenty to absorb
+# realistic contention (a user double-clicking, two tabs) without letting a
+# pathological loop hold a worker open indefinitely.
+_SEQUENCE_NUMBER_MAX_ATTEMPTS = 5
 
 
 class SequenceCreateRequest(BaseModel):
@@ -147,24 +153,50 @@ async def create_sequence(
     """Auto-numbers the next sequence: 0000, then 0001, ... — the transaction
     id is derived state, never client input, same as any other
     regulator-facing identifier (that's why SequenceCreateRequest has no
-    `number` field at all)."""
-    # max(), not count(): stays correct even if a sequence is ever removed,
-    # since the transaction id must never be reused.
-    highest = await db.scalar(
-        select(func.max(Sequence.number)).where(Sequence.project_id == project_id)
-    )
-    next_number = f"{(int(highest) + 1) if highest is not None else 0:04d}"
+    `number` field at all).
 
-    sequence = Sequence(
-        project_id=project_id,
-        number=next_number,
-        description=payload.description,
-        submitted_at=payload.submitted_at,
+    WHY the retry loop: read-then-insert is not atomic. Two concurrent POSTs
+    can both read max()=0002 and both try to write 0003. The unique
+    constraint on (project_id, number) makes the database reject the loser,
+    and we then re-read and try again with the number that is now actually
+    free. This is the portable fix: a Postgres advisory lock would serialize
+    writers more directly, but the test suite runs on SQLite as well as
+    Postgres (see tests/conftest.py), and a guarantee that only holds on one
+    backend is not a guarantee.
+    """
+    for _ in range(_SEQUENCE_NUMBER_MAX_ATTEMPTS):
+        # max(), not count(): stays correct even if a sequence is ever
+        # removed, since the transaction id must never be reused.
+        highest = await db.scalar(
+            select(func.max(Sequence.number)).where(Sequence.project_id == project_id)
+        )
+        next_number = f"{(int(highest) + 1) if highest is not None else 0:04d}"
+
+        sequence = Sequence(
+            project_id=project_id,
+            number=next_number,
+            description=payload.description,
+            submitted_at=payload.submitted_at,
+        )
+        db.add(sequence)
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Someone else took this number between our read and our write.
+            # Roll back to clear the failed transaction, then recompute --
+            # the next max() read sees their row, so the retry asks for a
+            # genuinely new number rather than colliding again.
+            await db.rollback()
+            continue
+        await db.refresh(sequence)
+        return sequence
+
+    # Only reachable under sustained contention. Better a 503 the client can
+    # retry than a number we are not certain is unique.
+    raise HTTPException(
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "Could not allocate a sequence number due to concurrent submissions; please retry.",
     )
-    db.add(sequence)
-    await db.commit()
-    await db.refresh(sequence)
-    return sequence
 
 
 @router.get("/{project_id}/sequences", response_model=list[SequenceRead])
