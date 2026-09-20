@@ -95,6 +95,18 @@ would put a false statement in the audit trail the table exists to provide.
   INSERT..SELECT so the values never leave the database: nothing to convert,
   nothing to get wrong. Only the new ids come from Python, because
   `gen_random_uuid()` is Postgres-only.
+- **An orphaned listener is no longer FATAL, but it is still expensive.**
+  Killing a pytest run with SIGTERM skips the session fixture's teardown,
+  so its LibreOffice listener survives -- and because `start_new_session`
+  detaches it (needed so shutdown can kill the whole group), it reparents
+  to init and keeps running. After Phase 1a's auto-port fix these orphans
+  can no longer COLLIDE with the next run, which is why this presented as
+  a puzzle rather than a failure: the next suite ran correctly but at a
+  third of its speed, 39 tests in 12 minutes. Killing two orphans took it
+  straight back to 103 tests in 2 minutes. They were simply eating CPU.
+  Worth a `ps -eo comm | grep soffice` before trusting any timing on this
+  box.
+
 - **A test helper that swallows its own setup failure is worse than no
   test.** The R30 fix added a product-information PUT to a helper; it
   returned 422 (`contraindications` is a list, not prose) and the test went
