@@ -69,9 +69,9 @@ async def _get_study_or_404(study_id: uuid.UUID, user: User, db: AsyncSession) -
     study = await db.scalar(
         select(StabilityStudy)
         .where(StabilityStudy.id == study_id)
-        .options(selectinload(StabilityStudy.results).selectinload(
-            StabilityResult.specification_test
-        ))
+        .options(
+            selectinload(StabilityStudy.results).selectinload(StabilityResult.specification_test)
+        )
     )
     if study is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stability study not found")
@@ -217,9 +217,7 @@ async def replace_results(
             )
         seen.add(cell)
 
-    await db.execute(
-        delete(StabilityResult).where(StabilityResult.stability_study_id == study.id)
-    )
+    await db.execute(delete(StabilityResult).where(StabilityResult.stability_study_id == study.id))
     for item in payload:
         test = tests[item.specification_test_id]
         db.add(

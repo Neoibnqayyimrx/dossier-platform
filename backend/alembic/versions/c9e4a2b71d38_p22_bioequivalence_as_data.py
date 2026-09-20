@@ -158,9 +158,7 @@ def upgrade() -> None:
         # it is a table with two answers in one box -- and whichever the
         # renderer reaches second wins silently. Same call
         # `uq_stability_result_cell` makes one table over.
-        sa.UniqueConstraint(
-            "bioequivalence_study_id", "parameter", name="uq_be_result_parameter"
-        ),
+        sa.UniqueConstraint("bioequivalence_study_id", "parameter", name="uq_be_result_parameter"),
     )
 
     op.create_table(

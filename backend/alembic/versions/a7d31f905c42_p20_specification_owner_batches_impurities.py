@@ -50,6 +50,7 @@ IMPURITY_TYPE = sa.Enum(
     name="impuritytype",
 )
 
+
 # Written out once rather than repeated in three create_table calls: the
 # three timestamp/id columns every table inherits from app.models.base.Base.
 def _base_columns() -> list[sa.Column]:

@@ -62,9 +62,7 @@ def test_seed_examox_shelf_life_is_fully_supported():
     data actually hold, against the specification's own limits.
     """
     product = _load(buggy=False).product
-    long_term = [
-        s for s in product.stability if s.study_type is StabilityStudyType.LONG_TERM
-    ]
+    long_term = [s for s in product.stability if s.study_type is StabilityStudyType.LONG_TERM]
     supported, _ = supported_months(long_term)
     assert product.shelf_life_months <= supported
 

@@ -77,9 +77,7 @@ def _study_rows(studies) -> list[dict]:
     conditions and hides the material.
     """
     rows = []
-    for study in sorted(
-        studies, key=lambda s: (s.study_type.value, s.condition, _batch_number(s))
-    ):
+    for study in sorted(studies, key=lambda s: (s.study_type.value, s.condition, _batch_number(s))):
         supported = study.longest_passing_timepoint
         rows.append(
             {
@@ -248,9 +246,7 @@ def stability_data_context(section, owner) -> dict:
 
         rows = []
         for test in specification_rows(owner):
-            for result in sorted(
-                by_test.get(test.id, []), key=lambda r: r.timepoint_months
-            ):
+            for result in sorted(by_test.get(test.id, []), key=lambda r: r.timepoint_months):
                 rows.append(
                     {
                         "test_name": test.test_name,
@@ -348,9 +344,7 @@ def stability_commitment_context(section, owner, narrative) -> dict:
                 "pack": study.packaging.description if study.packaging else MISSING,
                 "tested_to_months": tested_to,
                 "target_months": target,
-                "remaining": (
-                    "Complete" if tested_to >= target else f"To {target} months"
-                ),
+                "remaining": ("Complete" if tested_to >= target else f"To {target} months"),
             }
         )
 

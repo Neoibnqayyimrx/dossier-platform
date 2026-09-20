@@ -119,9 +119,7 @@ class StabilityStudy(Base, SpecificationOwned):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     product: Mapped["Product | None"] = relationship(back_populates="stability")
-    active_ingredient: Mapped["ActiveIngredient | None"] = relationship(
-        back_populates="stability"
-    )
+    active_ingredient: Mapped["ActiveIngredient | None"] = relationship(back_populates="stability")
     batch_analysis: Mapped["BatchAnalysis | None"] = relationship(
         back_populates="stability_studies"
     )
@@ -327,8 +325,7 @@ def supported_months(studies) -> tuple[int, str]:
             ]
             months = max(usable, default=0)
             reason = (
-                "the longest timepoint at which every test still met its "
-                "acceptance criterion"
+                "the longest timepoint at which every test still met its " "acceptance criterion"
                 if earliest_failure is None
                 else (
                     f"the last timepoint before the first out-of-specification "

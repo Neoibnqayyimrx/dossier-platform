@@ -61,9 +61,7 @@ def _render(project, number, subject=None):
 
 def _text(doc) -> str:
     paragraphs = "\n".join(p.text for p in doc.paragraphs)
-    cells = "\n".join(
-        cell.text for table in doc.tables for row in table.rows for cell in row.cells
-    )
+    cells = "\n".join(cell.text for table in doc.tables for row in table.rows for cell in row.cells)
     return f"{paragraphs}\n{cells}"
 
 
@@ -220,8 +218,9 @@ def test_r05_now_checks_the_timepoints_not_the_study_duration():
     assert study.duration_months == 24
     assert [f for f in run_all(project).errors() if f.rule_id == "R05"] == []
 
-    failing = next(r for r in study.results if r.specification_test is dissolution
-                   and r.timepoint_months == 12)
+    failing = next(
+        r for r in study.results if r.specification_test is dissolution and r.timepoint_months == 12
+    )
     failing.result = "51 % in 45 min"
 
     errors = [f for f in run_all(project).errors() if f.rule_id == "R05"]
@@ -258,9 +257,7 @@ def test_one_batch_failing_caps_what_every_batch_together_supports():
     third goes out of specification at 12, and the programme therefore
     does not support 24."""
     product = _load(build_ampiclox, buggy=True).product
-    long_term = [
-        s for s in product.stability if s.study_type is StabilityStudyType.LONG_TERM
-    ]
+    long_term = [s for s in product.stability if s.study_type is StabilityStudyType.LONG_TERM]
 
     assert len(long_term) == 3
     assert max(s.longest_passing_timepoint for s in long_term) == 24
