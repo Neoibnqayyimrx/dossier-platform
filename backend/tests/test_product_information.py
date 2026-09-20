@@ -790,3 +790,41 @@ def test_a_line_added_to_the_formula_without_an_excipient_row_is_caught():
     )
 
     assert any("Talc" in f.message for f in _findings(project, "R28"))
+
+
+async def test_reading_product_information_works_when_stability_results_exist(
+    auth_client, session_factory
+):
+    """Regression: the derived block walked a relationship nobody loaded.
+
+    `_read` attaches the derived values, which reach
+    StabilityStudy.supported_months, which iterates that study's RESULTS.
+    The route eager-loaded `Product.stability` and stopped one level short,
+    so the last hop stayed lazy and raised MissingGreenlet on the async
+    engine -- a 500 on both GET and PUT.
+
+    WHY no test caught it: it only fires once a product actually has
+    stability RESULTS, and every existing test here builds a product
+    without them. The failure mode is the nastiest kind -- the endpoint
+    works perfectly until the filing has real data in it.
+    """
+    # The EXAMOX seed carries four stability studies with 25 results between
+    # them -- exactly the shape that triggers the bug, and already built.
+    # owner_id goes in at BUILD time (not attach_owner afterwards) because
+    # the seed otherwise creates its own User and the relationship would
+    # win over a later FK assignment, leaving the product invisible here.
+    project = build_examox(buggy=False, owner_id=auth_client.user_id)
+    async with session_factory() as session:
+        session.add(project)
+        await session.commit()
+        product_id = project.product_id
+
+    written = await auth_client.put(
+        f"/products/{product_id}/product-information",
+        json={"therapeutic_indications": "Bacterial infections."},
+    )
+    assert written.status_code == 200, written.text
+
+    read = await auth_client.get(f"/products/{product_id}/product-information")
+    assert read.status_code == 200, read.text
+    assert read.json()["derived"], "the derived block is the thing that walks stability"

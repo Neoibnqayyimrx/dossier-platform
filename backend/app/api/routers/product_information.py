@@ -31,7 +31,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, get_db
-from app.models import Product, ProductInformation, Project, User
+from app.models import (
+    Product,
+    ProductInformation,
+    Project,
+    StabilityResult,
+    StabilityStudy,
+    User,
+)
 from app.schemas.product_information import (
     ComparisonRow,
     DerivedValue,
@@ -66,7 +73,21 @@ async def _get_product_or_404(product_id: uuid.UUID, user: User, db: AsyncSessio
             selectinload(Product.apis),
             selectinload(Product.excipients),
             selectinload(Product.packaging),
-            selectinload(Product.stability),
+            # THREE levels, and each one was found by being bitten:
+            # `shared_values` -> shelf-life statement ->
+            # StabilityStudy.supported_months -> each RESULT ->
+            # result.fails() -> meets_criterion -> that result's
+            # SPECIFICATION TEST (it needs the acceptance criterion to
+            # decide). Loading only `Product.stability` left two lazy hops,
+            # so a product with real stability data raised MissingGreenlet
+            # here -- a 500 on GET and PUT alike.
+            #
+            # WHY no test caught it: it fires only once a product has
+            # stability RESULTS, and the tests here built products without
+            # them. The endpoint worked perfectly until a filing had data.
+            selectinload(Product.stability)
+            .selectinload(StabilityStudy.results)
+            .selectinload(StabilityResult.specification_test),
         )
     )
     if product is None:

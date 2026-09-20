@@ -232,6 +232,40 @@ async def _complete_nafdac_project(client) -> dict:
         files={"file": ("CPP_NAFDAC.pdf", MINIMAL_PDF, "application/pdf")},
     )
 
+    # P23: R30 blocks on the three clinical particulars that ARE the
+    # authorisation -- 4.1 indications, 4.2 posology, 4.3 contraindications.
+    # They live nowhere else in the data model, so unlike every other fact
+    # in the SmPC they cannot be derived; an empty 4.3 yields a well-formed
+    # document with no contraindications section, which looks finished and
+    # is not. This test predates the rule, which is why it failed at HEAD.
+    # Completed here through the same API as everything else rather than by
+    # relaxing the assertion, because "no seeding, nothing behind the API's
+    # back" is the claim the test exists to make.
+    product_information = await client.put(
+        f"/products/{product_id}/product-information",
+        json={
+            "therapeutic_indications": (
+                "Treatment of susceptible bacterial infections of the respiratory "
+                "tract, urinary tract, skin and soft tissue in adults and children."
+            ),
+            "posology_and_administration": (
+                "Adults and children over 12 years: one capsule every eight hours. "
+                "Swallow whole with water. Duration as directed by the prescriber."
+            ),
+            # A list, not prose: 4.3 is rendered as discrete entries in the
+            # SmPC, the label and the leaflet alike (P23).
+            "contraindications": [
+                "Hypersensitivity to penicillins, cephalosporins or to any of the "
+                "excipients listed in section 6.1.",
+                "History of a severe immediate hypersensitivity reaction to any "
+                "beta-lactam agent.",
+            ],
+        },
+    )
+    # A setup step that fails silently is how a test ends up asserting
+    # something it never actually set up.
+    assert product_information.status_code == 200, product_information.text
+
     return {"product_id": product_id, "project_id": project["id"], "applicant_id": applicant["id"]}
 
 
