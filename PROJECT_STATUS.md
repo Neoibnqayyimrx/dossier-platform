@@ -78,9 +78,13 @@ All models are SQLAlchemy 2.x declarative, one file per entity under [backend/ap
 1. **Rendered** documents: 72 sections registered in [`SECTIONS`](backend/app/templating/registry.py#L127) (verified: `len(SECTIONS) == 72`), each a `SectionSpec` naming a `.docx` template (38 templates in [backend/templates/](backend/templates/)), rendered by [`render_section`](backend/app/templating/render.py), converted to PDF by [`convert_docx_to_pdf`](backend/app/assembly/pdf.py#L61).
 2. **Uploaded** documents: `PUT /projects/{id}/documents/{section_number}` → [ingest.py](backend/app/documents/ingest.py). Accepts PDF and DOCX only (DOCX converted at upload time so the MD5 is settled once), magic-byte checked, 64 MB cap, images explicitly refused.
 
-### 2.2 Versioned — NO
+### 2.2 Versioned — ~~NO~~ **YES (Phase 2)**
 
-There is no document version history. Re-uploading overwrites the row and the object-storage bytes. This is documented as a deliberate simplification at [section_document.py:28](backend/app/models/section_document.py#L28), with the argument that eCTD versions at the *sequence* level instead. That argument holds for anything already submitted, but it means **the working copy has no history and "who changed what before we filed" is unanswerable**.
+~~There is no document version history. Re-uploading overwrites the row and the object-storage bytes.~~ **Closed in Phase 2.** Every upload now appends a `document_version` row with **its own storage key**, so a replacement no longer overwrites its predecessor's bytes. `SectionDocument` stays the current version and keeps its file columns, which is why `assemble.py`, the lifecycle resolver and the validation rules needed no changes at all — see [docs/decisions/0003-document-versioning.md](docs/decisions/0003-document-versioning.md) for why that beat an `is_current` flag, and for the honest statement of what the denormalisation costs.
+
+Two endpoints expose it: `GET /projects/{id}/documents/{section}/versions` (oldest first, `is_current` on each entry) and `.../versions/{n}/content` for a superseded version's bytes. The migration backfills every pre-existing document as its own version 1, keeping its original storage key rather than rewriting history to match the new convention.
+
+The audit's question — *"who changed what before we filed"* — is now answerable.
 
 ### 2.3 Tied to a CTD location — YES, and this is the strongest part of the model
 
@@ -616,3 +620,49 @@ against the distro's Python, so a minor-version mismatch with the project
 interpreter stops the listener starting — documented in
 `docs/decisions/0002-document-converter.md`, with `soffice-subprocess` as
 the fallback.
+
+
+### Phase 2 — document versioning
+
+**1. Regulatory data model** — one new table. `document_version`: one
+immutable row per upload, with `version_number` unique per
+`section_document` (same constraint-plus-retry discipline as the sequence
+numbers in Phase 1, because it is the same read-then-insert race). §1.2's
+"**DocumentVersion.** Explicitly absent" entry no longer holds.
+
+**2. Document management** — §2.2 flips from Prototype's worst gap to
+present. Each version owns its bytes at its own key
+(`projects/{id}/documents/versions/{leaf}/v{n}.pdf`); the old deterministic
+key was overwriting predecessors, which would have made any history that
+pointed at it a lie. Safe to change because `storage_key_for` has exactly
+one caller and every consumer reads `document.storage_key` rather than
+reconstructing it — verified before changing, not assumed.
+
+**6. Submission lifecycle management** — unchanged by design, and asserted
+so: `test_replacing_an_uploaded_document_still_drives_the_lifecycle` builds
+a sequence from an uploaded leaf, replaces the document, and proves the next
+sequence files it as `replace` with the NEW checksum while version 1's bytes
+remain retrievable. If the resolver had read a stale row, a replaced
+document would have filed as unchanged and the agency would never have
+received the new file.
+
+**3. Dossier workspace / 4. Publishing engine / 5. Validation engine** —
+untouched, which was the design goal.
+
+**Bug found and fixed on the way** (not part of the brief): `PUT/GET
+/products/{id}/product-information` raised `MissingGreenlet` for any product
+with stability results. `_read` attaches derived values → shelf-life
+statement → `StabilityStudy.supported_months` → each result →
+`meets_criterion` → that result's specification test. The route eager-loaded
+`Product.stability` and stopped **two** levels short. It only fires once a
+filing has real stability data, which is why no test had reached it; there
+is one now.
+
+**Stale tests fixed, making CI green for the first time:** `test_ctd_build`'s
+`EXPECTED_PATHS` still expected the pre-P24d `1.2.pdf` (renumbered to
+`1.2.2`) and `power-of-attorney-*` filenames (now filed at their leaf
+numbers `1.2.4`/`1.2.5`); `test_module1_api` predated rule R30 and never
+entered product information — completed through the API rather than by
+relaxing the assertion, since "nothing behind the API's back" is the claim
+that test exists to make. Backend went from `30 failed, 519 passed` at the
+audit baseline to **557 passed, 14 skipped, 0 failed**.

@@ -25,15 +25,21 @@ Module 1. Scoping to the project also makes the storage prefix
 (`projects/{project_id}/`) the authorization boundary, which is the check
 `app/api/routers/artifacts.py` already relies on and documents.
 
-WHY there is no version history: replacing an upload overwrites it, both in
-this row and in object storage. That is a deliberate simplification and it
-is recorded as one in the P18 build log -- a regulatory audit trail will
-eventually want to answer "what did we file in sequence 0000, and who
-changed it before 0001", and this table cannot answer that today. What
-makes it acceptable for now is that eCTD lifecycle already versions at the
-SEQUENCE level (P09): once a sequence is submitted its leaves are frozen by
-their checksums, so the history that matters to a regulator is preserved
-even though the working copy's history is not.
+P26 UPDATE -- this row is now the CURRENT VERSION of the leaf, and every
+upload that has ever stood here is kept in `document_version`. The P18 note
+this paragraph used to carry said replacing an upload overwrote it and that
+the sequence-level history was enough; it was not, because between two
+sequences a leaf can be replaced any number of times and each replacement
+destroyed its predecessor irrecoverably. See `app/models/document_version.py`.
+
+WHY the file columns below still live here rather than being read through
+the current version row: every consumer -- `app/assembly/assemble.py`, the
+lifecycle resolver, the validation rules -- already reads `storage_key` and
+`md5` off this object, and none of them should have to learn about
+versioning to keep working. The columns are a deliberate denormalisation of
+the newest `document_version` row, with the invariant "these columns equal
+this document's highest-numbered version" asserted by a test. See
+docs/decisions/0003-document-versioning.md.
 """
 
 from __future__ import annotations
@@ -48,6 +54,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 if TYPE_CHECKING:
+    from app.models.document_version import DocumentVersion
     from app.models.project import Project
     from app.models.user import User
 
@@ -108,6 +115,14 @@ class SectionDocument(Base):
 
     project: Mapped["Project"] = relationship(back_populates="documents")
     uploaded_by: Mapped["User | None"] = relationship()
+
+    # Newest last, so `versions[-1]` is the current one and the history
+    # reads in the order it happened.
+    versions: Mapped[list["DocumentVersion"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="DocumentVersion.version_number",
+    )
 
     @property
     def instance_key(self) -> str:

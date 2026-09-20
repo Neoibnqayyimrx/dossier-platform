@@ -31,6 +31,103 @@ Newest entry at the top.
 
 ---
 
+## Phase 2 — a document's history, and the fixed-key trap again (2026-09-20)
+
+P18 said replacing an upload overwrites it, and justified that by pointing
+at eCTD's sequence-level lifecycle. The justification is half right, and
+the missing half is the whole phase: sequence history covers what was
+FILED. Between two sequences a leaf can be replaced any number of times,
+and each replacement destroyed its predecessor's bytes irrecoverably. "Who
+replaced the CPP in April, and what did it say in March?" had no answer.
+
+### The shape, and the cost of the shape
+
+`document_version`: one immutable row per upload. `SectionDocument` stays
+the CURRENT version and keeps its file columns.
+
+WHY not an `is_current` flag on one table, which is the tidier schema:
+every consumer -- assemble.py (twice), the lifecycle resolver, the
+validation rules -- already reads `document.storage_key` and
+`document.md5`. Folding the columns away means each of them learns about
+versioning in order to keep doing exactly what it does now. The unique
+constraint that stops two files landing at one leaf would also have to
+become a partial index over `is_current`, turning an unconditional
+guarantee into a conditional one.
+
+The cost, named honestly: the file columns on SectionDocument are a
+DENORMALISATION of the newest version row. Two places hold the same five
+values and no constraint forces them to agree. What makes it acceptable is
+that there is exactly one writer and a test asserting the invariant
+directly. A second writer would change that calculus.
+
+### The fixed-key trap, for the second time this week
+
+Phase 1a's listener bug was a fixed PORT. This was a fixed KEY, and it is
+the same shape of mistake: under P18 every upload for a leaf wrote to
+`projects/{id}/documents/{leaf}.pdf`, so a replacement overwrote its
+predecessor in the bucket. Version rows pointing at a key whose bytes had
+since been replaced would be a history that LIES -- strictly worse than
+having no history, because it looks authoritative.
+
+Each version now owns its key. That was only safe to change because
+`storage_key_for` turned out to have exactly one caller and every consumer
+READS `document.storage_key` rather than reconstructing it -- checked
+first, not assumed, because if anything had rebuilt the path the change
+would have silently served the wrong file.
+
+Backfilled rows deliberately keep the OLD key. Their bytes really are
+there, under really that key; rewriting it to look like the new convention
+would put a false statement in the audit trail the table exists to provide.
+
+### Gotchas banked
+
+- **MissingGreenlet, the fifth time.** `document.versions.append(...)` on an
+  existing row lazy-loads the collection. Fixed with `selectinload` on the
+  upload query. The lesson this codebase keeps re-learning: on the async
+  engine, any relationship you TOUCH must have been loaded, and "touch"
+  includes appending to a collection.
+- **A migration that round-trips values through Python is dialect-coupled.**
+  Reading rows and bulk-inserting them re-marshals every value through
+  SQLAlchemy's type system, and the types coming back differ -- Postgres
+  hands back UUID and datetime objects, SQLite hands back strings. It broke
+  twice in a row ("'str' object has no attribute 'hex'", then "SQLite
+  DateTime type only accepts Python datetime"). Rewritten as a text
+  INSERT..SELECT so the values never leave the database: nothing to convert,
+  nothing to get wrong. Only the new ids come from Python, because
+  `gen_random_uuid()` is Postgres-only.
+- **A test helper that swallows its own setup failure is worse than no
+  test.** The R30 fix added a product-information PUT to a helper; it
+  returned 422 (`contraindications` is a list, not prose) and the test went
+  on to assert against a dossier it had never actually completed. One
+  `assert response.status_code == 200` found it immediately. Every setup
+  step in a helper should assert it worked.
+- **An eager load can be short by more than one level.** Fixing
+  `product-information`'s MissingGreenlet by loading `Product.stability`
+  was still wrong: the chain runs stability -> results ->
+  `meets_criterion` -> that result's SPECIFICATION TEST. Three levels. The
+  regression test caught the incomplete fix, which is the argument for
+  writing the test before believing the fix.
+
+### Stale tests, and why CI had been red
+
+Three tests failed at HEAD for reasons unrelated to any of this work, and
+had since P23/P24d. `test_ctd_build`'s EXPECTED_PATHS still named
+`1.2.pdf` after P24d renumbered it to `1.2.2` (1.2 is a HEADING, not a
+document) and still expected `power-of-attorney-<uuid>.pdf` after
+declarations moved to their leaf numbers 1.2.4/1.2.5. `test_module1_api`
+predated rule R30 and never entered product information.
+
+The R30 one was fixed by COMPLETING the dossier through the API rather
+than relaxing the assertion: "no seeding, nothing behind the API's back"
+is the claim that test exists to make, and weakening it would have kept
+the test green while deleting its meaning.
+
+Backend: `30 failed, 519 passed` at the audit baseline -> `557 passed, 14
+skipped, 0 failed`. CI is green for the first time in this sequence of
+phases.
+
+---
+
 ## Phase 1a — LibreOffice was the whole bill (2026-09-18)
 
 The suite took 1:11:14 and everyone assumed "PDF rendering is just slow".

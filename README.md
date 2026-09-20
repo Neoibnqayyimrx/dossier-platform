@@ -213,8 +213,6 @@ still ahead:
   `docs/decisions/0001-nafdac-format.md`. Blocked on obtaining the US
   regional DTD, without which the FDA path cannot self-validate the way the
   EU path does.
-- **Document versioning.** Re-uploading a document for a leaf overwrites it;
-  there is no version history and no way to retrieve superseded bytes.
 - **Sequence status and regulator correspondence.** A `Sequence` records no
   lifecycle state (submitted, acknowledged, approved) and nothing models
   deficiency letters, queries or their due dates.

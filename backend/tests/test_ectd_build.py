@@ -381,3 +381,141 @@ async def test_combination_product_gets_one_drug_substance_element_per_active(db
             "0000/m3/32-body-data/32s/32s-cloxacillin/32s4-control-of-drug-substance"
             "/32s41-specification/3.2.S.4.1-cloxacillin.pdf" in names
         )
+
+
+async def test_replacing_an_uploaded_document_still_drives_the_lifecycle(db_factory):
+    """P26 regression: versioning must not disturb the lifecycle resolver.
+
+    `resolve_lifecycle` decides new-vs-replace by comparing a leaf's
+    checksum against the previous sequence's. P26 put a version table
+    behind uploaded documents, and the thing that had to stay true is that
+    the resolver still sees the CURRENT version and nothing else -- if it
+    read a stale row, a replaced document would file as unchanged and the
+    agency would never receive the new file.
+
+    Built on the AMLODIPINE worked example the phase brief names -- the
+    filed Me Cure dossier behind `docs/target-toc.yaml`, seeded by
+    `app/seed/amlodipine.py` and already the subject of
+    `tests/test_worked_example.py`. Its region is switched to EU here for
+    the same reason that file switches it: EU is the only regional Module 1
+    this platform models, and Modules 2-5 (where our leaf lives) are common
+    to every region anyway.
+    """
+    from datetime import datetime, timezone
+
+    from app.documents.ingest import ingest_document, versioned_storage_key_for
+    from app.models import DocumentVersion, SectionDocument
+    from app.seed.documents import MINIMAL_PDF
+
+    leaf = "5.3.1.2"  # a CRO's BE report: Modules 2-5 are common to every region
+
+    from app.seed.amlodipine import build_amlodipine
+
+    async with db_factory() as db:
+        project = build_amlodipine()
+        project.region = Region.EU
+        db.add(project)
+        await db.commit()
+
+        storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
+
+        original = MINIMAL_PDF.replace(b"%%EOF", b"% first\n%%EOF")
+        first = ingest_document(
+            project_id=project.id,
+            instance_key=leaf,
+            data=original,
+            content_type="application/pdf",
+            filename="BE_report_first.pdf",
+            storage=storage,
+            storage_key=versioned_storage_key_for(project.id, leaf, 1),
+        )
+        document = SectionDocument(
+            project_id=project.id,
+            section_number=leaf,
+            subject_slug="",
+            storage_key=first.storage_key,
+            md5=first.md5,
+            size_bytes=first.size_bytes,
+            original_filename="BE_report_first.pdf",
+            content_type=first.content_type,
+            uploaded_at=datetime.now(timezone.utc),
+        )
+        document.versions.append(
+            DocumentVersion(
+                version_number=1,
+                storage_key=first.storage_key,
+                md5=first.md5,
+                size_bytes=first.size_bytes,
+                original_filename="BE_report_first.pdf",
+                content_type=first.content_type,
+                uploaded_at=datetime.now(timezone.utc),
+            )
+        )
+        # Appended to the relationship, not merely db.add()'d: the builder
+        # walks `project.documents`, and a row that exists in the table but
+        # not on the loaded object is invisible to it.
+        project.documents.append(document)
+        await db.commit()
+
+        seq0 = Sequence(project_id=project.id, number="0000")
+        db.add(seq0)
+        await db.commit()
+        await build_ectd_sequence(db, project, seq0, storage=storage)
+
+        # A new version of the SAME leaf -- exactly what the upload route
+        # does: new bytes at a new key, the document's columns advanced to
+        # describe them, the old version left intact.
+        replacement = MINIMAL_PDF.replace(b"%%EOF", b"% second\n%%EOF")
+        second = ingest_document(
+            project_id=project.id,
+            instance_key=leaf,
+            data=replacement,
+            content_type="application/pdf",
+            filename="BE_report_second.pdf",
+            storage=storage,
+            storage_key=versioned_storage_key_for(project.id, leaf, 2),
+        )
+        assert second.md5 != first.md5
+        document.storage_key = second.storage_key
+        document.md5 = second.md5
+        document.size_bytes = second.size_bytes
+        document.versions.append(
+            DocumentVersion(
+                version_number=2,
+                storage_key=second.storage_key,
+                md5=second.md5,
+                size_bytes=second.size_bytes,
+                original_filename="BE_report_second.pdf",
+                content_type=second.content_type,
+                uploaded_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+
+        seq1 = Sequence(project_id=project.id, number="0001")
+        db.add(seq1)
+        await db.commit()
+        result = await build_ectd_sequence(db, project, seq1, storage=storage)
+
+        # Exactly one leaf changed, it is ours, and it is a replace.
+        changed = {key: op for key, op in result.operations.items() if op != "new"}
+        assert list(changed.values()) == ["replace"], result.operations
+        (changed_key,) = changed.keys()
+        assert leaf in changed_key, changed_key
+
+        # The sequence ships the NEW bytes, not the superseded ones.
+        zip_bytes = storage.get(result.storage_key)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            shipped = [n for n in zf.namelist() if n.endswith(".pdf")]
+            assert len(shipped) == 1, shipped
+            assert md5_hex(zf.read(shipped[0])) == second.md5
+            # The operation lives in the ICH backbone, not the EU regional
+            # one: 5.3.1.2 is a Module 5 leaf and eu-regional.xml carries
+            # only Module 1.
+            index_xml = zf.read("0001/index.xml")
+            assert b'operation="replace"' in index_xml
+            assert b'modified-file="../0000/' in index_xml
+
+        # ...and version 1's bytes survived being replaced.
+        assert storage.get(first.storage_key) == original

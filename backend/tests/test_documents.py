@@ -477,3 +477,148 @@ async def test_a_refused_build_names_the_leaves_not_just_a_409(auth_client):
     blocking = error["blocking"]
     assert blocking, "a refused build must say what refused it"
     assert any(f["rule_id"] == "R20" and f["section"] == CPP_LEAF for f in blocking)
+
+
+# ---------------------------------------------------------------------------
+# P26: version history.
+#
+# P18 overwrote. The argument for accepting that was that eCTD lifecycle
+# versions at the SEQUENCE level -- true, but it only covers what was FILED.
+# Between two sequences a leaf can be replaced any number of times, and each
+# replacement used to destroy its predecessor's bytes irrecoverably.
+# ---------------------------------------------------------------------------
+
+
+def _pdf_of(marker: bytes) -> bytes:
+    """A distinct, still-valid minimal PDF, so two uploads have different
+    checksums and we can prove we got the RIGHT one back rather than merely
+    a PDF."""
+    return MINIMAL_PDF.replace(b"%%EOF", b"% " + marker + b"\n%%EOF")
+
+
+async def test_replacing_a_document_keeps_the_one_it_replaced(auth_client):
+    """The whole point of the phase: the old bytes are still there.
+
+    Not just the old ROW -- the bytes. A history whose entries point at
+    storage that has been overwritten is a history that lies, which is
+    worse than having none.
+    """
+    project_id = await _project(auth_client)
+    first, second = _pdf_of(b"march-cpp"), _pdf_of(b"april-cpp")
+
+    await auth_client.put(
+        f"/projects/{project_id}/documents/{CPP_LEAF}",
+        files={"file": ("CPP_March.pdf", first, "application/pdf")},
+    )
+    await auth_client.put(
+        f"/projects/{project_id}/documents/{CPP_LEAF}",
+        files={"file": ("CPP_April.pdf", second, "application/pdf")},
+    )
+
+    versions = (
+        await auth_client.get(f"/projects/{project_id}/documents/{CPP_LEAF}/versions")
+    ).json()
+    assert [v["version_number"] for v in versions] == [1, 2]
+    assert [v["original_filename"] for v in versions] == ["CPP_March.pdf", "CPP_April.pdf"]
+    assert [v["is_current"] for v in versions] == [False, True]
+    # Different files, so different checksums -- if these matched, the test
+    # would be passing on two copies of the same upload.
+    assert versions[0]["md5"] != versions[1]["md5"]
+    assert versions[0]["storage_key"] != versions[1]["storage_key"]
+
+    superseded = await auth_client.get(
+        f"/projects/{project_id}/documents/{CPP_LEAF}/versions/1/content"
+    )
+    assert superseded.status_code == 200
+    assert superseded.content == first, "the replaced bytes were overwritten"
+    assert superseded.headers["content-md5"] == hashlib.md5(first).hexdigest()
+
+    current = await auth_client.get(
+        f"/projects/{project_id}/documents/{CPP_LEAF}/versions/2/content"
+    )
+    assert current.content == second
+
+
+async def test_the_document_row_always_describes_its_newest_version(auth_client):
+    """The invariant the denormalisation rests on.
+
+    SectionDocument keeps its own file columns so that assemble.py and the
+    lifecycle resolver need no knowledge of versioning. That is only safe
+    while those columns equal the newest version row -- otherwise the
+    package would ship bytes the history says are superseded.
+    """
+    project_id = await _project(auth_client)
+
+    for marker in (b"one", b"two", b"three"):
+        await auth_client.put(
+            f"/projects/{project_id}/documents/{CPP_LEAF}",
+            files={"file": (f"CPP_{marker.decode()}.pdf", _pdf_of(marker), "application/pdf")},
+        )
+
+    listed = (await auth_client.get(f"/projects/{project_id}/documents")).json()
+    document = next(d for d in listed if d["section_number"] == CPP_LEAF)
+    versions = (
+        await auth_client.get(f"/projects/{project_id}/documents/{CPP_LEAF}/versions")
+    ).json()
+
+    newest = versions[-1]
+    assert newest["version_number"] == 3
+    for field in ("md5", "size_bytes", "storage_key", "original_filename", "content_type"):
+        assert document[field] == newest[field], f"{field} drifted from the current version"
+
+
+async def test_uploading_the_same_file_twice_still_records_a_version(auth_client):
+    """An identical re-upload is a real event: someone re-attached the file.
+
+    Recording it is the honest choice -- the checksums being equal is what
+    tells a reader nothing actually changed, and that is information the
+    history should carry rather than silently discard.
+    """
+    project_id = await _project(auth_client)
+    same = _pdf_of(b"unchanged")
+
+    for _ in range(2):
+        await auth_client.put(
+            f"/projects/{project_id}/documents/{CPP_LEAF}",
+            files={"file": ("CPP.pdf", same, "application/pdf")},
+        )
+
+    versions = (
+        await auth_client.get(f"/projects/{project_id}/documents/{CPP_LEAF}/versions")
+    ).json()
+    assert [v["version_number"] for v in versions] == [1, 2]
+    assert versions[0]["md5"] == versions[1]["md5"]
+
+
+async def test_version_history_is_scoped_to_the_owning_project(intruder_client, auth_client):
+    """Same boundary as every other document route: someone else's history
+    must look exactly like a leaf that was never attached."""
+    project_id = await _project(auth_client)
+    await auth_client.put(
+        f"/projects/{project_id}/documents/{CPP_LEAF}",
+        files={"file": ("CPP.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    listing = await intruder_client.get(f"/projects/{project_id}/documents/{CPP_LEAF}/versions")
+    assert listing.status_code in (403, 404)
+    bytes_response = await intruder_client.get(
+        f"/projects/{project_id}/documents/{CPP_LEAF}/versions/1/content"
+    )
+    assert bytes_response.status_code in (403, 404)
+
+
+async def test_asking_for_a_version_that_never_existed_404s(auth_client):
+    project_id = await _project(auth_client)
+    await auth_client.put(
+        f"/projects/{project_id}/documents/{CPP_LEAF}",
+        files={"file": ("CPP.pdf", MINIMAL_PDF, "application/pdf")},
+    )
+
+    missing = await auth_client.get(
+        f"/projects/{project_id}/documents/{CPP_LEAF}/versions/7/content"
+    )
+    assert missing.status_code == 404
+    assert "version 7" in missing.text
+
+    never_attached = await auth_client.get(f"/projects/{project_id}/documents/1.2.8/versions")
+    assert never_attached.status_code == 404

@@ -96,6 +96,22 @@ def storage_key_for(project_id, instance_key: str) -> str:
     return f"projects/{project_id}/documents/{instance_key}.pdf"
 
 
+def versioned_storage_key_for(project_id, instance_key: str, version_number: int) -> str:
+    """Where ONE version's bytes live (P26).
+
+    WHY every version needs its own key rather than all of them sharing the
+    canonical one above: under P18 each upload wrote to the same path, so a
+    replacement overwrote its predecessor in the bucket. Version rows
+    pointing at a key whose bytes had since been replaced would be a
+    history that lies -- worse than having none.
+
+    Still under `projects/{project_id}/`, because that prefix is the
+    authorization boundary `app/api/routers/artifacts.py` enforces; a key
+    outside it would be unreachable or, worse, reachable by another project.
+    """
+    return f"projects/{project_id}/documents/versions/{instance_key}/v{version_number}.pdf"
+
+
 def ingest_document(
     *,
     project_id,
@@ -104,6 +120,7 @@ def ingest_document(
     content_type: str,
     filename: str,
     storage: StorageClient | None = None,
+    storage_key: str | None = None,
 ) -> IngestedDocument:
     """Validate, convert if necessary, store, and checksum one upload."""
     if not data:
@@ -121,7 +138,10 @@ def ingest_document(
     )
 
     storage = storage or get_storage_client()
-    key = storage_key_for(project_id, instance_key)
+    # An explicit key is how the upload route files each version at its own
+    # path (P26); the deterministic one remains the default so every other
+    # caller -- the seeds, the tests -- is unchanged.
+    key = storage_key or storage_key_for(project_id, instance_key)
     storage.put(key, shipping_bytes, PDF_CONTENT_TYPE)
 
     return IngestedDocument(
