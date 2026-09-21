@@ -42,6 +42,7 @@ from app.models.enums import (
     RegistrationType,
     StabilityStudyType,
     SubmissionType,
+    SubmissionUnitType,
 )
 
 router = APIRouter(prefix="/enums", tags=["enums"])
@@ -72,6 +73,9 @@ _VOCABULARIES: dict[str, type[Enum]] = {
     "adverse_event_frequency": AdverseEventFrequency,
     # gap Phase 4b: which FDA application a project's number belongs to.
     "fda_application_type": FDAApplicationType,
+    # gap Phase 4c: what kind of transaction a new sequence is -- chosen in
+    # the build panel, because a sequence's type is the filer's to state.
+    "submission_unit_type": SubmissionUnitType,
 }
 
 

@@ -22,6 +22,7 @@ from __future__ import annotations
 import posixpath
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from app.ectd.checksum import index_md5_line, md5_hex
@@ -62,6 +63,9 @@ class RegionalBackbone:
 
     # Where the regional file sits in a sequence, e.g. "m1/us/us-regional.xml".
     relative_path: str
+    # The DTD it must satisfy -- read by the builder before returning and,
+    # since gap Phase 4c, by the mechanical check M02 on the built package.
+    dtd_path: Path
     # util/... path in the package -> file name in reference/ectd_dtd/.
     util_files: dict[str, str]
     build: Callable[[Project, SequenceContext, dict[str, list[Leaf]]], bytes] = field(repr=False)
@@ -73,6 +77,7 @@ class RegionalBackbone:
 REGIONAL_BACKBONES: dict[Region, RegionalBackbone] = {
     Region.EU: RegionalBackbone(
         relative_path=eu_regional.REGIONAL_XML_RELATIVE_PATH,
+        dtd_path=eu_regional.DTD_PATH,
         util_files={
             "util/dtd/eu-regional.dtd": "eu-regional.dtd",
             "util/dtd/eu-envelope.mod": "eu-envelope.mod",
@@ -89,6 +94,7 @@ REGIONAL_BACKBONES: dict[Region, RegionalBackbone] = {
     ),
     Region.FDA: RegionalBackbone(
         relative_path=us_regional.REGIONAL_XML_RELATIVE_PATH,
+        dtd_path=us_regional.DTD_PATH,
         # ICH v3.2.2 Table 6-2 lists us-regional-vx-x.dtd in every
         # sequence's util/dtd, even though FDA's own header points the
         # DOCTYPE at accessdata.fda.gov -- see app.ectd.us_regional.

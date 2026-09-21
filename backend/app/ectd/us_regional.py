@@ -30,6 +30,7 @@ effective-date type) are not modelled, and renewal does not exist at FDA.
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import cache
 from pathlib import Path
 
 from lxml import etree
@@ -87,6 +88,36 @@ CODES_IN_USE: dict[str, set[str]] = {
     "applicant-contact-type": {APPLICANT_CONTACT_TYPE_REGULATORY},
     "telephone-number-type": {TELEPHONE_NUMBER_TYPE_BUSINESS},
 }
+
+# Which attributes of us-regional.xml carry an FDA code, and the code list
+# that governs each (FDA Module 1 spec v2.6, Table 1). Read by mechanical
+# check M13 (gap Phase 4c), which re-reads a BUILT package: the tests above
+# prove what this module writes; M13 proves what a package actually says,
+# which is not the same thing once a file has been stored, moved or edited.
+#
+# The promotional-material attributes (m1-15) are left out on purpose:
+# their code lists are not vendored because this platform files no
+# promotional material, and a check that cannot load its list would have
+# to either pass or fail on no evidence.
+CODED_ATTRIBUTES: dict[tuple[str, str], str] = {
+    ("application-number", "application-type"): "application-type",
+    ("cross-reference-application-number", "application-type"): "application-type",
+    ("submission-id", "submission-type"): "submission-type",
+    ("submission-id", "supplement-effective-date-type"): "supplement-effective-date-type",
+    ("sequence-number", "submission-sub-type"): "submission-sub-type",
+    ("form", "form-type"): "form-type",
+    ("applicant-contact-name", "applicant-contact-type"): "applicant-contact-type",
+    ("telephone", "telephone-number-type"): "telephone-number-type",
+}
+
+
+@cache
+def code_list(name: str) -> dict[str, str]:
+    """FDA's published list `name` (reference/ectd_dtd/fda-code-lists/), as
+    {code: status}. Cached: the files are fixed for a process's lifetime."""
+    root = etree.parse(str(CODE_LIST_DIR / f"{name}.xml")).getroot()
+    return {el.get("code"): el.get("status") for el in root.iter("code-display")}
+
 
 # The sequence says what kind of transaction it is in the EU's vocabulary
 # (app.models.enums.SubmissionUnitType, P27). FDA's sub-type answers the

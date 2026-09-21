@@ -46,6 +46,9 @@ export interface Sequence {
   number: string;
   description: string | null;
   submitted_at: string | null;
+  /** What kind of transaction this is (P27): "initial", "response", ...
+   * Stated when the sequence is created (gap Phase 4c). */
+  submission_unit_type: string;
   created_at: string;
   updated_at: string;
 }
@@ -98,6 +101,11 @@ export interface Project {
   /** Answers to the conditional sections, keyed by section number. Written
    * through PATCH /projects/{id}/conditions, never here. */
   condition_answers: Record<string, boolean>;
+  /** gap Phase 4b: the number the agency assigned to the application, and
+   * for FDA which kind of application it numbers ("nda" | "anda" | "bla").
+   * Rule R34 blocks an FDA export until both are on file. */
+  application_number: string | null;
+  fda_application_type: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -114,6 +122,9 @@ export interface Applicant {
   contact_phone: string | null;
   authorized_representative_name: string | null;
   authorized_representative_title: string | null;
+  /** gap Phase 4b: the nine-digit D-U-N-S number FDA's backbone names the
+   * applicant by. Only FDA asks for it. */
+  duns_number: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -31,6 +31,110 @@ Newest entry at the top.
 
 ---
 
+## Phase 4c — FDA validated, worked through, and driven in a browser (2026-09-21)
+
+The end of gap Phase 4. 4b built FDA's backbone; this phase makes the P10
+validator understand it, proves it on the full worked example and across a
+lifecycle, and makes it reachable from the web UI -- which the user added to
+the phase.
+
+### M02 stopped assuming the EU; M13 is the check FDA's DTD cannot make
+
+M02 was hard-wired to `eu-regional.xml`. An FDA package's Module 1 backbone
+would simply not have been DTD-checked after build, and nothing would have
+said so -- the same shape as the P10 finding that a missing check looks
+exactly like a passing one. The checks now find a package's regional file
+by where it sits (each `RegionalBackbone` carries its DTD path), so they
+remain pure functions over the package's bytes rather than being told the
+region.
+
+M13 re-reads every coded attribute in a built `us-regional.xml` against
+FDA's published lists. The test for it is a backbone that M02 PASSES --
+`application-type="banana"` -- because that is the whole argument for the
+check. A second test retires a code by patching the list, since none of
+FDA's current codes is inactive: the finding for the day FDA retires one
+already exists.
+
+Why M13 when 4b already tested the builder's code tables: P10's split. The
+tests prove what the builder WRITES; M13 proves what a stored package SAYS.
+They are different claims once bytes have been stored, copied or edited.
+
+### A UI gap the user's request exposed
+
+Adding the FDA identifier fields to the UI (the user's addition to this
+phase) was not enough for an FDA project to reach export from the UI. The
+Build tab's "Build next eCTD sequence" created every sequence as `initial`,
+because P27's `submission_unit_type` could only be set by a second PATCH
+nobody made. For the EU that had been silently wrong since P27 (responses
+filed as fresh submissions); for FDA it was a hard stop, since FDA allows
+one application per regulatory activity and 4b's builder refuses a second
+`initial`. So the create endpoint now accepts the type, and the Build tab
+asks for it, defaulting to `initial` for a project's first sequence and
+`response` after. Flagged in the phase report as scope added for that
+reason.
+
+### A refused build must not burn a sequence number
+
+Found reviewing the Build tab's diff, after the browser run: the button
+CREATES a sequence and then builds it. When the build is refused -- an FDA
+filer who presses it before entering the application number is the obvious
+case -- the sequence exists anyway. The next press created 0002 as
+`initial`, FDA refused that (0001 being on file as the original
+application), and the only way out was to file the real application as an
+AMENDMENT to a sequence FDA never received. So the panel now keeps the
+sequence a refused build created and builds that one on the next attempt,
+re-stating its type first if the filer changed it. Tested by a refused
+build followed by a successful one: one sequence created, two build calls
+against the same id.
+
+The limit, stated: this holds within the page. A sequence left unbuilt by
+an earlier visit is still on file, because nothing records that a sequence
+was ever built -- which is the "build does not set BUILT" deferral Phase 3
+recorded. That deferral now has a concrete cost to cite when it is revisited.
+
+### Driven in a real browser, and what that found
+
+Recorded because P11's lesson was that a clean typecheck says nothing about
+a screen: an FDA EXAMOX project seeded WITHOUT identifiers into a scratch
+SQLite database, the API and the production frontend build served locally,
+and Playwright's Chromium driving it. R34's three findings cleared from the
+new Module 1 card; sequences 0001 (`initial`) and 0002 (default `response`)
+built from the Build tab; no console errors.
+
+It also found a real problem no test had asked about: the Declarations card
+on an FDA project listed the power of attorney and declaration of
+authenticity, offered to sign and notarise them, and said only that
+requirements were "not modelled" -- while FDA's package never files them
+(FDA_PROFILE has no declarations slot). A filer would reasonably believe
+they were being filed. The card now says they are not, deciding from the
+region's own slot list served by `/regions`, not a region check in the
+browser.
+
+### Gotchas from this phase, for the next person
+
+- **`::1` vs IPv4, from the other side.** `frontend/.env.local` points the
+  UI at `http://127.0.0.1:8000`. Uvicorn bound to `--host ::` was IPv6-ONLY
+  on this machine, so the browser's sign-in failed with
+  `ERR_CONNECTION_REFUSED` -- the mirror image of the `localhost`-resolves-
+  to-`::1` trap frontend/README.md already documents. Bind 127.0.0.1.
+- **JavaScript's `String.replace` interprets `$'` in the REPLACEMENT.** An
+  edit script replacing a test string that contained a regex (`'^\d{9}$'`)
+  inserted the rest of the file at that point, duplicating half of it. Use
+  a replacer function, or avoid `$` in replacement text.
+- **`pkill -f "next start ..."` matched its own shell** (the pattern was in
+  the command line that ran it) and killed the build that followed it in
+  the same command. Find PIDs first, then kill them.
+
+### What the worked example proved
+
+The complete amlodipine dossier, re-targeted by `app/seed/fda.py` as an
+ANDA, passes M01-M13 with no ERROR. The seed's identifiers are chosen so
+they can never be mistaken for a real filing: D-U-N-S `999999999` is FDA's
+own "could not obtain one" value, and application number `000000` has the
+right shape and no plausible owner.
+
+---
+
 ## Phase 4b — FDA, where the DTD checks almost nothing (2026-09-21)
 
 The second real backbone: `m1/us/us-regional.xml`, FDA's regional Module 1

@@ -354,6 +354,16 @@ export const api = {
     });
   },
 
+  // gap Phase 4c: an applicant is master data, and FDA asks for a field
+  // (D-U-N-S) that an applicant created for another agency never needed --
+  // so it has to be editable after the fact.
+  updateApplicant(applicantId: string, payload: Record<string, unknown>) {
+    return request<Applicant>(`/applicants/${applicantId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+
   createDeclaration(projectId: string, payload: Record<string, unknown>) {
     return request<Declaration>(`/projects/${projectId}/declarations`, {
       method: "POST",
@@ -873,10 +883,26 @@ export const api = {
     });
   },
 
-  createSequence(projectId: string, description?: string) {
+  createSequence(
+    projectId: string,
+    options: { description?: string; submission_unit_type?: string } = {},
+  ) {
     return request<Sequence>(`/projects/${projectId}/sequences`, {
       method: "POST",
-      body: JSON.stringify({ description: description ?? null }),
+      body: JSON.stringify({
+        description: options.description ?? null,
+        // gap Phase 4c: omitted means the server's default ("initial").
+        ...(options.submission_unit_type
+          ? { submission_unit_type: options.submission_unit_type }
+          : {}),
+      }),
+    });
+  },
+
+  updateSequence(projectId: string, sequenceId: string, payload: Record<string, unknown>) {
+    return request<Sequence>(`/projects/${projectId}/sequences/${sequenceId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
     });
   },
 

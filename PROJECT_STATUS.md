@@ -229,14 +229,14 @@ Registered by decorator in [rules.py](backend/app/validation/rules.py); engine a
 
 Only **R14** is region-scoped (`regions=[Region.NAFDAC]`); the other 32 run for every region. **Phase 4b** adds **R34** (FDA admin data: D-U-N-S, contact, six-digit application number, application type — ERROR) and **R35** (FDA publishes original applications only — ERROR for a renewal or variation), both `regions=[Region.FDA]`. R31 is documented by its own author as *currently unable to fire* because all three documents render from one `shared_values` call — it is a regression guard, not an active check.
 
-### 5.2 Layer 2 — mechanical eCTD checks (12), `source="mechanical-ectd"`
+### 5.2 Layer 2 — mechanical eCTD checks (~~12~~ 13), `source="mechanical-ectd"`
 
 Re-validate the **built ZIP**, not the data ([validate.py](backend/app/ectd/validate.py)). Pure functions over `{path: bytes}`.
 
 | ID | Severity | Check | Category |
 |---|---|---|---|
 | M01 | ERROR | `index.xml` validates against `ich-ectd-3-2.dtd` | XML/schema |
-| M02 | ERROR | `eu-regional.xml` validates against `eu-regional.dtd` | XML/schema |
+| M02 | ERROR | The regional backbone validates against its region's DTD — ~~`eu-regional.xml` only~~ EU and FDA since **Phase 4c** (found by path, not told the region) | XML/schema |
 | M03 | ERROR | Each leaf's stated checksum = the file's actual MD5 | structural/file |
 | M04 | ERROR | `index-md5.txt` matches `index.xml`'s actual MD5 | structural/file |
 | M05 | ERROR | Every leaf `xlink:href` resolves to a file in the package | structural/file |
@@ -247,6 +247,7 @@ Re-validate the **built ZIP**, not the data ([validate.py](backend/app/ectd/vali
 | M10 | ERROR | No PDF is encrypted | structural/file |
 | M11 | WARNING | PDF page 1 has extractable text (proxy for "not a scan") | structural/file |
 | M12 | ERROR | Every expanded section instance has appeared live in some sequence | structural/completeness |
+| M13 | ERROR | **Phase 4c.** Every code in `us-regional.xml` is "active" in FDA's published code lists — the check FDA's DTD cannot make, since it types those attributes as CDATA | FDA code conformance |
 
 **Documented gap, not a silent skip:** font embedding is not checked ([validate.py:249](backend/app/ectd/validate.py#L249)). There are also **no filename-convention checks** — no path-length limit, no character-set restriction, no folder-naming validation. That entire category is absent.
 
@@ -791,3 +792,44 @@ them; a second `initial` sequence is refused with the value to use instead.
 **Deliberately not done:** supplements (CMC/labeling/efficacy), grouped
 submissions, an upload slot for FDA's own forms (356h, 3794, 3674), and UI
 fields for the FDA identifiers (API-only for now).
+
+### Phase 4c — FDA validated, worked through, and reachable from the UI
+
+**5. Validation engine** — the mechanical checks stop assuming the EU. They
+find a package's regional backbone by where it sits, so M02 checks
+`us-regional.xml` against FDA's DTD as it always checked `eu-regional.xml`
+against the EU's. New **M13**: every code in a built FDA package is "active"
+in FDA's code lists. It re-reads the ARTIFACT, which is the P06/P10 split
+again: 4b's tests prove what the builder writes, M13 proves what the stored
+package says. Tested with a DTD-valid backbone carrying
+`application-type="banana"`, and with a code FDA has (in the test) retired.
+
+**4. Publishing engine** — an FDA worked example: the full amlodipine
+dossier, re-targeted by `app/seed/fda.py` as an ANDA (seed identifiers
+chosen so they can never be mistaken for a real application), passes
+M01-M13 with no ERROR. A three-sequence FDA lifecycle (original
+application, then two amendments touching both backbones) passes every
+mechanical check against its predecessors, with amendments' submission-id
+pointing at the original application.
+
+**6. Submission lifecycle management** — a sequence's transaction type
+(P27's `submission_unit_type`) can now be stated when the sequence is
+CREATED. It could only be PATCHed afterwards, so the UI's
+create-then-build filed every sequence as `initial`: EU responses told the
+agency they were fresh submissions, and FDA refused every build after the
+first.
+
+**Web UI** — D-U-N-S number on the applicant (wizard and Module 1),
+application number and type on FDA projects (wizard and a Module 1 card),
+and a "the next sequence is" select on the Build tab defaulting to
+`initial` for a project's first sequence and `response` after. Verified by
+driving a real browser against a real API: R34's three findings cleared
+from the Module 1 card, then sequences 0001 and 0002 built from the Build
+tab. That run also found that the Declarations card offered to sign and
+notarise documents FDA's package never files; it now says so, from the
+region's own slot list. And a refused build no longer burns a sequence
+number: the Build tab retries the sequence it created rather than making
+another -- within the page. An unbuilt sequence from an earlier visit is
+still on file, because nothing records that a sequence was built (Phase 3's
+deferred auto-BUILT).
+

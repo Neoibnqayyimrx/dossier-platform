@@ -17,13 +17,28 @@
  * source of truth for "is this exportable" — instead the button stays
  * live and the 409's message is shown, which is also the honest behaviour
  * when a human has logged an override.
+ *
+ * WHY the filer chooses what kind of transaction a new sequence is (gap
+ * Phase 4c): the button used to create every sequence as `initial`, because
+ * the type could only be set by a separate PATCH nobody made. The EU envelope
+ * then filed answers to the agency as fresh submissions, and FDA -- which
+ * allows one "application" per regulatory activity -- refused every build
+ * after the first. The type is the filer's statement, so it is asked for
+ * here, defaulted to what it almost always is.
  */
 
 import { useState } from "react";
 
 import { api, ApiError } from "@/lib/api";
 import type { BlockingFinding } from "@/lib/api";
-import type { EctdBuildResponse, OverrideSummary, Region } from "@/lib/types";
+import { defaultSubmissionUnitType } from "@/lib/sequence-type";
+import type {
+  EctdBuildResponse,
+  OverrideSummary,
+  Region,
+  Sequence,
+  Vocabularies,
+} from "@/lib/types";
 import { Badge, Card, ErrorNotice } from "@/components/ui";
 
 const buttonClass =
@@ -34,9 +49,14 @@ const secondaryButtonClass =
 export function BuildPanel({
   projectId,
   region,
+  sequenceCount,
+  vocabularies,
 }: {
   projectId: string;
   region: Region;
+  /** How many sequences the project already has -- decides the default. */
+  sequenceCount: number;
+  vocabularies: Vocabularies | null;
 }) {
   const [error, setError] = useState<string | null>(null);
   // P18: which leaves refused the build. Kept apart from `error` because a
@@ -51,6 +71,18 @@ export function BuildPanel({
   // waived ERROR is byte-for-byte as convincing as one that passed
   // cleanly, so the only place that distinction can surface is here.
   const [waived, setWaived] = useState<OverrideSummary[]>([]);
+  // Counted here rather than refetched: each successful eCTD build adds
+  // exactly one sequence, and the next default follows from that.
+  const [sequences, setSequences] = useState(sequenceCount);
+  const [unitType, setUnitType] = useState(() => defaultSubmissionUnitType(sequenceCount));
+  const unitTypes = vocabularies?.["submission_unit_type"] ?? [];
+  // A sequence this panel created whose build was then refused. The next
+  // attempt builds THAT sequence rather than creating another: sequence
+  // numbers are regulatory identifiers, and a refused build must not burn
+  // one. For FDA it is worse than untidy -- the unbuilt sequence would sit
+  // on file as the "original application", and the real one could only be
+  // filed as an amendment to something FDA never received.
+  const [pending, setPending] = useState<Sequence | null>(null);
 
   // NAFDAC files a CTD; FDA/EU file an eCTD sequence. See the module WHY.
   const buildsEctd = region !== "NAFDAC";
@@ -170,6 +202,31 @@ export function BuildPanel({
 
       {buildsEctd && (
         <div className="space-y-3">
+          {unitTypes.length > 0 && (
+            <div className="max-w-xs">
+              <label htmlFor="sequence-unit-type" className="mb-1 block text-sm font-medium">
+                The next sequence is
+              </label>
+              <select
+                id="sequence-unit-type"
+                value={unitType}
+                disabled={busy !== null}
+                onChange={(e) => setUnitType(e.target.value)}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+              >
+                {unitTypes.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                {region === "FDA"
+                  ? 'FDA takes one "initial" (the original application). Every later sequence is an amendment, so choose "response".'
+                  : "What this transaction is: the first filing, or an answer to the agency."}
+              </p>
+            </div>
+          )}
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
@@ -179,10 +236,24 @@ export function BuildPanel({
                   // A sequence is a regulatory transaction, numbered by
                   // the backend (0000, 0001, ...) -- the UI never invents
                   // that number.
-                  const sequence = await api.createSequence(projectId);
+                  let sequence = pending;
+                  if (sequence === null) {
+                    sequence = await api.createSequence(projectId, {
+                      submission_unit_type: unitType,
+                    });
+                    setPending(sequence);
+                  } else if (sequence.submission_unit_type !== unitType) {
+                    sequence = await api.updateSequence(projectId, sequence.id, {
+                      submission_unit_type: unitType,
+                    });
+                    setPending(sequence);
+                  }
                   const result = await api.buildEctd(projectId, sequence.id);
+                  setPending(null);
                   setEctd(result);
                   setWaived(result.overrides);
+                  setSequences(sequences + 1);
+                  setUnitType(defaultSubmissionUnitType(sequences + 1));
                 })
               }
               className={buttonClass}

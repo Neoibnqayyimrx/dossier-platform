@@ -210,11 +210,10 @@ and the folder-tree builder is already the right output for it — see
 `docs/decisions/0001-nafdac-format.md`. What is actually still ahead:
 
 - **Finishing FDA.** The FDA backbone publishes an ANDA/NDA/BLA *original
-  application and its amendments*. Not yet: validating a built FDA package
-  with the mechanical checks (the region-aware DTD check and a check against
-  FDA's code lists — gap Phase 4c), supplements (CMC, labeling, efficacy),
-  an upload slot for FDA's own forms (356h, 3794), and fields in the web UI
-  for the FDA identifiers, which are API-only for now.
+  application and its amendments*, validated after build against FDA's DTD
+  and FDA's published code lists (checks M02 and M13), and fully drivable
+  from the web UI. Not yet: supplements (CMC, labeling, efficacy), and an
+  upload slot for FDA's own forms (356h, 3794).
 - **Validation gaps.** No filename/path-convention rules (length limits,
   allowed characters, folder naming), and findings are JSON only — no
   human-readable report to hand a colleague.

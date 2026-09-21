@@ -75,6 +75,32 @@ const APPLICANT_FIELDS = [
     label: "Representative title",
     type: "text" as const,
   },
+  {
+    // gap Phase 4c. On the applicant, not the project: it identifies the
+    // legal entity, which files every application under the same number.
+    name: "duns_number",
+    label: "D-U-N-S number",
+    type: "text" as const,
+    help: "Nine digits. FDA filings only (rule R34); leave empty otherwise.",
+  },
+];
+
+/** gap Phase 4c: the two project fields FDA's backbone needs, asked only
+ * when FDA is the region -- a NAFDAC or EU filing has no use for them, and a
+ * field nobody needs is a field somebody fills in wrong. */
+const FDA_PROJECT_FIELDS = [
+  {
+    name: "fda_application_type",
+    label: "FDA application type",
+    type: "select" as const,
+    vocabulary: "fda_application_type",
+  },
+  {
+    name: "application_number",
+    label: "FDA application number",
+    type: "text" as const,
+    help: "Six digits as FDA issued it (ANDA 012345 is 012345). Required before export (rule R34); add it later if FDA has not issued one yet.",
+  },
 ];
 
 /** A preview's controls are disabled, so nothing can call this. */
@@ -590,6 +616,7 @@ function Wizard() {
         chosenApplicantId = created.id;
       }
 
+      const isFda = projectDraft.region === "FDA";
       const project = await api.createProject({
         name: String(projectDraft.name ?? ""),
         region: String(projectDraft.region ?? "NAFDAC"),
@@ -598,6 +625,14 @@ function Wizard() {
         ),
         product_id: productId,
         applicant_id: chosenApplicantId,
+        // Sent only for FDA, so switching the region away after typing them
+        // does not leave FDA identifiers on a NAFDAC filing.
+        ...(isFda
+          ? {
+              application_number: projectDraft.application_number || null,
+              fda_application_type: projectDraft.fda_application_type || null,
+            }
+          : {}),
       });
       router.push(`/projects/${project.id}`);
     } catch (err) {
@@ -749,6 +784,22 @@ function Wizard() {
                   setProjectDraft((previous) => ({ ...previous, [name]: value }))
                 }
               />
+
+              {projectDraft.region === "FDA" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {FDA_PROJECT_FIELDS.map((spec) => (
+                    <Field
+                      key={spec.name}
+                      spec={spec}
+                      value={projectDraft[spec.name]}
+                      vocabularies={vocabularies}
+                      onChange={(name, value) =>
+                        setProjectDraft((previous) => ({ ...previous, [name]: value }))
+                      }
+                    />
+                  ))}
+                </div>
+              )}
 
               <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
                 <h3 className="mb-1 text-sm font-medium">Applicant</h3>

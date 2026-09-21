@@ -45,7 +45,9 @@ DTD accepts ANY string there. What makes a value legal is its presence, with
 `status="active"`, in these lists -- "only coded values with a status of
 'active' should be submitted" (FDA's *eCTD Backbone Files Specification for
 Module 1*, v2.6, section I). `app/ectd/us_regional.py`'s code tables are
-tested against these files rather than trusted.
+tested against these files rather than trusted, and mechanical check M13
+(`app/ectd/validate.py`, gap Phase 4c) reads them again to judge every code
+in a BUILT package.
 
 The code lists change more often than the DTD (FDA publishes each one with
 its own version). Re-download and re-run the tests when FDA's standards page

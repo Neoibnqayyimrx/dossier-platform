@@ -20,10 +20,11 @@ from lxml import etree
 from pypdf import PdfReader
 import io
 
+from app.ectd import us_regional
+from app.ectd.backbone import REGIONAL_BACKBONES
 from app.ectd.checksum import md5_hex
 from app.ectd.index_xml import DTD_PATH as ICH_DTD_PATH
 from app.ectd.leaf import XLINK_NS
-from app.ectd.regional import DTD_PATH as EU_DTD_PATH, REGIONAL_XML_RELATIVE_PATH
 from app.templating.registry import SECTIONS
 from app.validation.engine import Finding, Severity
 
@@ -35,6 +36,12 @@ SOURCE = "mechanical-ectd"
 _BACKBONE_TARGET_RE = re.compile(r"^(?P<sequence>\d{4})/(?P<backbone>[^#]+\.xml)$")
 
 _INFRA_PREFIXES = ("index.xml", "index-md5.txt", "util/")
+
+# gap Phase 4c: every regional backbone file this platform can build, keyed
+# by where it sits in a sequence. The checks find a package's regional file
+# by looking, not by being told the region -- they are pure functions over
+# the package's bytes, and the package is what is being judged.
+_REGIONAL_DTDS = {rb.relative_path: rb.dtd_path for rb in REGIONAL_BACKBONES.values()}
 
 
 @dataclass(frozen=True)
@@ -61,10 +68,10 @@ def _resolve(backbone_path: str, relative: str) -> str:
 
 
 def _parse_leaves(prefix: str, files: dict[str, bytes]) -> list[ParsedLeaf]:
-    """Every `<leaf>` across `index.xml` and (if present) the regional
-    backbone, with hrefs resolved to full zip-relative paths."""
+    """Every `<leaf>` across `index.xml` and whichever regional backbone
+    the package has, with hrefs resolved to full zip-relative paths."""
     leaves: list[ParsedLeaf] = []
-    for rel_path in ("index.xml", REGIONAL_XML_RELATIVE_PATH):
+    for rel_path in ("index.xml", *_REGIONAL_DTDS):
         backbone_path = f"{prefix}/{rel_path}"
         xml_bytes = files.get(backbone_path)
         if xml_bytes is None:
@@ -100,16 +107,25 @@ def check_dtd_validity(prefix: str, files: dict[str, bytes]) -> list[Finding]:
                     source=SOURCE,
                 )
             )
-    regional_xml = files.get(f"{prefix}/{REGIONAL_XML_RELATIVE_PATH}")
-    if regional_xml is not None:
-        dtd = etree.DTD(str(EU_DTD_PATH))
+    # M02 is "the regional backbone is valid against ITS region's DTD" --
+    # EU's since P10, and FDA's since gap Phase 4c. Before that it was
+    # hard-wired to eu-regional.xml, so an FDA package's Module 1 backbone
+    # would have gone unchecked without anything saying so.
+    for rel_path, dtd_path in _REGIONAL_DTDS.items():
+        regional_xml = files.get(f"{prefix}/{rel_path}")
+        if regional_xml is None:
+            continue
+        dtd = etree.DTD(str(dtd_path))
         if not dtd.validate(etree.fromstring(regional_xml)):
             findings.append(
                 Finding(
                     rule_id="M02",
                     severity=Severity.ERROR,
                     category="dtd",
-                    message=f"eu-regional.xml failed DTD validation: {dtd.error_log}",
+                    message=(
+                        f"{posixpath.basename(rel_path)} failed DTD validation against "
+                        f"{dtd_path.name}: {dtd.error_log}"
+                    ),
                     source=SOURCE,
                 )
             )
@@ -320,6 +336,58 @@ def check_pdf_specs(prefix: str, files: dict[str, bytes]) -> list[Finding]:
     return findings
 
 
+def check_fda_codes(prefix: str, files: dict[str, bytes]) -> list[Finding]:
+    """M13 (gap Phase 4c): every code in an FDA package's us-regional.xml is
+    one FDA publishes as "active".
+
+    WHY a check of its own when M02 already validates the file: FDA's DTD
+    declares these attributes as bare CDATA, so M02 passes a backbone that
+    files an ANDA as `application-type="banana"`. FDA's Module 1 spec
+    (v2.6, section I) is explicit that "only coded values with a status of
+    'active' should be submitted", and the lists that say which are active
+    are separate files FDA versions on their own
+    (reference/ectd_dtd/fda-code-lists/). This is the check the DTD cannot
+    make.
+
+    WHY it re-reads the built package rather than trusting the builder's
+    tables (which tests/test_ectd_fda.py already checks): P10's whole point.
+    The package is what reaches FDA; a builder that was right when it ran is
+    not evidence about bytes that have since been stored, copied or edited.
+    """
+    xml_bytes = files.get(f"{prefix}/{us_regional.REGIONAL_XML_RELATIVE_PATH}")
+    if xml_bytes is None:
+        return []  # not an FDA package
+    root = etree.fromstring(xml_bytes)
+    findings: list[Finding] = []
+    for (element, attribute), list_name in us_regional.CODED_ATTRIBUTES.items():
+        published = us_regional.code_list(list_name)
+        for el in root.iter(element):
+            code = el.get(attribute)
+            if code is None:
+                continue  # whether it is REQUIRED is M02's question
+            status = published.get(code)
+            if status == "active":
+                continue
+            problem = (
+                "is not in FDA's list"
+                if status is None
+                else f"is {status!r}, not 'active', in FDA's list"
+            )
+            findings.append(
+                Finding(
+                    rule_id="M13",
+                    severity=Severity.ERROR,
+                    category="fda-codes",
+                    message=(
+                        f"us-regional.xml: <{element} {attribute}={code!r}> -- {code!r} "
+                        f"{problem} ({list_name}.xml)"
+                    ),
+                    source=SOURCE,
+                )
+            )
+    return findings
+
+
 def check_required_ctd_sections_present(
     live_section_keys: set[str], expected_keys: set[str] | None = None
 ) -> list[Finding]:
@@ -361,4 +429,5 @@ def run_mechanical_checks(
     findings += check_lifecycle_integrity(prefix, files, prior_files)
     findings += check_pdf_specs(prefix, files)
     findings += check_required_ctd_sections_present(live_section_keys, expected_section_keys)
+    findings += check_fda_codes(prefix, files)
     return findings

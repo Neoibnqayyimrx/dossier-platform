@@ -7,8 +7,9 @@ Three layers, as for the EU:
   EU never needed, because FDA's DTD accepts any string where a code goes;
 - a real EXAMOX sequence built end to end as an FDA ANDA.
 
-Validation of a built FDA package by the P10 mechanical checks (a
-region-aware M02, and M13 for the codes) is gap Phase 4c.
+gap Phase 4c adds the fourth: built FDA packages judged by the P10
+mechanical checks (M02 against FDA's DTD, M13 for FDA's codes), across a
+three-sequence lifecycle.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from app.ectd.leaf import XLINK_NS, Leaf, leaf_id_for
 from app.ectd.us_regional import build_us_regional_xml
 from app.models import Base, FDAApplicationType, Region, RegistrationType, Sequence
 from app.seed.examox import build_examox
+from app.seed.fda import as_fda_original_application
 from app.validation.engine import run_all
 
 # ---- fixtures ---------------------------------------------------------------
@@ -250,13 +252,7 @@ def _fda_examox():
     # buggy=False: EXAMOX's default build carries planted copy-paste defects
     # (the rule-engine fixtures), which would block assembly for reasons
     # that have nothing to do with FDA.
-    project = build_examox(buggy=False)
-    project.region = Region.FDA
-    project.product.registration_type = RegistrationType.NEW
-    project.applicant.duns_number = "123456789"
-    project.application_number = "212345"
-    project.fda_application_type = FDAApplicationType.ANDA
-    return project
+    return as_fda_original_application(build_examox(buggy=False))
 
 
 def _findings(project, rule_id: str):
@@ -431,3 +427,136 @@ async def test_an_fda_anda_builds_end_to_end(db_factory):
     for leaf in leaves:
         path = f"0001/m1/us/{leaf.get(f'{{{XLINK_NS}}}href')}"
         assert md5_hex(files[path]) == leaf.get("checksum"), path
+
+
+async def test_an_fda_amendment_is_created_as_one_from_the_api(auth_client):
+    """gap Phase 4c: the transaction type is stated when the sequence is
+    created. Before, it could only be PATCHed afterwards, so the UI's
+    create-then-build always produced an `initial` -- which FDA refuses for
+    anything after the original application."""
+    project_id = await _create_project(auth_client, "FDA")
+    first = (await auth_client.post(f"/projects/{project_id}/sequences", json={})).json()
+    second = await auth_client.post(
+        f"/projects/{project_id}/sequences", json={"submission_unit_type": "response"}
+    )
+    assert second.status_code == 201, second.text
+    assert (first["submission_unit_type"], second.json()["submission_unit_type"]) == (
+        "initial",
+        "response",
+    )
+
+
+async def test_three_fda_sequences_pass_every_mechanical_check(db_factory):
+    """The FDA lifecycle, end to end, judged by the P10 validator.
+
+    0001  the original application.
+    0002  an amendment renaming the applicant. The name prints on the
+          SmPC, labels and leaflet as marketing authorisation holder, so all
+          three are REPLACED in us-regional.xml, pointing back into 0001's
+          us-regional.xml from three folders down -- and in the Module 2
+          introduction, replaced in index.xml. One sequence, both backbones.
+    0003  an amendment changing only Module 3: a drug-substance test method,
+          replaced in index.xml, pointing back into 0001's index.xml.
+
+    Both amendments name 0001 as their regulatory activity (submission-id)
+    and themselves as the sequence. Every sequence is run through all of
+    M01-M13 against the sequences before it.
+    """
+    from app.core.storage import InMemoryStorageClient
+    from app.ectd.build import build_ectd_sequence
+    from app.ectd.validate import run_mechanical_checks
+    from app.models import SubmissionUnitType
+    from app.templating.instances import expand_sections
+    from app.validation.engine import Severity
+
+    async with db_factory() as db:
+        project = _fda_examox()
+        db.add(project)
+        await db.commit()
+        storage = InMemoryStorageClient()
+        expected = {i.key for i in expand_sections(project)}
+
+        def rename_applicant():
+            project.applicant.company_name = "Exagon Pharmaceuticals (US) Inc."
+
+        def change_test_method():
+            project.product.apis[0].specification[0].method = "Visual, USP monograph"
+
+        bundles: dict[str, dict[str, bytes]] = {}
+        operations: dict[str, dict[str, str]] = {}
+        for number, unit_type, change in (
+            ("0001", SubmissionUnitType.INITIAL, None),
+            ("0002", SubmissionUnitType.RESPONSE, rename_applicant),
+            ("0003", SubmissionUnitType.RESPONSE, change_test_method),
+        ):
+            if change:
+                change()
+            sequence = Sequence(
+                project_id=project.id, number=number, submission_unit_type=unit_type
+            )
+            db.add(sequence)
+            await db.commit()
+            result = await build_ectd_sequence(db, project, sequence, storage=storage)
+            with zipfile.ZipFile(io.BytesIO(storage.get(result.storage_key))) as zf:
+                bundles[number] = {name: zf.read(name) for name in zf.namelist()}
+            operations[number] = result.operations
+
+            findings = run_mechanical_checks(
+                number,
+                bundles[number],
+                prior_files={n: b for n, b in bundles.items() if n < number},
+                live_section_keys=set(expected),
+                expected_section_keys=expected,
+            )
+            errors = [f for f in findings if f.severity is Severity.ERROR]
+            assert errors == [], (number, [f"{f.rule_id}: {f.message}" for f in errors])
+
+    # 0002 replaced the three labeling documents (and 2.2); 0003 touched no
+    # Module 1 document at all.
+    assert set(operations["0002"].values()) == {"replace"}
+    assert {"1.3.1", "1.3.2", "1.3.3"} <= set(operations["0002"]), operations["0002"]
+    assert operations["0003"] and set(operations["0003"].values()) == {"replace"}
+    assert not any(key.startswith("1.") for key in operations["0003"]), operations["0003"]
+
+    amendment = etree.fromstring(bundles["0002"]["0002/m1/us/us-regional.xml"])
+    info = amendment.find("admin/application-set/application/submission-information")
+    assert (info.findtext("submission-id"), info.findtext("sequence-number")) == ("0001", "0002")
+    assert info.find("sequence-number").get("submission-sub-type") == "fdasst4"
+    modified = {leaf.get("modified-file") for leaf in amendment.iter("leaf")}
+    assert modified and all(m.startswith("../../../0001/m1/us/us-regional.xml#") for m in modified)
+
+    index = bundles["0003"]["0003/index.xml"]
+    assert b'modified-file="../0001/index.xml#ID-3-2-S-4' in index
+    # A sequence that changes nothing in Module 1 still has its us-regional.xml
+    # (the admin block says what the sequence IS), just no m1-regional.
+    third = etree.fromstring(bundles["0003"]["0003/m1/us/us-regional.xml"])
+    assert third.find("m1-regional") is None
+
+
+async def test_the_consolidated_report_on_an_fda_sequence_is_exportable(db_factory):
+    """The path the API takes (POST /validate/ectd): data rules, mechanical
+    checks and the external-validator placeholder, merged. An FDA sequence
+    built from clean data must come out exportable -- R34/R35 silent, M02
+    and M13 silent -- with the honest EXT00 advisory that no agency
+    validator ran."""
+    from app.core.storage import InMemoryStorageClient
+    from app.ectd.build import build_ectd_sequence
+    from app.ectd.report import validate_ectd_sequence
+
+    async with db_factory() as db:
+        project = _fda_examox()
+        db.add(project)
+        await db.commit()
+        sequence = Sequence(project_id=project.id, number="0001")
+        db.add(sequence)
+        await db.commit()
+        storage = InMemoryStorageClient()
+        await build_ectd_sequence(db, project, sequence, storage=storage)
+        report = await validate_ectd_sequence(
+            db, project, sequence, storage=storage, run_ai_review=False
+        )
+
+    assert report.is_exportable(), [f"{f.rule_id}: {f.message}" for f in report.errors()]
+    rule_ids = {f.rule_id for f in report.findings}
+    assert not rule_ids & {"R34", "R35", "M02", "M13"}
+    assert "EXT00" in rule_ids

@@ -17,6 +17,7 @@ from app.ectd.leaf import XLINK_NS, leaf_id_for
 from app.ectd.validate import (
     check_checksum_integrity,
     check_dtd_validity,
+    check_fda_codes,
     check_href_resolution_and_orphans,
     check_lifecycle_integrity,
     check_pdf_specs,
@@ -358,3 +359,84 @@ def test_null_external_validator_is_advisory_only():
     assert len(findings) == 1
     assert findings[0].severity == Severity.ADVISORY
     assert findings[0].source == "external-validator"
+
+
+# ---- gap Phase 4c: FDA packages (M02 per region, M13) ------------------------
+
+
+def _fda_regional_xml() -> bytes:
+    """A real us-regional.xml, from the real builder -- which has already
+    validated it against FDA's DTD before returning it."""
+    import uuid
+    from types import SimpleNamespace
+
+    from app.ectd.us_regional import build_us_regional_xml
+    from app.models import FDAApplicationType, RegistrationType
+
+    project = SimpleNamespace(
+        id=uuid.uuid4(),
+        applicant=SimpleNamespace(
+            company_name="Exagon Pharmaceuticals Ltd",
+            duns_number="999999999",
+            contact_name="Aisha Bello",
+            contact_phone="+234-800-000-0000",
+            contact_email="regulatory@exagon.example",
+        ),
+        application_number="000000",
+        fda_application_type=FDAApplicationType.ANDA,
+        product=SimpleNamespace(brand_name="EXAMOX", registration_type=RegistrationType.NEW),
+    )
+    return build_us_regional_xml(project, "0001", "0001", {})
+
+
+def test_a_clean_fda_backbone_passes_m02_and_m13():
+    files = {"0001/m1/us/us-regional.xml": _fda_regional_xml()}
+    assert check_dtd_validity("0001", files) == []
+    assert check_fda_codes("0001", files) == []
+
+
+def test_m02_checks_an_fda_backbone_against_fda_s_dtd():
+    """Before 4c, M02 knew only eu-regional.xml -- an FDA package's Module 1
+    backbone went unchecked, and nothing said so."""
+    broken = _fda_regional_xml().replace(b"</admin>", b"</admin><not-an-fda-heading/>")
+    findings = check_dtd_validity("0001", {"0001/m1/us/us-regional.xml": broken})
+    assert [f.rule_id for f in findings] == ["M02"]
+    assert "us-regional.xml" in findings[0].message
+    assert "us-regional-v3-3.dtd" in findings[0].message
+
+
+def test_m13_catches_a_code_fda_s_dtd_happily_accepts():
+    """The whole reason M13 exists: this document is DTD-VALID."""
+    tampered = _fda_regional_xml().replace(
+        b'application-type="fdaat2"', b'application-type="banana"'
+    )
+    files = {"0001/m1/us/us-regional.xml": tampered}
+    assert check_dtd_validity("0001", files) == []
+    findings = check_fda_codes("0001", files)
+    assert [f.rule_id for f in findings] == ["M13"]
+    assert findings[0].severity == Severity.ERROR
+    assert "banana" in findings[0].message and "application-type.xml" in findings[0].message
+
+
+def test_m13_rejects_a_code_fda_has_retired(monkeypatch):
+    """ "Only coded values with a status of 'active' should be submitted"
+    (FDA Module 1 spec v2.6). None of today's codes is inactive, so the list
+    is patched to retire one -- the day FDA does it, this is the finding."""
+    from app.ectd import us_regional
+
+    real = us_regional.code_list
+
+    def retired_sub_types(name):
+        codes = dict(real(name))
+        if name == "submission-sub-type":
+            codes["fdasst3"] = "inactive"
+        return codes
+
+    monkeypatch.setattr(us_regional, "code_list", retired_sub_types)
+    findings = check_fda_codes("0001", {"0001/m1/us/us-regional.xml": _fda_regional_xml()})
+    assert [f.rule_id for f in findings] == ["M13"]
+    assert "'inactive'" in findings[0].message
+
+
+def test_m13_does_not_look_at_packages_that_are_not_fda():
+    assert check_fda_codes("0000", {"0000/index.xml": _index_xml()}) == []

@@ -264,7 +264,12 @@ function ProjectDetail({ projectId }: { projectId: string }) {
       )}
 
       {tab === "Build" && (
-        <BuildPanel projectId={projectId} region={project.region} />
+        <BuildPanel
+          projectId={projectId}
+          region={project.region}
+          sequenceCount={project.sequences.length}
+          vocabularies={vocabularies}
+        />
       )}
     </>
   );

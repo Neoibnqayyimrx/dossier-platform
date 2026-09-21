@@ -16,7 +16,7 @@ from app.api.deps import get_current_user, get_db, require_project_owner
 from app.api.loading import PROJECT_CHILD_OPTIONS
 from app.ctd.region_profiles import REGION_PROFILES
 from app.models import Applicant, Product, Project, Sequence, User
-from app.models.enums import ALLOWED_SEQUENCE_TRANSITIONS, SequenceStatus
+from app.models.enums import ALLOWED_SEQUENCE_TRANSITIONS, SequenceStatus, SubmissionUnitType
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
 from app.schemas.sequence import SequenceRead, SequenceStatusUpdate, SequenceUpdate
 
@@ -35,6 +35,14 @@ class SequenceCreateRequest(BaseModel):
 
     description: str | None = None
     submitted_at: datetime | None = None
+    # gap Phase 4c: what KIND of transaction this is, stated when the
+    # sequence is created. It was already on the model (P27) but could only
+    # be set by a second PATCH, so a sequence created and built in one step
+    # -- the web UI's "Build next eCTD sequence" -- always claimed to be
+    # `initial`. FDA refuses a second `initial` (one application per
+    # regulatory activity), which is what made that invisible default into
+    # a blocker.
+    submission_unit_type: SubmissionUnitType = SubmissionUnitType.INITIAL
 
 
 async def _get_project_or_404(project_id: uuid.UUID, db: AsyncSession) -> Project:
@@ -189,6 +197,7 @@ async def create_sequence(
             number=next_number,
             description=payload.description,
             submitted_at=payload.submitted_at,
+            submission_unit_type=payload.submission_unit_type,
         )
         db.add(sequence)
         try:

@@ -27,6 +27,7 @@ import type {
   RegionProfile,
   Vocabularies,
 } from "@/lib/types";
+import { Field } from "@/components/Field";
 import { Badge, Card, ErrorNotice } from "@/components/ui";
 
 const buttonClass =
@@ -244,6 +245,126 @@ function ApplicantCard({
   );
 }
 
+/**
+ * gap Phase 4c: the identifiers FDA's Module 1 backbone states on every
+ * sequence -- which application (its number and type) and who applies (the
+ * applicant's D-U-N-S number). Rule R34 blocks an FDA export until all of
+ * them are on file; this is where a filer supplies them without the API.
+ *
+ * WHY no format check here: R34 is the one place that says what FDA accepts,
+ * and its finding already names the problem ("must be exactly six digits").
+ * A second copy of that rule in the browser is how the two start to
+ * disagree -- the reason BuildPanel does not gate builds either. The API
+ * itself refuses a D-U-N-S number that is not nine digits, and that refusal
+ * is shown as it comes back.
+ */
+export function FdaApplicationCard({
+  project,
+  vocabularies,
+  onChanged,
+}: {
+  project: Project;
+  vocabularies: Vocabularies;
+  onChanged: () => void;
+}) {
+  const [draft, setDraft] = useState<Record<string, unknown>>({
+    application_number: project.application_number,
+    fda_application_type: project.fda_application_type,
+  });
+  const [duns, setDuns] = useState(project.applicant?.duns_number ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await api.updateProject(project.id, {
+        application_number: draft.application_number || null,
+        fda_application_type: draft.fda_application_type || null,
+      });
+      // The D-U-N-S number belongs to the APPLICANT -- one legal entity,
+      // the same number on every application it files -- so it is saved
+      // there, not on this project.
+      const applicant = project.applicant;
+      if (applicant && duns !== (applicant.duns_number ?? "")) {
+        await api.updateApplicant(applicant.id, { duns_number: duns || null });
+      }
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not reach the server");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const setField = (name: string, value: unknown) =>
+    setDraft((previous) => ({ ...previous, [name]: value }));
+
+  return (
+    <Card>
+      <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        FDA application
+      </h3>
+      <p className="mb-3 text-sm text-slate-600 dark:text-slate-400">
+        FDA&apos;s Module 1 backbone names the application and the applicant on
+        every sequence. FDA issues the number; nothing here is generated.
+        Rule R34 blocks export until all three are on file.
+      </p>
+      <form onSubmit={save} className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            spec={{
+              name: "fda_application_type",
+              label: "Application type",
+              type: "select",
+              vocabulary: "fda_application_type",
+            }}
+            value={draft.fda_application_type}
+            vocabularies={vocabularies}
+            onChange={setField}
+          />
+          <Field
+            spec={{
+              name: "application_number",
+              label: "Application number",
+              type: "text",
+              placeholder: "012345",
+              help: "Six digits, leading zeros kept, no letters: ANDA 012345 is 012345.",
+            }}
+            value={draft.application_number}
+            vocabularies={vocabularies}
+            onChange={setField}
+          />
+        </div>
+        {project.applicant ? (
+          <Field
+            spec={{
+              name: "duns_number",
+              label: `D-U-N-S number of ${project.applicant.company_name}`,
+              type: "text",
+              placeholder: "123456789",
+              help: "Nine digits. If one cannot be obtained before submission, FDA accepts 999999999 -- enter it yourself; the platform never will.",
+            }}
+            value={duns}
+            vocabularies={vocabularies}
+            onChange={(_, value) => setDuns(String(value ?? ""))}
+          />
+        ) : (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Name the applicant above first: FDA identifies it by its D-U-N-S number.
+          </p>
+        )}
+        <button type="submit" disabled={busy} className={buttonClass}>
+          {busy ? "Saving…" : "Save"}
+        </button>
+        {error && <ErrorNotice message={error} />}
+      </form>
+    </Card>
+  );
+}
+
 export function Module1Panel({
   project,
   vocabularies,
@@ -282,6 +403,8 @@ export function Module1Panel({
     (vocabularies["declaration_type"] ?? []).map((option) => [option.value, option.label]),
   );
   const required = profile?.required_declaration_types ?? [];
+  const filesDeclarations =
+    profile?.module1_slots.some((slot) => slot.slot_id === "declarations") ?? true;
   // Everything required, plus anything already attached that isn't --
   // a GMP undertaking is optional for NAFDAC but must still be visible
   // and signable once someone has added it.
@@ -293,6 +416,17 @@ export function Module1Panel({
 
       <ApplicantCard project={project} applicants={applicants} onChanged={onChanged} />
 
+      {project.region === "FDA" && (
+        // Keyed on the applicant so choosing a different one above resets
+        // the D-U-N-S field to THAT applicant's number.
+        <FdaApplicationCard
+          key={project.applicant?.id ?? "no-applicant"}
+          project={project}
+          vocabularies={vocabularies}
+          onChanged={onChanged}
+        />
+      )}
+
       <Card>
         <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
           Declarations
@@ -303,12 +437,26 @@ export function Module1Panel({
           them. Marking one signed here is that human saying so.
         </p>
 
-        {profile !== null && required.length === 0 && (
+        {/* gap Phase 4c, found by driving an FDA project in a browser: the
+            card offered to sign and notarise documents FDA's package never
+            carries, and said only that requirements were "not modelled".
+            Whether a region files declarations at all is the server's to
+            say -- its Module 1 slots -- so that is what decides the note. */}
+        {profile !== null && !filesDeclarations ? (
           <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
-            This region&apos;s Module 1 requirements are not modelled yet — that
-            is not the same as nothing being required. Confirm them against
-            the agency&apos;s current guidance before filing.
+            This region&apos;s Module 1 has no place for these declarations, so
+            none of them is filed in its package. They stay on record for
+            filings to agencies that do ask for them.
           </p>
+        ) : (
+          profile !== null &&
+          required.length === 0 && (
+            <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+              This region&apos;s Module 1 requirements are not modelled yet — that
+              is not the same as nothing being required. Confirm them against
+              the agency&apos;s current guidance before filing.
+            </p>
+          )
         )}
 
         <ul className="space-y-2">

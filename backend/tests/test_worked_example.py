@@ -268,3 +268,73 @@ async def test_the_worked_example_produces_a_dtd_valid_ectd_backbone(db_factory)
         "m3-3-literature-references",
     ):
         assert element in index, element
+
+
+async def test_the_worked_example_as_an_fda_anda(db_factory):
+    """gap Phase 4c: the same complete dossier, published to FDA.
+
+    The EU test above proves Modules 2-5 against the ICH DTD. This one
+    proves the FDA half: us-regional.xml against FDA's DTD (M02), every
+    code in it against FDA's published lists (M13), and the whole package
+    through M01-M13 with no ERROR. The dossier is re-targeted by
+    `app.seed.fda.as_fda_original_application` -- an ANDA, because the
+    worked example is a multisource generic -- with identifiers chosen so a
+    seed can never be mistaken for a real application.
+    """
+    from app.ectd.build import build_ectd_sequence
+    from app.ectd.validate import run_mechanical_checks
+    from app.models import Sequence
+    from app.seed.fda import as_fda_original_application
+    from app.templating.instances import expand_sections
+    from app.validation.engine import Severity
+    from lxml import etree
+
+    async with db_factory() as db:
+        project = as_fda_original_application(build_amlodipine())
+        assert run_all(project).errors() == []
+        db.add(project)
+        await db.commit()
+
+        # FDA numbering starts at 0001 (RegionProfile.first_sequence_number).
+        sequence = Sequence(project_id=project.id, number="0001")
+        db.add(sequence)
+        await db.commit()
+
+        storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
+        attach_every_uploaded_leaf(project, storage)
+        result = await build_ectd_sequence(db, project, sequence, storage=storage)
+        expected = {instance.key for instance in expand_sections(project)}
+
+    with zipfile.ZipFile(io.BytesIO(storage.get(result.storage_key))) as zf:
+        assert zf.testzip() is None
+        files = {name: zf.read(name) for name in zf.namelist()}
+
+    findings = run_mechanical_checks(
+        "0001",
+        files,
+        prior_files={},
+        live_section_keys=set(result.operations),
+        expected_section_keys=expected,
+    )
+    blocking = [f for f in findings if f.severity is Severity.ERROR]
+    assert blocking == [], [f"{f.rule_id}: {f.message}" for f in blocking]
+
+    # No EU remnants, and FDA's Module 1 is where FDA looks for it.
+    assert not any("/m1/eu/" in name for name in files)
+    regional = etree.fromstring(files["0001/m1/us/us-regional.xml"])
+    number = regional.find(
+        "admin/application-set/application/application-information/application-number"
+    )
+    assert number.get("application-type") == "fdaat2"  # ANDA
+    headings = {leaf.getparent().tag for leaf in regional.iter("leaf")}
+    assert {
+        "m1-2-cover-letters",
+        "m1-14-1-1-draft-carton-and-container-labels",
+        "m1-14-1-3-draft-labeling-text",
+    } <= headings
+
+    # Modules 2-5 are the same ICH backbone whichever region files them.
+    index = files["0001/index.xml"].decode()
+    for element in ("m3-2-p-2-pharmaceutical-development", "m2-2-introduction"):
+        assert element in index, element
