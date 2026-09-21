@@ -59,4 +59,16 @@ class Applicant(Base):
     authorized_representative_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     authorized_representative_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
+    # gap Phase 4b: the nine-digit D-U-N-S number FDA's Module 1 backbone
+    # carries as the applicant's `id` "with every submission" (Module 1
+    # backbone spec v2.6, section III.A.1). On the APPLICANT, not the
+    # project: it identifies the legal entity, and FDA wants "the same
+    # D-U-N-S number ... for all submissions to an application".
+    #
+    # Nullable because only FDA asks for it -- rule R34 is what insists on
+    # it for an FDA filing. FDA's conformance guide allows 999999999 when a
+    # number cannot be obtained before submission; that is the filer's
+    # statement to make, so it is entered here and never defaulted.
+    duns_number: Mapped[str | None] = mapped_column(String(9), nullable=True)
+
     projects: Mapped[list["Project"]] = relationship(back_populates="applicant")

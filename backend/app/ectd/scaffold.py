@@ -26,26 +26,20 @@ from pathlib import Path
 
 _DTD_SOURCE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "reference" / "ectd_dtd"
 
-# WHY only the EU regional files are conditional (FDA has none yet): the
-# ICH-level util files are the same for every region -- only the regional
-# DTD/envelope/leaf modules and stylesheet differ.
+# The ICH-level util files are the same for every region; the regional DTD,
+# its modules and its stylesheet come from the region's entry in
+# app.ectd.backbone.REGIONAL_BACKBONES (gap Phase 4b) -- one table per
+# region rather than one here and another there that could disagree.
 _COMMON_UTIL_FILES = {
     "util/dtd/ich-ectd-3-2.dtd": "ich-ectd-3-2.dtd",
     "util/style/ectd-2-0.xsl": "ectd-2-0.xsl",
 }
-_EU_UTIL_FILES = {
-    "util/dtd/eu-regional.dtd": "eu-regional.dtd",
-    "util/dtd/eu-envelope.mod": "eu-envelope.mod",
-    "util/dtd/eu-leaf.mod": "eu-leaf.mod",
-    "util/style/eu-regional.xsl": "eu-regional.xsl",
-}
 
 
-def scaffold_files(region: str) -> dict[str, bytes]:
-    if region != "eu":
-        raise NotImplementedError(f"No util/dtd scaffold for region {region!r} yet (EU only)")
-
+def scaffold_files(regional_util_files: dict[str, str]) -> dict[str, bytes]:
+    """`{util path: bytes}` for one sequence: the ICH files plus
+    `regional_util_files` (util path -> file name in reference/ectd_dtd/)."""
     files: dict[str, bytes] = {}
-    for rel_path, source_name in {**_COMMON_UTIL_FILES, **_EU_UTIL_FILES}.items():
+    for rel_path, source_name in {**_COMMON_UTIL_FILES, **regional_util_files}.items():
         files[rel_path] = (_DTD_SOURCE_DIR / source_name).read_bytes()
     return files

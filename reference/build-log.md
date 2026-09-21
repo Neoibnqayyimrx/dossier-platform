@@ -31,6 +31,129 @@ Newest entry at the top.
 
 ---
 
+## Phase 4b — FDA, where the DTD checks almost nothing (2026-09-21)
+
+The second real backbone: `m1/us/us-regional.xml`, FDA's regional Module 1
+for eCTD v3.2.2, as ADR 0001 decided. Built against FDA's own files, now in
+`reference/ectd_dtd/`: `us-regional-v3-3.dtd` (required since 2022-03-01),
+its stylesheet, and seven code lists.
+
+### The first thing FDA's DTD taught: it will accept "banana"
+
+The EU DTD enumerates its vocabularies -- `submission-unit/@type` is a
+closed list, which is why P27 could assert our enum equal to it. FDA's DTD
+declares `application-type`, `submission-type`, `submission-sub-type`,
+`applicant-contact-type` and `telephone-number-type` all as bare CDATA. The
+legal values live in separate XML code lists FDA publishes and versions on
+their own, and the Module 1 spec says "only coded values with a status of
+'active' should be submitted". So DTD validation -- the guarantee the EU
+path leans on -- guarantees almost nothing about the admin block.
+
+Hence the code lists are vendored beside the DTD, every code the builder
+can write sits in one table (`CODES_IN_USE`), and a test checks each is
+present and active in FDA's file. Present-and-active is still not enough:
+fdaat1 and fdaat2 are both real, and swapping them files an ANDA as an NDA.
+So the application-type test checks MEANING, against FDA's display names.
+
+### The same reason makes the builder refuse, not default
+
+An empty `<id/>` is DTD-valid. So `us_regional.py` refuses to build without
+the D-U-N-S number, a contact, the six-digit application number and its
+type -- and rule R34 reports the same list on the readiness report, taken
+from the builder's own `missing_admin_data` so the two cannot disagree.
+Both, because R34 can be overridden with a logged reason, and an override
+must not produce a backbone with a blank application number in it.
+
+One nuance found in FDA's conformance guide (3.1.1): "If you are unable to
+acquire a DUNS number prior to submission, you may enter 999999999." That
+is an FDA-sanctioned value, but it is a statement the filer makes, not one
+the platform may make for them -- so R34's message tells them about it, and
+nothing ever enters it on their behalf.
+
+### Region is a table inside the v3.2.2 builder, not a class per region
+
+`BackboneBuilder` existed so P12 (eCTD v4.0) could be "a new builder". A
+`FDABackboneBuilder` beside `V322BackboneBuilder` would have fused two axes
+that vary independently -- spec version and region -- and P12 would then
+need a v4.0 class per region too. So `BackboneBuilder` stays the
+spec-version seam, and `REGIONAL_BACKBONES` in `backbone.py` is the region
+seam: one row per region with the regional file's path, its util files, its
+builder, and an optional pre-flight. Adding FDA was one row.
+
+The pre-flight exists because every FDA refusal (renewal, variation,
+missing identifiers, a second `initial` sequence) can be decided from data
+alone, and `build_ectd_sequence` used to discover a region's problems only
+after assembly -- minutes of LibreOffice. NAFDAC is now refused before
+assembly too, and with a reason: "NAFDAC takes CTD, not eCTD", pointing at
+the endpoint that builds the right package. "Not built yet" described a
+decided region as unfinished work.
+
+### 1.2.2: an absence that belongs to the region
+
+The placeability test (P24) requires every Module 1 section to have a slot
+in every region or be conditional. FDA has no registration form: the facts
+on it ARE the admin block of us-regional.xml, and the form FDA does want --
+Form FDA 356h -- is FDA's own PDF, which this platform may not render under
+FDA's name. Making 1.2.2 conditional would have removed it from EU packages,
+where it is filed. So the absence is declared by the region
+(`RegionProfile.absent_module1_sections`), and `expand_sections` honours it.
+
+### Judgement calls, stated
+
+- **SmPC -> draft labeling text (1.14.1.3).** The US has no SmPC; the
+  prescribing information is its counterpart, and FDA files it and the
+  patient labeling both as draft labeling text. Right heading, but our
+  template has SmPC layout, not the US PI's Highlights/FPI layout -- a US
+  reviewer would expect it restructured. Recorded in FDA_PROFILE.
+- **Transaction type.** The EU vocabulary on `Sequence` maps to FDA's
+  sub-types: `initial` -> application, `response`/`additional-info`/
+  `validation-response` -> amendment. The rest have no FDA counterpart and
+  are refused. Because every sequence DEFAULTS to `initial`, and FDA allows
+  one application per regulatory activity, a second `initial` sequence is
+  refused with the value to use instead -- the mistake a filer will
+  actually make.
+- **submission-id** is the project's first sequence: with only the original
+  application modelled, there is one regulatory activity, and FDA groups its
+  amendments under the sequence that started it.
+- **Header.** FDA's spec gives a fixed header whose DOCTYPE points at
+  accessdata.fda.gov; ICH lists the regional DTD in every sequence's
+  `util/dtd`. Both are done -- one says where the standard lives, the other
+  lets the package be checked offline.
+
+### Verified, not assumed
+
+FDA's DTD, unlike ICH's and the EU's, does not declare `xmlns:xlink` on
+`leaf` -- only on the root. `build_leaf_element` creates each leaf with its
+own xlink binding, which would be an undeclared attribute there. Prototyped
+against the real DTD before writing the module: lxml drops the redundant
+declaration when a leaf is appended under a root that already binds the
+same prefix to the same URI, and the document validates. Also checked: the
+header serialises in FDA's exact order (declaration, DOCTYPE, stylesheet PI,
+root).
+
+### A fixture trap, for the next person
+
+`build_examox()` defaults to `buggy=True` -- the rule-engine fixture with
+planted copy-paste defects. The first end-to-end FDA build failed with
+`AssemblyBlockedError` naming "NUFLOX" and "250 mg", which reads like an
+FDA problem and is not one. The EU tests pass `buggy=False` explicitly.
+
+### Where the files came from
+
+`www.fda.gov` blocks scripted downloads (Akamai returns 404 / an abuse page
+to curl), but every link on FDA's eCTD standards page points at
+`www.accessdata.fda.gov/static/eCTD/`, which serves directly. FDA's spec
+PDFs came through a browser-like fetch. The code lists carry their own
+version numbers; re-download them when FDA's standards table moves.
+
+### Not done, deliberately
+
+Validation of a BUILT FDA package (region-aware M02, and M13 for codes) is
+Phase 4c. Supplements, grouped submissions, an upload slot for FDA's own
+forms, and UI fields for the new identifiers are not in this phase.
+
+---
+
 ## Phase 4a — three spec deviations, found by reading the second region's spec (2026-09-21)
 
 Phase 4 builds the FDA backbone. Its research step read FDA's *eCTD

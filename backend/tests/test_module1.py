@@ -271,6 +271,11 @@ def test_every_module_1_section_is_placeable_in_every_region():
         for spec in module_1:
             if spec.number in placed:
                 continue
+            # gap Phase 4b: or the region declares it does not take this
+            # document at all (FDA has no 1.2.2 registration form), which
+            # `expand_sections` honours by never emitting it.
+            if spec.number in profile.absent_module1_sections:
+                continue
             # No slot here. That is fine ONLY if the section is conditional,
             # because a region with no applicability table (EU) then emits
             # nothing for it -- see app/templating/instances.py.
@@ -278,6 +283,33 @@ def test_every_module_1_section_is_placeable_in_every_region():
                 unplaceable.append((region.value, spec.number))
 
     assert not unplaceable, (
-        "Module 1 sections with no slot in a region and no only_when_applicable "
-        f"flag, so a build for that region raises: {sorted(unplaceable)}"
+        "Module 1 sections with no slot in a region, no only_when_applicable "
+        "flag and no absent_module1_sections entry, so a build for that region "
+        f"raises: {sorted(unplaceable)}"
     )
+
+
+def test_a_region_s_absent_sections_are_never_emitted_and_others_still_are():
+    """FDA declares 1.2.2 absent; the EU files it. The same product, two
+    regions, two answers -- which is why the absence belongs to the region."""
+    from app.models import Region
+    from app.seed.examox import build_examox
+    from app.templating.instances import expand_sections
+
+    project = build_examox()
+    project.region = Region.FDA
+    assert "1.2.2" not in {i.key for i in expand_sections(project)}
+
+    project.region = Region.EU
+    assert "1.2.2" in {i.key for i in expand_sections(project)}
+
+
+def test_absent_sections_are_module_1_numbers_that_exist():
+    """A typo here would silently absent nothing, so the declared numbers
+    must be real, registered Module 1 sections."""
+    from app.ctd.region_profiles import REGION_PROFILES
+    from app.templating.registry import SECTIONS
+
+    for profile in REGION_PROFILES.values():
+        for number in profile.absent_module1_sections:
+            assert number in SECTIONS and number.startswith("1."), (profile.region, number)

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import uuid
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from app.models.enums import Region, SubmissionType
+from app.models.enums import FDAApplicationType, Region, SubmissionType
 from app.schemas.applicant import ApplicantRead
 from app.schemas.base import ReadMixin
 from app.schemas.declaration import DeclarationRead
@@ -19,6 +19,12 @@ class ProjectBase(BaseModel):
     # the platform was built against, so every existing client keeps
     # working without sending a field it has never heard of.
     submission_type: SubmissionType = SubmissionType.MULTISOURCE_GENERIC
+    # gap Phase 4b: the agency-assigned application number and, for FDA,
+    # what kind of application it numbers. Free text here because the field
+    # is not FDA-specific; FDA's six-digit rule is R34's to enforce, where
+    # the message can say which agency wants what.
+    application_number: str | None = Field(default=None, max_length=40)
+    fda_application_type: FDAApplicationType | None = None
 
 
 class ProjectCreate(ProjectBase):
@@ -32,6 +38,8 @@ class ProjectUpdate(BaseModel):
     submission_type: SubmissionType | None = None
     product_id: uuid.UUID | None = None
     applicant_id: uuid.UUID | None = None
+    application_number: str | None = Field(default=None, max_length=40)
+    fda_application_type: FDAApplicationType | None = None
 
 
 class ProjectRead(ProjectBase, ReadMixin):

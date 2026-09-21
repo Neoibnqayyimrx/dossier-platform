@@ -16,7 +16,7 @@ from sqlalchemy import JSON, String, Text, ForeignKey, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
-from app.models.enums import Region, SubmissionType
+from app.models.enums import FDAApplicationType, Region, SubmissionType
 
 if TYPE_CHECKING:
     from app.models.applicant import Applicant
@@ -73,6 +73,22 @@ class Project(Base):
         ForeignKey("applicant.id"), nullable=True
     )
     applicant: Mapped["Applicant | None"] = relationship(back_populates="projects")
+
+    # gap Phase 4b: the agency-assigned application number, and for FDA
+    # which kind of application it numbers. FDA's backbone carries both on
+    # every sequence ("ANDA 123456" is `application-type="fdaat2"` +
+    # `123456`). The agency issues the number; this platform never makes
+    # one up, which is why rule R34 blocks an FDA export without it rather
+    # than the builder inventing a placeholder.
+    #
+    # WHY on Project for now: gap.md Phase 6 introduces an `Application`
+    # entity between Product and Project/Sequence, and it is the natural
+    # home for both. They live here until then, deliberately named so the
+    # Phase 6 migration is a move rather than a reinterpretation.
+    application_number: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    fda_application_type: Mapped[FDAApplicationType | None] = mapped_column(
+        SAEnum(FDAApplicationType), nullable=True
+    )
 
     def __init__(self, **kwargs) -> None:
         """Apply P17's defaults at CONSTRUCTION, not just at INSERT.

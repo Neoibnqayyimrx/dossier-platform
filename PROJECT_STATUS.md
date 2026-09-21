@@ -5,7 +5,7 @@
 
 > **Baseline caveat — read this first.** This audit describes committed state at **`8db99fe`**. While it was running, uncommitted "P25" work appeared in the working tree (a parallel session following `gap.md`) that already addresses several findings below: a `UniqueConstraint("project_id","number")` on `sequence` plus a retry loop in `create_sequence` (fixes 8.3 #6), a frontend CI job running eslint/vitest/build/Playwright (fixes 8.2), and a rewritten README Roadmap (fixes 8.3 #11). Those changes are **not** reflected in the findings below, which describe the committed baseline. The full backend test run below spanned that change, so treat its numbers as baseline-ish, not as a clean measurement of either tree.
 
-**Scope note up front:** this is a NAFDAC-first CTD platform with a working eCTD v3.2.2 backbone bolted on for **EU only**. The two facts most likely to be misread from the README are corrected in §4: (a) the eCTD XML backbone is real and DTD-validated, but `build_ectd_sequence` **raises `NotImplementedError` for any region except EU**; (b) NAFDAC — the default and primary region — ships as a folder-tree ZIP with a generated PDF table of contents and **no XML backbone at all**.
+**Scope note up front:** this is a NAFDAC-first CTD platform with a working eCTD v3.2.2 backbone bolted on for **EU only**. The two facts most likely to be misread from the README are corrected in §4: (a) the eCTD XML backbone is real and DTD-validated, but `build_ectd_sequence` **raises `NotImplementedError` for any region except EU** (**Phase 4b:** FDA now publishes too; NAFDAC is refused with a message saying it takes CTD); (b) NAFDAC — the default and primary region — ships as a folder-tree ZIP with a generated PDF table of contents and **no XML backbone at all**.
 
 ---
 
@@ -46,7 +46,7 @@ All models are SQLAlchemy 2.x declarative, one file per entity under [backend/ap
 ### 1.2 Entities that DO NOT exist
 
 - **Organization / Company / Tenant.** Multi-tenancy is a single `owner_id` FK to `user` on `Product` and `Applicant` ([product.py:65](backend/app/models/product.py#L65)). There is no org table, no team, no shared workspace.
-- **Application** (the regulatory application a submission belongs to). `Project` is the closest thing, and it is a *product + region + submission type*, not an application number. There is no field for an agency-assigned application/dossier number anywhere.
+- **Application** (the regulatory application a submission belongs to). `Project` is the closest thing, and it is a *product + region + submission type*, not an application number. ~~There is no field for an agency-assigned application/dossier number anywhere.~~ **Phase 4b:** `Project.application_number` and `Project.fda_application_type` now hold it (FDA's backbone needs both), with `Applicant.duns_number` beside them — on `Project` only until Phase 6's `Application` entity exists to receive them.
 - **Submission** as distinct from Sequence. `Sequence` is the only transaction entity.
 - **Document** as a first-class versioned entity. See §2.
 - **DocumentVersion.** Explicitly absent and documented as such: *"WHY there is no version history: replacing an upload overwrites it, both in this row and in object storage"* — [section_document.py:28](backend/app/models/section_document.py#L28).
@@ -112,7 +112,7 @@ For documents there is **no status field at all** — no draft/in-review/approve
 
 `POST /projects/{id}/build/ctd` → [`build_ctd_package`](backend/app/ctd/build.py#L58) produces a deterministic ZIP: every leaf PDF in its eCTD-style folder, plus a whole-package `toc.pdf` and per-module TOC leaves (1.1, 2.1, 3.1, 5.1) built **from the files actually placed**, not from the plan ([toc.py](backend/app/ctd/toc.py)).
 
-`POST /projects/{id}/build/ectd?sequence_id=…` → [`build_ectd_sequence`](backend/app/ectd/build.py#L98) — EU only (§4).
+`POST /projects/{id}/build/ectd?sequence_id=…` → [`build_ectd_sequence`](backend/app/ectd/build.py#L98) — ~~EU only~~ EU and FDA since Phase 4b (§4).
 
 There is **no CLI command to build a dossier.** The only CLI entry points are `run_demo.py`, `scripts/seed_demo.py`, `scripts/seed_kb.py`, `scripts/promote_admin.py`, `scripts/check_target_toc.py`, `scripts/make_section_templates.py` (§7). Building goes through HTTP.
 
@@ -146,13 +146,13 @@ A Next.js frontend exists (8 pages, 15 components — [frontend/src/](frontend/s
 | Leaf PDFs, one per section, never merged | **Works** | [`assemble_project`](backend/app/assembly/assemble.py) — one PDF per registered section instance |
 | PDF bookmarks | **Works, but one per document** | [`_normalize_pdf`](backend/app/assembly/pdf.py#L128) adds exactly one top-level outline item from the section title. There is **no multi-level bookmark tree inside a leaf**, and no cross-document bookmark/hyperlink generation. |
 | Generated table-of-contents PDFs | **Works** | [toc.py](backend/app/ctd/toc.py) — whole-package `toc.pdf` + leaves 1.1/2.1/3.1/5.1 |
-| `index.xml` (ICH eCTD 3.2.2 backbone) | **Works, EU only** | [`build_index_xml`](backend/app/ectd/index_xml.py#L700) — validates against `reference/ectd_dtd/ich-ectd-3-2.dtd` at build time and **raises** if invalid |
+| `index.xml` (ICH eCTD 3.2.2 backbone) | **Works, EU + FDA** (Phase 4b) | [`build_index_xml`](backend/app/ectd/index_xml.py#L700) — validates against `reference/ectd_dtd/ich-ectd-3-2.dtd` at build time and **raises** if invalid |
 | `index-md5.txt` | **Works** | [`index_md5_line`](backend/app/ectd/checksum.py#L28) — `md5sum`-format, two spaces |
 | `m1/eu/eu-regional.xml` | **Works, EU only** | [regional.py](backend/app/ectd/regional.py) — validates against `eu-regional.dtd` |
-| `util/dtd/` + `util/style/` scaffold | **Works, EU only** | [scaffold.py](backend/app/ectd/scaffold.py#L46) — raises `NotImplementedError` for any other region |
+| `util/dtd/` + `util/style/` scaffold | **Works, EU + FDA** | [scaffold.py](backend/app/ectd/scaffold.py) — the regional files come from the region's `REGIONAL_BACKBONES` entry (Phase 4b) |
 | **VNeeS** | **Not started** | zero occurrences in the codebase |
 | **HTML output** | **Not started** | zero occurrences |
-| FDA regional backbone (`us-regional.xml`) | **Not started** | [backbone.py:65](backend/app/ectd/backbone.py#L65) raises |
+| FDA regional backbone (`m1/us/us-regional.xml`) | **Works (Phase 4b)** — original application + amendments | [us_regional.py](backend/app/ectd/us_regional.py) — validates against FDA's `us-regional-v3-3.dtd`; every code it can write is tested against FDA's published code lists |
 | eCTD v4.0 / HL7 RPS | **Not started** | interface seam only (`BackboneBuilder` ABC) |
 
 ### 4.2 Is the XML backbone real?
@@ -168,7 +168,7 @@ Caveats, all self-documented:
 
 ### 4.3 Regulator-specific profile abstraction — real, but only two profiles and only half the stack
 
-`RegionProfile` ([region_profiles.py:252](backend/app/ctd/region_profiles.py#L252)) holds Module 1 slots, uploaded-document slots, required certificate/declaration types, 3.2.R contents, the BE acceptance window, the test-batch rule, and the applicability table. `NAFDAC_PROFILE` and `EU_PROFILE` are registered; `get_region_profile` raises on anything else. The builders never branch on region — they walk the profile.
+`RegionProfile` ([region_profiles.py:252](backend/app/ctd/region_profiles.py#L252)) holds Module 1 slots, uploaded-document slots, required certificate/declaration types, 3.2.R contents, the BE acceptance window, the test-batch rule, and the applicability table. `NAFDAC_PROFILE`, `EU_PROFILE` and (**Phase 4b**) `FDA_PROFILE` are registered; `get_region_profile` raises on anything else. The builders never branch on region — they walk the profile.
 
 **But:** the abstraction covers *content selection*, not *output format*. The moment you reach the backbone, region is a hard `if`:
 
@@ -178,6 +178,8 @@ if project.region != Region.EU:
 ```
 
 So NAFDAC logic is **not** hard-coded into the core — but eCTD publishing is EU-hard-coded, and NAFDAC is structurally unable to reach it. NAFDAC's path is the folder-tree CTD builder, which is correct for NAPAMS (no backbone required) but means the two regions exercise two different publishing pipelines.
+
+**Replaced in Phase 4b.** The `if` is gone. `V322BackboneBuilder` looks the region up in `REGIONAL_BACKBONES` ([backbone.py](backend/app/ectd/backbone.py)) — one row per region holding the regional file's path, its util files, its builder and an optional pre-flight check. `BackboneBuilder` stays the *spec-version* seam (P12's v4.0) and the table is the *region* seam, because the two vary independently. A region with no row raises `EctdNotSupportedError` with a reason: NAFDAC's says it takes CTD, and names the endpoint that builds it.
 
 ---
 
@@ -225,7 +227,7 @@ Registered by decorator in [rules.py](backend/app/validation/rules.py); engine a
 | R32 | WARNING | Every SmPC contraindication recognisable in the leaflet | regional business rule |
 | R33 | WARNING | Approved leaflet text meets the plain-language register | regional business rule |
 
-Only **R14** is region-scoped (`regions=[Region.NAFDAC]`); the other 32 run for every region. R31 is documented by its own author as *currently unable to fire* because all three documents render from one `shared_values` call — it is a regression guard, not an active check.
+Only **R14** is region-scoped (`regions=[Region.NAFDAC]`); the other 32 run for every region. **Phase 4b** adds **R34** (FDA admin data: D-U-N-S, contact, six-digit application number, application type — ERROR) and **R35** (FDA publishes original applications only — ERROR for a renewal or variation), both `regions=[Region.FDA]`. R31 is documented by its own author as *currently unable to fire* because all three documents render from one `shared_values` call — it is a regression guard, not an active check.
 
 ### 5.2 Layer 2 — mechanical eCTD checks (12), `source="mechanical-ectd"`
 
@@ -267,7 +269,7 @@ Re-validate the **built ZIP**, not the data ([validate.py](backend/app/ectd/vali
 
 ### 6.1 Sequence tracking — yes
 
-`Sequence` rows auto-number `0000`, `0001`, … server-side via `max()` ([projects.py:147](backend/app/api/routers/projects.py#L147)); the number is never client-supplied. **Updated (Phase 1):** that `max()`-then-insert was a race — two concurrent POSTs could both take the same number — and is now backed by a `UniqueConstraint("project_id", "number")` plus a bounded retry. Verified by reproducing the collision against real Postgres with the constraint removed. Each build persists a complete `SequenceLeaf` inventory (section_key, leaf_id, title, path, checksum, operation, modified_file), idempotently — a rebuild deletes and rewrites the rows.
+`Sequence` rows auto-number `0000`, `0001`, … server-side via `max()` ([projects.py:147](backend/app/api/routers/projects.py#L147)); the number is never client-supplied. **Phase 4b:** the first number is the region's (`RegionProfile.first_sequence_number`) — FDA's conformance guide says to "begin with sequence number 0001". **Updated (Phase 1):** that `max()`-then-insert was a race — two concurrent POSTs could both take the same number — and is now backed by a `UniqueConstraint("project_id", "number")` plus a bounded retry. Verified by reproducing the collision against real Postgres with the constraint removed. Each build persists a complete `SequenceLeaf` inventory (section_key, leaf_id, title, path, checksum, operation, modified_file), idempotently — a rebuild deletes and rewrites the rows.
 
 ### 6.2 Diffing between sequences — yes, by checksum, and it is the best-engineered part of the repo
 
@@ -377,7 +379,7 @@ Notably well-covered: eCTD build and lifecycle (16 tests), mechanical eCTD check
 
 2. **27 further test failures come from ambient environment, not from a fixture.** Tests that call `get_storage_client()` resolve storage from settings. The repo default is `memory` ([config.py:26](backend/app/core/config.py#L26)) but the **committed `.env` sets `STORAGE_PROVIDER=s3`**, so they fail with `EndpointConnectionError` against `localhost:9000` whenever MinIO is not running. Verified: the same files give 43 passed / 1 failed under `STORAGE_PROVIDER=memory`. CI never sets the variable, so it takes the `memory` default and has never seen this. Most of the suite injects an `InMemoryStorageClient` explicitly; these do not. Affects `test_artifacts_api`, `test_ctd_api`, `test_documents`, `test_ectd_api`, `test_module1_api`, `test_validation_api`.
 
-3. **eCTD build is impossible for NAFDAC.** `build_ectd_sequence` → `V322BackboneBuilder.build` raises `NotImplementedError` unless `project.region == Region.EU`; the router converts it to a 422 ([ectd.py:87](backend/app/api/routers/ectd.py#L87)). Both eCTD tests set `project.region = Region.EU` first. Given `Region.NAFDAC` is the default, **the default configuration cannot produce an eCTD sequence.**
+3. **eCTD build is impossible for NAFDAC.** *(Phase 4b: correct by design — ADR 0001 — and the 422 now says so instead of "not built yet".)* `build_ectd_sequence` → `V322BackboneBuilder.build` raises `NotImplementedError` unless `project.region == Region.EU`; the router converts it to a 422 ([ectd.py:87](backend/app/api/routers/ectd.py#L87)). Both eCTD tests set `project.region = Region.EU` first. Given `Region.NAFDAC` is the default, **the default configuration cannot produce an eCTD sequence.**
 
 4. **`delete` lifecycle operation is not golden-fixture tested** — stated in-code at [lifecycle.py:129](backend/app/ectd/lifecycle.py#L129).
 
@@ -424,16 +426,16 @@ Measured against LORENZ docuBridge / Extedo EXTEDOPHARMA capability sets.
 ### 9.3 Dossier / CTD workspace
 - No visual drag-and-drop dossier tree; the UI is a section list.
 - CTD structure is **hard-coded in three Python files**; adding a section is a code change, not configuration.
-- Only two submission types (`MULTISOURCE_GENERIC`, `NEW_CHEMICAL_ENTITY`) and two regions (NAFDAC, EU).
+- Only two submission types (`MULTISOURCE_GENERIC`, `NEW_CHEMICAL_ENTITY`) and ~~two~~ three regions (NAFDAC, EU, FDA since Phase 4b).
 - No reuse/copy of a dossier or a module between projects; no baseline/cloning.
 - No placeholder-vs-content status view per node beyond the section-status list.
 - No concurrent multi-user workspace, no per-section assignment or progress tracking.
 
 ### 9.4 Publishing engine
-- **No FDA (`us-regional.xml`) backbone.** No Health Canada, no Swissmedic, no ASEAN, no GCC, no Japan.
+- ~~**No FDA (`us-regional.xml`) backbone.**~~ **FDA built in Phase 4b** (original application + amendments; no supplements, no upload slot for FDA's own forms). No Health Canada, no Swissmedic, no ASEAN, no GCC, no Japan.
 - **No VNeeS** (EU veterinary), no NeeS, no HTML rendering.
 - **No eCTD v4.0 / HL7 RPS** — only an ABC seam.
-- **NAFDAC cannot produce an eCTD sequence at all** (raises).
+- **NAFDAC cannot produce an eCTD sequence at all** (raises) — by design, per ADR 0001; since Phase 4b the refusal says so.
 - EU envelope values (agency, procedure type, country) hard-coded; not modelled per project.
 - No STF (Study Tagging File) support for Modules 4/5.
 - No cross-document hyperlink or bookmark-tree publishing — one flat bookmark per leaf.
@@ -479,7 +481,7 @@ Upload works, is magic-byte checked, converts DOCX at ingest so the MD5 is settl
 
 ### 4. Publishing engine — **Functional (EU eCTD) / Functional (NAFDAC CTD) / Not started (everything else)**
 The EU eCTD path is real: [`build_index_xml`](backend/app/ectd/index_xml.py#L700) DTD-validates before returning, [`build_leaf_element`](backend/app/ectd/leaf.py#L74) refuses a non-`new` operation without `modified-file`, and `test_the_worked_example_produces_a_dtd_valid_ectd_backbone` builds the full amlodipine dossier and validates it against the shipped ICH DTD. Determinism is engineered, not assumed — pinned zip timestamps, pinned PDF `/CreationDate`, content-derived `/ID` ([pdf.py:128](backend/app/assembly/pdf.py#L128)).
-The rating stops at *Functional* because of a hard ceiling: [backbone.py:64](backend/app/ectd/backbone.py#L64) raises for every region except EU, so the platform's own default region **cannot publish eCTD at all**. No FDA, no VNeeS, no HTML, no v4.0.
+The rating stops at *Functional* because of a hard ceiling: [backbone.py:64](backend/app/ectd/backbone.py#L64) raises for every region except EU, so the platform's own default region **cannot publish eCTD at all**. No FDA, no VNeeS, no HTML, no v4.0. *(Phase 4b: FDA added; NAFDAC's refusal is now by design, per ADR 0001.)*
 
 ### 5. Validation engine — **Functional**
 45 checks actually run (33 data rules + 12 mechanical), each returning a message that names the offending values, with a four-level severity model whose `ADVISORY` tier is structurally incapable of gating an export ([engine.py:44](backend/app/validation/engine.py#L44)). The export gate is enforced in exactly one place — `AssemblyBlockedError` in [assemble.py](backend/app/assembly/assemble.py#L36) — which both builders inherit. Overrides are attributed, reasoned (≥20 chars), and withdrawable without destroying the original decision.
@@ -497,7 +499,7 @@ Not *Production-grade*: the entire filename-convention category is missing, ther
 | 1. Regulatory data model | **Functional** |
 | 2. Document management | **Prototype** |
 | 3. Dossier / CTD workspace | **Functional** |
-| 4. Publishing engine | **Functional (EU eCTD + NAFDAC CTD only)** |
+| 4. Publishing engine | **Functional (EU + FDA eCTD, NAFDAC CTD)** |
 | 5. Validation engine | **Functional** |
 | 6. Submission lifecycle management | **Prototype** |
 
@@ -748,3 +750,44 @@ sequence (`sequence_number_of`). Regression:
 real EU builds judged by the real validator. No migration —
 `SequenceLeaf.modified_file` now stores the target leaf ID, and old rows
 still read correctly.
+
+### Phase 4b — the FDA backbone
+
+The second real publishing backbone, per ADR 0001: **FDA, eCTD v3.2.2, US
+regional Module 1**. Full account in `reference/build-log.md`.
+
+**1. Regulatory data model** — three nullable columns (migration
+`a7d4c1f09e62`): `applicant.duns_number`, `project.application_number`,
+`project.fda_application_type` (NDA/ANDA/BLA). On `Project` only until gap
+Phase 6's `Application` entity exists to receive them. Nothing is backfilled
+and nothing is defaulted: the agency issues the number, and FDA's
+999999999 D-U-N-S allowance is the filer's statement to make.
+
+**3. Dossier / CTD workspace** — `FDA_PROFILE` registered: cover letter →
+FDA 1.2, SmPC and leaflet → 1.14.1.3 draft labeling text, labels → 1.14.1.1.
+No certificate or declaration slot (FDA's Module 1 has no heading for a CPP
+or a power of attorney). New `RegionProfile.absent_module1_sections`: FDA
+has no 1.2.2 registration form, and `expand_sections` never emits it — the
+absence is the region's statement, because the EU files that same section.
+
+**4. Publishing engine** — `m1/us/us-regional.xml`, built and validated
+against FDA's own `us-regional-v3-3.dtd`, with FDA's fixed header and the
+admin block (D-U-N-S, contact, application number/type, submission-id /
+sequence-number). The EU-only `if` in `backbone.py` is replaced by a region
+table; NAFDAC's refusal now names the CTD endpoint. FDA's DTD accepts any
+string where a code goes, so FDA's seven code lists are vendored in
+`reference/ectd_dtd/fda-code-lists/` and every code the builder can write
+is tested active — and, for application type, tested to MEAN what our enum
+says.
+
+**5. Validation engine** — R34 and R35 (FDA-only). The mechanical checks do
+not yet understand an FDA package (region-aware M02, M13 for codes): Phase 4c.
+
+**6. Submission lifecycle management** — FDA sequences start at 0001
+(`RegionProfile.first_sequence_number`). An FDA amendment's submission-id is
+the original application's sequence, which is how FDA's review tool groups
+them; a second `initial` sequence is refused with the value to use instead.
+
+**Deliberately not done:** supplements (CMC/labeling/efficacy), grouped
+submissions, an upload slot for FDA's own forms (356h, 3794, 3674), and UI
+fields for the FDA identifiers (API-only for now).

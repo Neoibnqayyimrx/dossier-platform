@@ -201,23 +201,26 @@ document beside an uploaded one.
 
 Everything this section used to list as "future" has shipped: the
 `/readiness` endpoint (`app/api/routers/validation.py`), `docxtpl` section
-rendering, eCTD v3.2.2 XML backbone generation for the EU region
-(`app/ectd/`), the advisory-only LLM reviewer (`app/ectd/ai_review.py`), and
-the frontend (Next.js, not TanStack as once planned). What is actually
-still ahead:
+rendering, eCTD v3.2.2 XML backbone generation for the EU region and — since
+gap Phase 4b — for FDA (`app/ectd/`; FDA's `us-regional-v3-3.dtd` and code
+lists are in `reference/ectd_dtd/`), the advisory-only LLM reviewer
+(`app/ectd/ai_review.py`), and the frontend (Next.js, not TanStack as once
+planned). NAFDAC deliberately gets no backbone: it requires CTD, not eCTD,
+and the folder-tree builder is already the right output for it — see
+`docs/decisions/0001-nafdac-format.md`. What is actually still ahead:
 
-- **A second publishing backbone — FDA.** `V322BackboneBuilder` raises
-  `NotImplementedError` for every region but EU, and `us-regional.xml` has
-  no builder. NAFDAC deliberately does *not* get one: it requires CTD, not
-  eCTD, and the folder-tree builder is already the right output for it — see
-  `docs/decisions/0001-nafdac-format.md`. Blocked on obtaining the US
-  regional DTD, without which the FDA path cannot self-validate the way the
-  EU path does.
+- **Finishing FDA.** The FDA backbone publishes an ANDA/NDA/BLA *original
+  application and its amendments*. Not yet: validating a built FDA package
+  with the mechanical checks (the region-aware DTD check and a check against
+  FDA's code lists — gap Phase 4c), supplements (CMC, labeling, efficacy),
+  an upload slot for FDA's own forms (356h, 3794), and fields in the web UI
+  for the FDA identifiers, which are API-only for now.
 - **Validation gaps.** No filename/path-convention rules (length limits,
   allowed characters, folder naming), and findings are JSON only — no
   human-readable report to hand a colleague.
 - **Organization and Application entities.** Ownership is per-user, and the
-  agency-assigned application number has nowhere to live.
+  agency-assigned application number lives on `Project` until an
+  `Application` entity exists to hold it.
 - **eCTD v4.0 (HL7 RPS).** Deliberately unbuilt; v3.2.2 remains valid at FDA
   and EMA. See `AGENTS.md` P12.
 

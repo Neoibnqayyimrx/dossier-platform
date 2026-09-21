@@ -14,6 +14,7 @@ import re
 from dataclasses import dataclass
 from datetime import date
 
+from app.ectd.us_regional import missing_admin_data, unsupported_reason
 from app.ctd.region_profiles import (
     REGION_PROFILES,
     Applicability,
@@ -2115,3 +2116,109 @@ def leaflet_reads_as_plain_language(project) -> list[Finding]:
         )
         for warning in check_patient_register(text)
     ]
+
+
+# ---- gap Phase 4b: FDA's Module 1 backbone ---------------------------------
+
+# FDA Module 1 backbone spec v2.6, III.B.1.a: "Provide the six (6)-digit
+# application number ... only numeric digits, including any leading zeros
+# ... without letters or dashes." And III.A.1: the D-U-N-S number is nine
+# digits. III.A.4: telephone and email are each "limited to 64 characters".
+_FDA_APPLICATION_NUMBER_RE = re.compile(r"^\d{6}$")
+_DUNS_RE = re.compile(r"^\d{9}$")
+_FDA_CONTACT_FIELD_MAX = 64
+
+
+@rule("R34", regions=[Region.FDA])
+def fda_admin_data_complete(project) -> list[Finding]:
+    """An FDA filing must carry what FDA's Module 1 backbone states on every
+    sequence: who applies (D-U-N-S number, a contact), for which application
+    (the number FDA issued, and its type). ERROR.
+
+    WHY an ERROR and not a WARNING: every one of these is written into the
+    admin block of us-regional.xml, and FDA's DTD accepts an empty or
+    malformed value there. Without this rule the platform would ship a
+    DTD-valid backbone with a blank application number -- the combination
+    Phase 3 recorded as the worst available. The list of what is missing is
+    the builder's own (`app.ectd.us_regional.missing_admin_data`), so this
+    finding and the builder's refusal cannot disagree.
+
+    FDA's conformance guide allows 999999999 as the D-U-N-S number when one
+    cannot be obtained before submission. That is the filer's statement to
+    make, so the message says it and the platform never enters it.
+    """
+    findings = [
+        Finding(
+            "R34",
+            Severity.ERROR,
+            "completeness",
+            f"FDA's Module 1 backbone needs {item}"
+            + (
+                " -- or 999999999 if one cannot be obtained before submission "
+                "(FDA eCTD Technical Conformance Guide, 3.1.1)"
+                if "D-U-N-S" in item
+                else ""
+            )
+            + ".",
+        )
+        for item in missing_admin_data(project)
+    ]
+
+    applicant = project.applicant
+    number = project.application_number
+    if number and not _FDA_APPLICATION_NUMBER_RE.match(number):
+        findings.append(
+            Finding(
+                "R34",
+                Severity.ERROR,
+                "completeness",
+                f"FDA application number {number!r} must be exactly six digits, leading "
+                f"zeros included, with no letters or dashes (e.g. ANDA 012345 -> '012345').",
+            )
+        )
+    if (
+        applicant is not None
+        and applicant.duns_number
+        and not _DUNS_RE.match(applicant.duns_number)
+    ):
+        findings.append(
+            Finding(
+                "R34",
+                Severity.ERROR,
+                "completeness",
+                f"D-U-N-S number {applicant.duns_number!r} must be exactly nine digits.",
+            )
+        )
+    if applicant is not None:
+        for label, value in (
+            ("telephone", applicant.contact_phone),
+            ("email", applicant.contact_email),
+        ):
+            if value and len(value) > _FDA_CONTACT_FIELD_MAX:
+                findings.append(
+                    Finding(
+                        "R34",
+                        Severity.ERROR,
+                        "completeness",
+                        f"The applicant contact {label} is {len(value)} characters; FDA's "
+                        f"backbone allows {_FDA_CONTACT_FIELD_MAX}.",
+                    )
+                )
+    return findings
+
+
+@rule("R35", regions=[Region.FDA])
+def fda_submission_is_publishable(project) -> list[Finding]:
+    """FDA publishing covers an original application and its amendments.
+    ERROR for a renewal (FDA has none) or a variation (a supplement, not
+    modelled yet).
+
+    WHY a rule when the builder refuses anyway: the builder's refusal
+    arrives when someone presses "build". This puts the same sentence on the
+    readiness report, where a filer looks before that -- and it is the
+    builder's own sentence (`app.ectd.us_regional.unsupported_reason`).
+    """
+    reason = unsupported_reason(project)
+    if reason is None:
+        return []
+    return [Finding("R35", Severity.ERROR, "applicability", reason)]

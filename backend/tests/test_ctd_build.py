@@ -67,7 +67,13 @@ def test_folder_for_section_rejects_unmapped_number():
         folder_for_section("9.9.9")
 
 
-def test_get_region_profile_rejects_unconfigured_region():
+def test_get_region_profile_rejects_unconfigured_region(monkeypatch):
+    # FDA used to be the example here. Since gap Phase 4b every Region has a
+    # profile, so an unconfigured one is made by removing it: the refusal is
+    # still what stops a builder guessing for a region nobody has modelled.
+    from app.ctd.region_profiles import REGION_PROFILES
+
+    monkeypatch.delitem(REGION_PROFILES, Region.FDA)
     with pytest.raises(KeyError):
         get_region_profile(Region.FDA)
 

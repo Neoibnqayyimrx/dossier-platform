@@ -31,6 +31,7 @@ from app.models.enums import (
     DosageForm,
     ExcipientFunction,
     ExcipientOrigin,
+    FDAApplicationType,
     GMPStatus,
     LegalStatus,
     ManufacturerRole,
@@ -69,6 +70,8 @@ _VOCABULARIES: dict[str, type[Enum]] = {
     # rather than a text field because both the SmPC and the leaflet print
     # them in band order, and an order needs a defined set.
     "adverse_event_frequency": AdverseEventFrequency,
+    # gap Phase 4b: which FDA application a project's number belongs to.
+    "fda_application_type": FDAApplicationType,
 }
 
 

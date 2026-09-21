@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, require_project_owner
 from app.api.loading import PROJECT_CHILD_OPTIONS
+from app.ctd.region_profiles import REGION_PROFILES
 from app.models import Applicant, Product, Project, Sequence, User
 from app.models.enums import ALLOWED_SEQUENCE_TRANSITIONS, SequenceStatus
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
@@ -156,6 +157,12 @@ async def create_sequence(
     regulator-facing identifier (that's why SequenceCreateRequest has no
     `number` field at all).
 
+    gap Phase 4b: where the count STARTS is the region's to say. FDA's
+    conformance guide says to "begin with sequence number 0001"; ICH's own
+    example, the EU and our NAFDAC packages start at 0000. Read from
+    `RegionProfile.first_sequence_number`, so the endpoint never asks which
+    agency it is talking to.
+
     WHY the retry loop: read-then-insert is not atomic. Two concurrent POSTs
     can both read max()=0002 and both try to write 0003. The unique
     constraint on (project_id, number) makes the database reject the loser,
@@ -165,13 +172,17 @@ async def create_sequence(
     Postgres (see tests/conftest.py), and a guarantee that only holds on one
     backend is not a guarantee.
     """
+    region = await db.scalar(select(Project.region).where(Project.id == project_id))
+    profile = REGION_PROFILES.get(region)
+    first_number = profile.first_sequence_number if profile is not None else "0000"
+
     for _ in range(_SEQUENCE_NUMBER_MAX_ATTEMPTS):
         # max(), not count(): stays correct even if a sequence is ever
         # removed, since the transaction id must never be reused.
         highest = await db.scalar(
             select(func.max(Sequence.number)).where(Sequence.project_id == project_id)
         )
-        next_number = f"{(int(highest) + 1) if highest is not None else 0:04d}"
+        next_number = f"{int(highest) + 1:04d}" if highest is not None else first_number
 
         sequence = Sequence(
             project_id=project_id,

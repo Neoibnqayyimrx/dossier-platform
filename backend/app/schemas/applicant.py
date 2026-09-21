@@ -9,9 +9,17 @@ spoof.
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Annotated
+
+from pydantic import BaseModel, Field
 
 from app.schemas.base import ReadMixin
+
+# gap Phase 4b: nine digits and nothing else -- D-U-N-S numbers have no
+# letters, dashes or spaces, and FDA's backbone wants the bare number. Checked
+# here, at the boundary, because a malformed one is a typing error with a
+# clear answer, not a regulatory judgement for the rule engine.
+DunsNumber = Annotated[str, Field(pattern=r"^\d{9}$")]
 
 
 class ApplicantBase(BaseModel):
@@ -23,6 +31,7 @@ class ApplicantBase(BaseModel):
     contact_phone: str | None = None
     authorized_representative_name: str | None = None
     authorized_representative_title: str | None = None
+    duns_number: DunsNumber | None = None
 
 
 class ApplicantCreate(ApplicantBase):
@@ -38,6 +47,7 @@ class ApplicantUpdate(BaseModel):
     contact_phone: str | None = None
     authorized_representative_name: str | None = None
     authorized_representative_title: str | None = None
+    duns_number: DunsNumber | None = None
 
 
 class ApplicantRead(ApplicantBase, ReadMixin):

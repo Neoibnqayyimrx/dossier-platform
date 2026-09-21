@@ -604,6 +604,25 @@ class SubmissionUnitType(str, enum.Enum):
     RE_EXAMINATION = "re-examination"
 
 
+class FDAApplicationType(str, enum.Enum):
+    """Which kind of FDA marketing application a filing belongs to (gap
+    Phase 4b) -- the `application-type` of FDA's Module 1 backbone.
+
+    Only the three marketing applications this platform can assemble a
+    dossier for. FDA's list (reference/ectd_dtd/fda-code-lists/
+    application-type.xml) also has IND, DMF, EUA and device types, which are
+    different kinds of file altogether rather than missing options.
+
+    The values are words, not FDA's codes (`fdaat2`): a code is a transport
+    detail of one backbone version, and `app.ectd.us_regional` maps these to
+    codes in one table that is tested against FDA's published list.
+    """
+
+    NDA = "nda"
+    ANDA = "anda"
+    BLA = "bla"
+
+
 class CorrespondenceDirection(str, enum.Enum):
     """Who sent it. INBOUND is from the agency, OUTBOUND is to it."""
 

@@ -32,7 +32,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
-from app.ctd.region_profiles import resolve_applicability
+from app.ctd.region_profiles import REGION_PROFILES, resolve_applicability
 from app.models.enums import ManufacturerRole, PackagingRole
 from app.templating.registry import SECTIONS, SectionSpec
 
@@ -233,9 +233,16 @@ def expand_sections(project: "Project") -> list[SectionInstance]:
     # consulted per section, rather than being implicit in which sections
     # happen to be registered.
     applicability = resolve_applicability(project)
+    # gap Phase 4b: Module 1 documents this region does not take at all --
+    # see RegionProfile.absent_module1_sections for why this is the
+    # region's statement rather than a property of the section.
+    profile = REGION_PROFILES.get(project.region)
+    absent = profile.absent_module1_sections if profile is not None else frozenset()
 
     instances: list[SectionInstance] = []
     for spec in SECTIONS.values():
+        if spec.number in absent:
+            continue
         if spec.is_statement:
             # A statement leaf exists only for a project that actually owes
             # the statement: the section is declared not applicable, or it

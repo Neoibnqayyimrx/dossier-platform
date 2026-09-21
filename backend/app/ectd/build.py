@@ -1,5 +1,5 @@
 """eCTD sequence builder (P09): orchestrates the ICH backbone
-(`app.ectd.index_xml`), EU regional backbone (`app.ectd.regional`),
+(`app.ectd.index_xml`), the region's regional backbone (`app.ectd.backbone`),
 lifecycle resolution (`app.ectd.lifecycle`), and packaging into one
 deterministic, DTD-valid `<sequence-number>/` zip -- the eCTD analog of
 P08's `app.ctd.build.build_ctd_package`.
@@ -28,9 +28,9 @@ from __future__ import annotations
 
 import io
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.assembly.assemble import assemble_project
@@ -38,7 +38,7 @@ from app.assembly.pdf import convert_docx_to_pdf
 from app.core.storage import StorageClient, get_storage_client
 from app.ctd.region_profiles import get_region_profile, satisfied_certificate_types
 from app.ctd.structure import folder_for_section_instance
-from app.ectd.backbone import V322BackboneBuilder
+from app.ectd.backbone import SequenceContext, V322BackboneBuilder, regional_backbone_for
 from app.ectd.checksum import md5_hex
 from app.ectd.leaf import Leaf
 from app.ectd.lifecycle import NewLeafInput, PriorLeaf, resolve_lifecycle
@@ -116,6 +116,20 @@ async def build_ectd_sequence(
     storage: StorageClient | None = None,
 ) -> EctdBuildResult:
     storage = storage or get_storage_client()
+    # gap Phase 4b: resolve the region's backbone FIRST. A region with none
+    # (NAFDAC, which takes CTD) or an FDA sequence missing its admin data is
+    # refused here, before assembly spends minutes rendering a package that
+    # could never be published.
+    regional = regional_backbone_for(project.region)
+    context = SequenceContext(
+        number=sequence.number,
+        submission_unit_type=sequence.submission_unit_type.value,
+        first_sequence_number=await db.scalar(
+            select(func.min(Sequence.number)).where(Sequence.project_id == project.id)
+        ),
+    )
+    if regional.preflight is not None:
+        regional.preflight(project, context)
     profile = get_region_profile(project.region)
 
     # ---- 1. Gather every candidate leaf for THIS build, keyed by a
@@ -231,17 +245,15 @@ async def build_ectd_sequence(
         if keys:
             regional_leaves_by_slot[slot.slot_id] = [lifecycle.backbone_leaves[k] for k in keys]
 
-    related_sequence_numbers = [prior_number] if prior_number else [sequence.number]
-
+    # The EU envelope's related-sequence, now that the prior sequence is
+    # known. (P27's transaction type has been in `context` since the top:
+    # the sequence says what kind of transaction it is, and the envelope
+    # reports it -- before P27 every sequence claimed "initial".)
+    context = replace(
+        context, related_sequence_numbers=(prior_number,) if prior_number else (sequence.number,)
+    )
     backbone = V322BackboneBuilder().build(
-        project,
-        sequence.number,
-        related_sequence_numbers,
-        lifecycle.backbone_leaves,
-        regional_leaves_by_slot,
-        # P27: the sequence says what kind of transaction it is; the
-        # envelope reports it. Previously every sequence claimed "initial".
-        sequence.submission_unit_type.value,
+        project, context, lifecycle.backbone_leaves, regional_leaves_by_slot
     )
 
     # ---- 4. Package: utility files + both backbones + only the leaves
@@ -251,7 +263,7 @@ async def build_ectd_sequence(
     prefix = sequence.number
     files: dict[str, bytes] = {}
 
-    for rel_path, data in scaffold_files("eu").items():
+    for rel_path, data in scaffold_files(regional.util_files).items():
         files[f"{prefix}/{rel_path}"] = data
 
     files[f"{prefix}/index.xml"] = backbone.index_xml

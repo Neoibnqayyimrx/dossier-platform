@@ -325,6 +325,29 @@ class RegionProfile:
     narrow_therapeutic_index_window: BioequivalenceWindow = NARROW_THERAPEUTIC_INDEX_BE_WINDOW
     test_batch_rule: TestBatchRule = DEFAULT_TEST_BATCH_RULE
 
+    # gap Phase 4b: the number a project's FIRST sequence takes. ICH's own
+    # worked example starts at 0000 and so do the EU and this platform's
+    # NAFDAC packages; FDA's technical conformance guide says to "begin
+    # with sequence number 0001", and its Module 1 spec that the number
+    # "should start at 0001". Config, not a branch in the sequence endpoint,
+    # for the reason this module exists.
+    first_sequence_number: str = "0000"
+
+    # gap Phase 4b: Module 1 sections this region does not ask for AT ALL,
+    # so `app.templating.instances.expand_sections` never emits them.
+    #
+    # WHY this is needed when `only_when_applicable` already exists: that
+    # flag hands the decision to an applicability table, and a region with
+    # no table (EU) then emits nothing -- which is wrong for a section the
+    # EU DOES file. 1.2.2 is the case: NAFDAC and the EU both file an
+    # application form there, and FDA has no such document. Its facts
+    # (who applies, for which application) are the admin block of
+    # us-regional.xml itself, and the form FDA does want -- Form FDA 356h --
+    # is FDA's own fillable PDF, not something this platform may render
+    # under FDA's name. So the absence belongs to the region, stated here,
+    # not to the section.
+    absent_module1_sections: frozenset[str] = frozenset()
+
     def window_for(self, product) -> BioequivalenceWindow:
         """Which window this product is judged against.
 
@@ -803,11 +826,69 @@ EU_PROFILE = RegionProfile(
     ],
 )
 
-# FDA is future work (P09 built EU first -- see the P09 build-log entry
-# for the scope call between FDA and EU).
+# gap Phase 4b: FDA Module 1, per FDA's us-regional-v3-3.dtd and its
+# Module 1 backbone specification v2.6 (reference/ectd_dtd/). As with the EU,
+# this profile says which documents FDA takes and where the files go; the
+# heading each one is filed under lives in `app.ectd.us_regional`, the one
+# module that has to know the DTD's shape.
+#
+# Deliberately narrow, and stated rather than papered over:
+#   - no certificate or declaration slot. FDA's Module 1 has no heading for
+#     a CPP, a GMP certificate or a power of attorney, and an ANDA does not
+#     ask for them; with no slot, the builders simply do not file them.
+#   - 1.2.2 is ABSENT (see `absent_module1_sections`).
+#   - no applicability table and no required certificate/declaration lists
+#     -- "not modelled", the same convention EU_PROFILE's empty lists use.
+#   - the forms FDA does require (356h, 3794, 3674) are FDA's own PDFs and
+#     have no slot yet: an upload path for them is future work.
+FDA_PROFILE = RegionProfile(
+    region=Region.FDA,
+    first_sequence_number="0001",
+    absent_module1_sections=frozenset({"1.2.2"}),
+    module1_slots=[
+        # m1-2-cover-letters (FDA section 1.2).
+        Module1Slot(
+            slot_id="cover-letter",
+            title="Cover Letter",
+            folder="m1/us/12-cover-letters",
+            section_number="1.0",
+        ),
+        # m1-14-1 draft labeling (FDA section 1.14.1). "Draft" because an
+        # original application proposes its labeling; final labeling
+        # (1.14.2) is what an approval produces.
+        #
+        # A JUDGEMENT CALL, stated: the US has no SmPC. The prescribing
+        # information is its counterpart -- the professional labeling -- and
+        # FDA files both it and the patient labeling as draft labeling text
+        # (1.14.1.3). Our 1.3.1 renders in SmPC layout, not the US PI's
+        # Highlights/Full Prescribing Information layout, so it is filed at
+        # the right heading with content that a US reviewer would expect to
+        # see restructured. The heading is right; the template is not yet.
+        Module1Slot(
+            slot_id="smpc",
+            title="Draft Labeling Text (Prescribing Information)",
+            folder="m1/us/114-labeling",
+            section_number="1.3.1",
+        ),
+        Module1Slot(
+            slot_id="labelling",
+            title="Draft Carton and Container Labels",
+            folder="m1/us/114-labeling",
+            section_number="1.3.2",
+        ),
+        Module1Slot(
+            slot_id="patient-information-leaflet",
+            title="Draft Labeling Text (Patient Labeling)",
+            folder="m1/us/114-labeling",
+            section_number="1.3.3",
+        ),
+    ],
+)
+
 REGION_PROFILES: dict[Region, RegionProfile] = {
     Region.NAFDAC: NAFDAC_PROFILE,
     Region.EU: EU_PROFILE,
+    Region.FDA: FDA_PROFILE,
 }
 
 
@@ -841,7 +922,7 @@ def resolve_applicability(project: "Project") -> dict[str, ResolvedApplicability
         # produce a package must fail loudly rather than emit a guess. This
         # function is also called by the validation rules, which run on every
         # project including one targeting a region nobody has modelled yet
-        # (FDA today). "No profile" and "an empty table" mean the same thing
+        # (FDA until gap Phase 4b). "No profile" and "an empty table" mean the same thing
         # to a reader of applicability: nothing is declared, so nothing is
         # claimed -- exactly what EU_PROFILE's empty table already says. An
         # unmodelled region must not make readiness crash.

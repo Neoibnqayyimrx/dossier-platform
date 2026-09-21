@@ -26,6 +26,27 @@ in-process via `lxml.etree.DTD`. `eu-regional.dtd` pulls in
 `eu-envelope.mod`/`eu-leaf.mod` via `SYSTEM` entity references — all three
 files must stay in this same directory for that resolution to work.
 
-**FDA is not covered.** P09 built the EU region only (Region.FDA is a valid
-enum member but has no `RegionProfile`/DTD yet) — see the P09 build-log
-entry for the scope call.
+## FDA (gap Phase 4b)
+
+Source: FDA's *eCTD Submission Standards for eCTD v3.2.2 and Regional M1*
+page, whose download links all point at `www.accessdata.fda.gov/static/eCTD/`
+(downloaded 2026-09-21). Unmodified copies, same reasoning as the EU set.
+
+| File | What it is | Version (per file header / FDA's standards table) |
+|---|---|---|
+| `us-regional-v3-3.dtd` | FDA regional backbone (`m1/us/us-regional.xml`). Self-contained -- no `.mod` files | 3.3; required since 2022-03-01 |
+| `us-regional.xsl` | FDA's stylesheet for `us-regional.xml` | 2.2 |
+| `fda-code-lists/*.xml` | The coded values FDA's backbone uses (`fdaat2` = ANDA, `fdast1` = Original Application, ...) | per file `version-number` / `AsOf` |
+
+WHY the code lists are vendored too, when the EU needed nothing similar:
+FDA's DTD declares almost every admin attribute as bare `CDATA`
+(`application-type`, `submission-type`, `submission-sub-type`, ...), so the
+DTD accepts ANY string there. What makes a value legal is its presence, with
+`status="active"`, in these lists -- "only coded values with a status of
+'active' should be submitted" (FDA's *eCTD Backbone Files Specification for
+Module 1*, v2.6, section I). `app/ectd/us_regional.py`'s code tables are
+tested against these files rather than trusted.
+
+The code lists change more often than the DTD (FDA publishes each one with
+its own version). Re-download and re-run the tests when FDA's standards page
+shows a newer version.
