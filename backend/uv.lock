@@ -644,6 +644,7 @@ dependencies = [
     { name = "python-multipart" },
     { name = "rdkit" },
     { name = "sqlalchemy" },
+    { name = "unoserver" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "voyageai" },
 ]
@@ -681,6 +682,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.12" },
     { name = "rdkit", specifier = ">=2024.3" },
     { name = "sqlalchemy", specifier = ">=2.0" },
+    { name = "unoserver", specifier = ">=3.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
     { name = "voyageai", specifier = ">=0.3" },
 ]
@@ -2653,6 +2655,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ba/19/1b9b0e29f30c6d35cb345486df41110984ea67ae69dddbc0e8a100999493/tzdata-2026.2.tar.gz", hash = "sha256:9173fde7d80d9018e02a662e168e5a2d04f87c41ea174b139fbef642eda62d10", size = 198254, upload-time = "2026-04-24T15:22:08.651Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ce/e4/dccd7f47c4b64213ac01ef921a1337ee6e30e8c6466046018326977efd95/tzdata-2026.2-py2.py3-none-any.whl", hash = "sha256:bbe9af844f658da81a5f95019480da3a89415801f6cc966806612cc7169bffe7", size = 349321, upload-time = "2026-04-24T15:22:05.876Z" },
+]
+
+[[package]]
+name = "unoserver"
+version = "3.7"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/7c/9250bf071eb9d0012998b774bbf5743a09c715ab5dfd50460c8ba09c2564/unoserver-3.7.tar.gz", hash = "sha256:b05f9578506ac7374ae1b314c3a79528636c542ac78220a9ce99110584ca424b", size = 115811, upload-time = "2026-06-10T13:34:23.785Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4f/1d/8cfa91f04d5865ed6d30e1375c22fed98694aafd6171b4979dd7f5f9b16d/unoserver-3.7-py3-none-any.whl", hash = "sha256:fc44e6808071c9d2957e705ecf1742cea8a582aa5d5cc23babf36bb332ec6e8e", size = 28559, upload-time = "2026-06-10T13:34:21.911Z" },
 ]
 
 [[package]]
