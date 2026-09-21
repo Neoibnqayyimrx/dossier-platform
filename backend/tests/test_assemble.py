@@ -18,6 +18,7 @@ from pypdf import PdfReader
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from app.ctd.naming import leaf_filename
 from app.assembly.assemble import AssemblyBlockedError, assemble_project
 from app.core.storage import InMemoryStorageClient
 from app.seed.documents import attach_certificate_documents
@@ -65,8 +66,13 @@ async def test_assembling_a_clean_project_covers_every_registered_section(db_fac
         sections = {entry.section for entry in manifest}
         assert sections >= {i.key for i in expand_sections(project)}
         assert "1.2.7" in sections  # the attached CPP, rendered by nobody
+        instances = {i.key: i for i in expand_sections(project)}
         for entry in manifest:
-            assert entry.filename == f"{entry.section}.pdf"
+            # gap Phase 5a: named in ICH characters after the section number
+            # (plus the spec's leaf suffix), the subject carried by the folder.
+            instance = instances.get(entry.section)
+            suffix = instance.spec.leaf_suffix if instance is not None else None
+            assert entry.filename == leaf_filename(entry.section_number, suffix)
             assert storage.get(entry.storage_path)  # actually stored, not just claimed
 
 

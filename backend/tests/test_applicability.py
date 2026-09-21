@@ -213,16 +213,16 @@ async def test_built_package_files_the_module_4_statement_in_m4(db_factory):
         paths = {f.path for f in result.manifest}
         zip_bytes = storage.get(result.storage_key)
 
-    assert "m4/40-not-applicable/4.0.pdf" in paths
-    assert "m2/24-nonclinical-overview/2.4.pdf" in paths
-    assert "m5/53-clinical-study-reports/532-pk-using-human-biomaterials/5.3.2.pdf" in paths
+    assert "m4/40-not-applicable/4-0.pdf" in paths
+    assert "m2/24-nonclinical-overview/2-4.pdf" in paths
+    assert "m5/53-clinical-study-reports/532-pk-using-human-biomaterials/5-3-2.pdf" in paths
 
     # READABLE, not merely present. A statement leaf that files an empty or
     # uncited page is the same failure as the empty folder it replaced, one
     # step further along -- so the assertion is on the words an assessor
     # would read, extracted from the PDF that actually ships.
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        pdf = zf.read("m4/40-not-applicable/4.0.pdf")
+        pdf = zf.read("m4/40-not-applicable/4-0.pdf")
     text = "".join(page.extract_text() for page in PdfReader(io.BytesIO(pdf)).pages)
     # PDF text extraction can re-wrap lines, so compare on unwrapped text --
     # the same handling tests/test_ctd_build.py already uses for the TOC.

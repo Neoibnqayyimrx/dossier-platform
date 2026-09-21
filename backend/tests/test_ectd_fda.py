@@ -408,7 +408,7 @@ async def test_an_fda_anda_builds_end_to_end(db_factory):
     # Nothing of the EU's, and nothing FDA's Module 1 has no heading for.
     assert not any("/m1/eu/" in n or "eu-regional" in n for n in names)
     assert not any("certificates" in n or "declarations" in n for n in names)
-    assert not any(n.endswith("/1.2.2.pdf") for n in names)
+    assert not any(n.endswith("/1-2-2.pdf") for n in names)
 
     index = etree.fromstring(files["0001/index.xml"])
     (m1_leaf,) = index.findall("m1-administrative-information-and-prescribing-information/leaf")

@@ -353,7 +353,7 @@ async def test_first_sequence_is_dtd_valid_and_places_every_document(db_factory)
             assert "0000/index-md5.txt" in names
             assert "0000/m1/eu/eu-regional.xml" in names
             assert "0000/util/dtd/ich-ectd-3-2.dtd" in names
-            assert "0000/m3/32-body-data/32p/32p1-description-and-composition/3.2.P.1.pdf" in names
+            assert "0000/m3/32-body-data/32p/32p1-description-and-composition/3-2-p-1.pdf" in names
             # index-md5.txt really is the MD5 of the index.xml bytes it ships alongside.
             index_md5 = zf.read("0000/index-md5.txt").decode()
             assert md5_hex(zf.read("0000/index.xml")) in index_md5
@@ -578,7 +578,7 @@ async def test_combination_product_gets_one_drug_substance_element_per_active(db
         # and the physical files are where the backbone says they are
         assert (
             "0000/m3/32-body-data/32s/32s-cloxacillin/32s4-control-of-drug-substance"
-            "/32s41-specification/3.2.S.4.1-cloxacillin.pdf" in names
+            "/32s41-specification/3-2-s-4-1.pdf" in names
         )
 
 

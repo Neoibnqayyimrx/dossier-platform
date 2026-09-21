@@ -115,7 +115,7 @@ async def test_tampering_with_the_stored_package_is_caught_and_blocks_export(db_
         with zipfile.ZipFile(io.BytesIO(original)) as zf:
             names = zf.namelist()
             contents = {n: zf.read(n) for n in names}
-        target = next(n for n in names if n.endswith("3.2.P.1.pdf"))
+        target = next(n for n in names if n.endswith("/3-2-p-1.pdf"))
         contents[target] += b"\x00corrupted"
 
         buffer = io.BytesIO()

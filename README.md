@@ -214,8 +214,7 @@ and the folder-tree builder is already the right output for it — see
   and FDA's published code lists (checks M02 and M13), and fully drivable
   from the web UI. Not yet: supplements (CMC, labeling, efficacy), and an
   upload slot for FDA's own forms (356h, 3794).
-- **Validation gaps.** No filename/path-convention rules (length limits,
-  allowed characters, folder naming), and findings are JSON only — no
+- **Validation gaps.** Findings are JSON only — no
   human-readable report to hand a colleague.
 - **Organization and Application entities.** Ownership is per-user, and the
   agency-assigned application number lives on `Project` until an

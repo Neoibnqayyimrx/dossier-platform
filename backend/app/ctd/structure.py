@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.ctd.naming import subject_folder_name
+
 MODULE_2_5_FOLDERS: dict[str, str] = {
     # P24d: 2.2 sits above the QOS, as it does in the CTD itself -- the
     # introduction orients a reader before the summaries begin.
@@ -287,7 +289,11 @@ def folder_for_section_instance(number: str, subject_slug: str | None) -> str:
         return folder_for_section(number)
     folders = _folders_for(number)
     tail = folders.tails[number]
-    parts = [folders.base, f"{folders.prefix}-{subject_slug}"]
+    # gap Phase 5a: the subject is abbreviated IN THE PATH only (see
+    # app.ctd.naming) -- a long excipient name took one path to 167
+    # characters, past FDA's 150. The slug itself, and so the instance key,
+    # is untouched.
+    parts = [folders.base, subject_folder_name(folders.prefix, subject_slug)]
     if tail:
         parts.append(tail)
     return "/".join(parts)

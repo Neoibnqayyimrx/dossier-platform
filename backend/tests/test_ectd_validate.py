@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import io
 
+import pytest
+
 from pypdf import PdfWriter
 
 from app.ectd.checksum import md5_hex
@@ -20,6 +22,7 @@ from app.ectd.validate import (
     check_fda_codes,
     check_href_resolution_and_orphans,
     check_lifecycle_integrity,
+    check_names_and_paths,
     check_pdf_specs,
     check_required_ctd_sections_present,
 )
@@ -440,3 +443,76 @@ def test_m13_rejects_a_code_fda_has_retired(monkeypatch):
 
 def test_m13_does_not_look_at_packages_that_are_not_fda():
     assert check_fda_codes("0000", {"0000/index.xml": _index_xml()}) == []
+
+
+# ---- gap Phase 5a: names and paths (M14-M16) --------------------------------
+
+
+def test_ich_names_pass_m14_to_m16():
+    files = {
+        "0000/index.xml": b"x",
+        "0000/util/dtd/ich-ectd-3-2.dtd": b"x",
+        "0000/m3/32-body-data/32p/32p1-description-and-composition/3-2-p-1.pdf": b"x",
+    }
+    assert check_names_and_paths("0000", files) == []
+
+
+@pytest.mark.parametrize(
+    "bad_path",
+    [
+        "0000/m3/32-body-data/3.2.P.1.pdf",  # full stop inside the name, uppercase
+        "0000/m3/Quality/x.pdf",  # uppercase folder
+        "0000/m3/part_a/x.pdf",  # underscore
+        "0000/m3/part a/x.pdf",  # space
+        "0000/m3/report",  # no extension
+        "0000/m3/report.tar.gz",  # two extensions
+    ],
+)
+def test_m14_names_each_way_ich_says_a_name_is_incorrect(bad_path):
+    """Every example here is one ICH v3.2.2 Appendix 2 lists as incorrect,
+    or follows directly from its definition of a name."""
+    findings = check_names_and_paths("0000", {bad_path: b"x"})
+    assert [f.rule_id for f in findings] == ["M14"]
+    assert findings[0].severity == Severity.ERROR
+
+
+def test_m15_catches_a_name_over_64_characters():
+    long_name = "a" * 61 + ".pdf"  # 65 with the extension
+    findings = check_names_and_paths("0000", {f"0000/m1/{long_name}": b"x"})
+    assert [f.rule_id for f in findings] == ["M15"]
+
+
+@pytest.mark.parametrize(
+    ("regional_file", "limit"),
+    [("m1/us/us-regional.xml", 150), ("m1/eu/eu-regional.xml", 180), (None, 230)],
+)
+def test_m16_applies_the_path_limit_of_the_package_s_own_region(regional_file, limit):
+    """FDA 150, EU 180, ICH's own 230 when the package has no regional file
+    this platform knows. The limit is found from the package, not passed in:
+    the checks judge what is in the zip."""
+
+    def files_with(path: str) -> dict[str, bytes]:
+        files = {path: b"x"}
+        if regional_file:
+            files[f"0000/{regional_file}"] = b"<x/>"
+        return files
+
+    # Built out of 60-character folders so M15 stays quiet and only the
+    # PATH length is under test.
+    def deep(length: int) -> str:
+        parts, remaining = ["0000"], length - len("0000")
+        while remaining > 65:
+            parts.append("f" * 60)
+            remaining -= 61
+        parts.append("a" * (remaining - 1 - len(".pdf")) + ".pdf")
+        return "/".join(parts)
+
+    at_limit, over = deep(limit), deep(limit + 1)
+    assert len(at_limit) == limit and len(over) == limit + 1
+    assert [
+        f for f in check_names_and_paths("0000", files_with(at_limit)) if f.rule_id == "M16"
+    ] == []
+    over_findings = [
+        f for f in check_names_and_paths("0000", files_with(over)) if f.rule_id == "M16"
+    ]
+    assert len(over_findings) == 1 and f"allows {limit}" in over_findings[0].message

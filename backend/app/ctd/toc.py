@@ -42,6 +42,7 @@ from dataclasses import dataclass
 from docx import Document
 from docx.oxml import OxmlElement
 
+from app.ctd.naming import leaf_filename
 from app.assembly.pdf import convert_docx_to_pdf
 from app.models.project import Project
 
@@ -124,7 +125,7 @@ class ModuleTocLeaf:
 
     @property
     def filename(self) -> str:
-        return f"{self.number}.pdf"
+        return leaf_filename(self.number)
 
     @property
     def path(self) -> str:

@@ -26,6 +26,7 @@ from app.assembly.assemble import assemble_project
 from app.assembly.pdf import convert_docx_to_pdf
 from app.core.storage import StorageClient, get_storage_client
 from app.ctd.region_profiles import get_region_profile, satisfied_certificate_types
+from app.ctd.naming import leaf_filename, placeholder_filename
 from app.ctd.structure import folder_for_section_instance
 from app.ctd.toc import MODULE_TOC_LEAVES, build_module_toc_pdf, build_toc_pdf
 from app.models.project import Project
@@ -95,7 +96,7 @@ async def build_ctd_package(
             )
         )
         path = f"{folder}/{leaf.filename}"
-        files[path] = storage.get(leaf.storage_path)
+        _place(files, path, storage.get(leaf.storage_path))
         titles[path] = leaf.title
 
     # P18: certificate types for which a real document has been attached.
@@ -118,9 +119,9 @@ async def build_ctd_package(
                 )
                 path = (
                     f"{slot.folder}/"
-                    f"{certificate.certificate_type.value.lower()}-{certificate.id}.pdf"
+                    f"{placeholder_filename(certificate.certificate_type.value, certificate.id)}"
                 )
-                files[path] = pdf_bytes
+                _place(files, path, pdf_bytes)
                 titles[path] = title
 
         if slot.declaration_types:
@@ -161,11 +162,13 @@ async def build_ctd_package(
                 # type, because two files cannot share a name; that is rare
                 # and the fallback is the old behaviour.
                 if leaf_number and per_type[declaration.declaration_type] == 1:
-                    filename = f"{leaf_number}.pdf"
+                    filename = leaf_filename(leaf_number)
                 else:
-                    filename = f"{declaration.declaration_type.value}-{declaration.id}.pdf"
+                    filename = placeholder_filename(
+                        declaration.declaration_type.value, declaration.id
+                    )
                 path = f"{slot.folder}/{filename}"
-                files[path] = pdf_bytes
+                _place(files, path, pdf_bytes)
                 titles[path] = title
 
     # P24: the per-module tables of contents (1.1, 2.1, 3.1, 5.1), built
@@ -208,6 +211,20 @@ async def build_ctd_package(
     storage.put(zip_key, zip_bytes, ZIP_CONTENT_TYPE)
 
     return CtdBuildResult(storage_key=zip_key, manifest=entries)
+
+
+def _place(files: dict[str, bytes], path: str, data: bytes) -> None:
+    """Put `data` at `path`, refusing a path that is already taken.
+
+    WHY (gap Phase 5a): a dict assignment would silently keep the LAST of two
+    documents that resolve to one path -- the package would be one document
+    short with nothing to say so. File names no longer carry the subject
+    (app.ctd.naming), so the folder is what keeps two subjects' leaves
+    apart; if that ever stops being true, this is where it shows.
+    """
+    if path in files:
+        raise ValueError(f"Two documents resolve to one package path: {path}")
+    files[path] = data
 
 
 def _zip_deterministic(files: dict[str, bytes]) -> bytes:

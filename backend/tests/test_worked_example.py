@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.core.storage import InMemoryStorageClient
+from app.ctd.naming import leaf_filename
 from app.ctd.build import build_ctd_package
 from app.ctd.region_profiles import resolve_applicability
 from app.ctd.toc import MODULE_TOC_LEAVES
@@ -51,24 +52,24 @@ async def db_factory():
 def _leaf_number_for(path: str) -> str | None:
     """The target leaf a placed file belongs to, or None.
 
-    Leaf filenames are INSTANCE keys -- "3.2.S.1-amlodipine",
-    "5.4-reference-list" -- so the number is recovered by trimming suffixes
-    until one matches the contract. Done here rather than by parsing on the
-    first hyphen because leaf numbers contain none and subject slugs do
-    ("magnesium-stearate").
+    Since gap Phase 5a a file is named after its section number in ICH
+    characters -- "3-2-p-4-1.pdf", "5-4-reference-list.pdf" -- with the
+    subject in its folder, not its name. So the stem is looked up against
+    the ICH spelling of every leaf number, trimming a trailing suffix until
+    one matches. The EXACT stem is tried first, which is what stops
+    "3-2-p-4-1" being trimmed to "3-2-p-4" and filed under 3.2.P.4.
     """
     if path == "toc.pdf":
         return None
-    base = path.rsplit("/", 1)[-1].removesuffix(".pdf")
-    if base in MODULE_TOC_LEAVES:
-        return base
-    known = {leaf.number for leaf in load_target_leaves()}
-    candidate = base
-    while candidate not in known:
+    stem = path.rsplit("/", 1)[-1].removesuffix(".pdf")
+    numbers = [leaf.number for leaf in load_target_leaves()] + list(MODULE_TOC_LEAVES)
+    by_stem = {leaf_filename(number).removesuffix(".pdf"): number for number in numbers}
+    candidate = stem
+    while candidate not in by_stem:
         if "-" not in candidate:
             return None
         candidate = candidate.rsplit("-", 1)[0]
-    return candidate
+    return by_stem[candidate]
 
 
 def test_the_worked_example_validates_clean():

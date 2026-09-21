@@ -30,14 +30,14 @@ from app.seed.examox import build_examox
 from app.validation.engine import run_all
 
 EXPECTED_PATHS = {
-    "m1/10-cover-letter/1.0.pdf",
+    "m1/10-cover-letter/1-0.pdf",
     # P24d renumbered this leaf: 1.2 is a HEADING, not a document, so the
     # Registration Form moved to 1.2.2. This constant kept the old number
     # and was the reason two tests here failed at HEAD.
-    "m1/12-administrative-information/1.2.2.pdf",
-    "m2/23-quality-overall-summary/2.3.pdf",
-    "m3/32-body-data/32p/32p1-description-and-composition/3.2.P.1.pdf",
-    "m3/32-body-data/32p/32p8-stability/32p81-stability-summary-and-conclusion/3.2.P.8.1.pdf",
+    "m1/12-administrative-information/1-2-2.pdf",
+    "m2/23-quality-overall-summary/2-3.pdf",
+    "m3/32-body-data/32p/32p1-description-and-composition/3-2-p-1.pdf",
+    "m3/32-body-data/32p/32p8-stability/32p81-stability-summary-and-conclusion/3-2-p-8-1.pdf",
     "toc.pdf",
     "manifest.json",
 }
@@ -110,14 +110,14 @@ async def test_package_places_every_document_in_its_correct_folder(db_factory):
         # documents above is what a finished filing has done. Both appearing
         # would be the bug: a page reading "PLACEHOLDER — REPLACE THIS FILE"
         # filed next to the certificate it was standing in for.
-        assert "m1/14-certificates/1.2.7.pdf" in paths
+        assert "m1/14-certificates/1-2-7.pdf" in paths
         assert not any(p.startswith("m1/14-certificates/cpp-") for p in paths)
         # Same P24d change as the CPP above, for the same reason: a
         # declaration is filed at its own leaf number rather than under a
         # slugged, UUID-suffixed filename, so an assessor looking for 1.2.4
         # finds it there (see region_profiles.py's DECLARATION_SLOTS).
-        assert "m1/15-declarations/1.2.4.pdf" in paths  # power of attorney
-        assert "m1/15-declarations/1.2.5.pdf" in paths  # declaration of authenticity
+        assert "m1/15-declarations/1-2-4.pdf" in paths  # power of attorney
+        assert "m1/15-declarations/1-2-5.pdf" in paths  # declaration of authenticity
         assert not any(p.startswith("m1/15-declarations/power-of-attorney-") for p in paths)
 
         zip_bytes = storage.get(result.storage_key)
@@ -256,7 +256,7 @@ async def test_a_combination_product_builds_end_to_end(db_factory):
 
         with zipfile.ZipFile(io.BytesIO(storage.get(result.storage_key))) as zf:
             assert zf.testzip() is None
-            qos = PdfReader(io.BytesIO(zf.read("m2/23-quality-overall-summary/2.3.pdf")))
+            qos = PdfReader(io.BytesIO(zf.read("m2/23-quality-overall-summary/2-3.pdf")))
             text = "\n".join(page.extract_text() for page in qos.pages)
 
         # both actives reach the assessor's page, each named -- the whole
@@ -336,7 +336,7 @@ async def test_module_toc_lists_not_applicable_statements(db_factory):
             reader = PdfReader(io.BytesIO(zf.read(MODULE_TOC_LEAVES["2.1"].path)))
             text = "".join(page.extract_text() for page in reader.pages).replace("\n", "")
 
-        for statement in ("2.4", "2.5", "2.6", "2.7"):
+        for statement in ("2-4", "2-5", "2-6", "2-7"):
             assert f"{statement}.pdf" in text
 
 

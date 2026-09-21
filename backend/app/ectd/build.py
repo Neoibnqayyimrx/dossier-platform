@@ -37,6 +37,7 @@ from app.assembly.assemble import assemble_project
 from app.assembly.pdf import convert_docx_to_pdf
 from app.core.storage import StorageClient, get_storage_client
 from app.ctd.region_profiles import get_region_profile, satisfied_certificate_types
+from app.ctd.naming import placeholder_filename
 from app.ctd.structure import folder_for_section_instance
 from app.ectd.backbone import SequenceContext, V322BackboneBuilder, regional_backbone_for
 from app.ectd.checksum import md5_hex
@@ -146,6 +147,7 @@ async def build_ectd_sequence(
 
     new_leaves: list[NewLeafInput] = []
     physical_bytes: dict[str, bytes] = {}
+    claimed_paths: dict[str, str] = {}
 
     for leaf in ctd_leaves:
         slot = module1_by_section.get(leaf.section)
@@ -163,6 +165,15 @@ async def build_ectd_sequence(
             )
         )
         path = f"{folder}/{leaf.filename}"
+        # gap Phase 5a: two leaves at one path would ship as one file, and
+        # the lifecycle would point two IDs at it. File names no longer carry
+        # the subject (app.ctd.naming), so refuse loudly if a folder ever
+        # stops keeping subjects apart.
+        if path in claimed_paths:
+            raise ValueError(
+                f"{leaf.section} and {claimed_paths[path]} resolve to one package path: {path}"
+            )
+        claimed_paths[path] = leaf.section
         data = storage.get(leaf.storage_path)
         new_leaves.append(
             NewLeafInput(section_key=leaf.section, title=leaf.title, path=path, checksum=leaf.md5)
@@ -181,7 +192,7 @@ async def build_ectd_sequence(
             result = render_certificate_placeholder(certificate, storage=storage)
             title = f"{certificate.certificate_type.value} certificate"
             pdf_bytes = convert_docx_to_pdf(storage.get(result.storage_key), bookmark_title=title)
-            filename = f"{certificate.certificate_type.value.lower()}-{certificate.id}.pdf"
+            filename = placeholder_filename(certificate.certificate_type.value, certificate.id)
             path = f"{certificate_slot.folder}/{filename}"
             new_leaves.append(
                 NewLeafInput(section_key=key, title=title, path=path, checksum=md5_hex(pdf_bytes))
@@ -196,7 +207,7 @@ async def build_ectd_sequence(
             result = render_declaration(declaration, project, storage=storage)
             title = declaration.declaration_type.value.replace("-", " ").title()
             pdf_bytes = convert_docx_to_pdf(storage.get(result.storage_key), bookmark_title=title)
-            filename = f"{declaration.declaration_type.value}-{declaration.id}.pdf"
+            filename = placeholder_filename(declaration.declaration_type.value, declaration.id)
             path = f"{declaration_slot.folder}/{filename}"
             new_leaves.append(
                 NewLeafInput(section_key=key, title=title, path=path, checksum=md5_hex(pdf_bytes))

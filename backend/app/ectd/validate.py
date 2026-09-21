@@ -42,6 +42,20 @@ _INFRA_PREFIXES = ("index.xml", "index-md5.txt", "util/")
 # by looking, not by being told the region -- they are pure functions over
 # the package's bytes, and the package is what is being judged.
 _REGIONAL_DTDS = {rb.relative_path: rb.dtd_path for rb in REGIONAL_BACKBONES.values()}
+_REGIONAL_PATH_LIMITS = {rb.relative_path: rb.max_path_length for rb in REGIONAL_BACKBONES.values()}
+
+# ---- gap Phase 5a: names and paths (M14-M16) ------------------------------
+#
+# ICH eCTD Specification v3.2.2, Appendix 2. Written out here from the spec,
+# NOT imported from app.ctd.naming, on purpose: that module is how the
+# BUILDER spells names, and a validator that reuses its author's code agrees
+# with the author by construction -- the Phase 4a lesson, where M09 checked
+# our own modified-file format and passed it for four phases.
+_ICH_NAME = r"[a-z0-9-]+"
+_ICH_FOLDER_NAME = re.compile(rf"^{_ICH_NAME}$")
+_ICH_FILE_NAME = re.compile(rf"^{_ICH_NAME}\.{_ICH_NAME}$")  # one name, one extension
+_ICH_NAME_MAX = 64
+_ICH_PATH_MAX = 230
 
 
 @dataclass(frozen=True)
@@ -388,6 +402,73 @@ def check_fda_codes(prefix: str, files: dict[str, bytes]) -> list[Finding]:
     return findings
 
 
+def check_names_and_paths(prefix: str, files: dict[str, bytes]) -> list[Finding]:
+    """M14-M16: every name in the package is an ICH name, none is longer
+    than 64 characters, and no path is longer than the region allows.
+
+    Every path is checked, util files included -- the gateway does not
+    exempt them, and neither does ICH. One finding per path per rule, so a
+    package built before gap Phase 5a (whose leaves were named "3.2.P.1.pdf")
+    reports exactly how many files a rename would touch.
+    """
+    limit = next(
+        (
+            path_limit
+            for rel_path, path_limit in _REGIONAL_PATH_LIMITS.items()
+            if f"{prefix}/{rel_path}" in files
+        ),
+        _ICH_PATH_MAX,
+    )
+    findings: list[Finding] = []
+    for path in sorted(files):
+        *folders, file_name = path.split("/")
+        bad = [name for name in folders if not _ICH_FOLDER_NAME.match(name)]
+        if not _ICH_FILE_NAME.match(file_name):
+            bad.append(file_name)
+        if bad:
+            findings.append(
+                Finding(
+                    rule_id="M14",
+                    severity=Severity.ERROR,
+                    category="naming",
+                    message=(
+                        f"{path}: {', '.join(repr(n) for n in bad)} -- ICH names use only "
+                        f"a-z, 0-9 and '-', and a file has exactly one extension "
+                        f"(ICH eCTD v3.2.2, Appendix 2)"
+                    ),
+                    source=SOURCE,
+                )
+            )
+        too_long = [name for name in path.split("/") if len(name) > _ICH_NAME_MAX]
+        if too_long:
+            findings.append(
+                Finding(
+                    rule_id="M15",
+                    severity=Severity.ERROR,
+                    category="naming",
+                    message=(
+                        f"{path}: {', '.join(repr(n) for n in too_long)} exceeds "
+                        f"{_ICH_NAME_MAX} characters (ICH eCTD v3.2.2, Appendix 2)"
+                    ),
+                    source=SOURCE,
+                )
+            )
+        if len(path) > limit:
+            findings.append(
+                Finding(
+                    rule_id="M16",
+                    severity=Severity.ERROR,
+                    category="naming",
+                    message=(
+                        f"{path} is {len(path)} characters; this region allows {limit}, "
+                        f"counted from the sequence folder"
+                    ),
+                    source=SOURCE,
+                )
+            )
+    return findings
+
+
 def check_required_ctd_sections_present(
     live_section_keys: set[str], expected_keys: set[str] | None = None
 ) -> list[Finding]:
@@ -430,4 +511,5 @@ def run_mechanical_checks(
     findings += check_pdf_specs(prefix, files)
     findings += check_required_ctd_sections_present(live_section_keys, expected_section_keys)
     findings += check_fda_codes(prefix, files)
+    findings += check_names_and_paths(prefix, files)
     return findings

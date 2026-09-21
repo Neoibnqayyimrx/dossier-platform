@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.assembly.pdf import convert_docx_to_pdf
 from app.core.storage import StorageClient, get_storage_client
+from app.ctd.naming import leaf_filename
 from app.models.project import Project
 from app.narrative.context import get_approved_narrative
 from app.templating.instances import expand_sections
@@ -125,7 +126,7 @@ async def assemble_project(
                     subject_slug=instance.subject_slug,
                     storage_path=document.storage_key,
                     md5=document.md5,
-                    filename=f"{instance.key}.pdf",
+                    filename=leaf_filename(instance.number, instance.spec.leaf_suffix),
                 )
             )
             continue
@@ -146,8 +147,12 @@ async def assemble_project(
 
         pdf_bytes = convert_docx_to_pdf(docx_bytes, bookmark_title=instance.title)
         md5 = hashlib.md5(pdf_bytes).hexdigest()
-        filename = f"{instance.key}.pdf"
-        pdf_key = f"projects/{project.id}/leaves/{filename}"
+        # gap Phase 5a: the STORAGE key keeps the full instance key, the
+        # package FILE NAME does not. Two excipients' 3.2.P.4.1 now ship as
+        # the same file name in two different folders -- and would overwrite
+        # each other here if storage were keyed by that name.
+        filename = leaf_filename(instance.number, instance.spec.leaf_suffix)
+        pdf_key = f"projects/{project.id}/leaves/{instance.key}.pdf"
         storage.put(pdf_key, pdf_bytes, PDF_CONTENT_TYPE)
 
         manifest.append(
@@ -176,7 +181,7 @@ async def assemble_project(
                 subject_slug=document.subject_slug or None,
                 storage_path=document.storage_key,
                 md5=document.md5,
-                filename=f"{document.instance_key}.pdf",
+                filename=leaf_filename(document.section_number),
             )
         )
 

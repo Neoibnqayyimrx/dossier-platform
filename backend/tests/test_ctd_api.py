@@ -35,7 +35,7 @@ async def test_build_ctd_returns_a_manifest_for_a_clean_project(auth_client, ses
     assert body["storage_key"] == f"projects/{project_id}/ctd-package.zip"
     paths = {f["path"] for f in body["files"]}
     assert "toc.pdf" in paths
-    assert "m1/10-cover-letter/1.0.pdf" in paths
+    assert "m1/10-cover-letter/1-0.pdf" in paths
     assert all(f["md5"] for f in body["files"])
 
 

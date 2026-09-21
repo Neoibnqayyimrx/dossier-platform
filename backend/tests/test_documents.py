@@ -17,6 +17,7 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
+from app.ctd.naming import leaf_filename
 from app.assembly.assemble import AssemblyBlockedError, assemble_project
 from app.core.storage import InMemoryStorageClient
 from app.ctd.build import build_ctd_package
@@ -200,7 +201,7 @@ async def test_the_manifest_md5_matches_the_bytes_actually_in_the_zip(db_factory
 
         zip_bytes = storage.get(result.storage_key)
 
-    entry = next(e for e in result.manifest if e.path.endswith(f"{CPP_LEAF}.pdf"))
+    entry = next(e for e in result.manifest if e.path.endswith(f"/{leaf_filename(CPP_LEAF)}"))
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         shipped = zf.read(entry.path)
 
@@ -221,7 +222,7 @@ async def test_an_attached_certificate_replaces_its_placeholder(db_factory):
         result = await build_ctd_package(db, project, storage=storage)
 
     paths = {entry.path for entry in result.manifest}
-    assert "m1/14-certificates/1.2.7.pdf" in paths
+    assert "m1/14-certificates/1-2-7.pdf" in paths
     assert not any(p.startswith("m1/14-certificates/cpp-") for p in paths)
 
 
@@ -312,7 +313,7 @@ async def test_an_uploaded_leaf_with_no_template_still_reaches_the_package(db_fa
     paths = {entry.path for entry in result.manifest}
     expected = (
         "m5/53-clinical-study-reports/531-biopharmaceutic-studies/"
-        "5312-comparative-ba-and-be/5.3.1.2.pdf"
+        "5312-comparative-ba-and-be/5-3-1-2.pdf"
     )
     assert expected in paths
 

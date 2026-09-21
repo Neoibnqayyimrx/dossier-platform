@@ -31,6 +31,105 @@ Newest entry at the top.
 
 ---
 
+## Phase 5a — file names: measure your own output before writing the rule (2026-09-21)
+
+gap.md asked for filename and path checks. The first thing done was not to
+write one, but to build the full amlodipine dossier for EU and FDA and hold
+every path against the rules -- because a check the platform's own output
+fails is a check that blocks every user on day one.
+
+### What ICH actually says, and what we were shipping
+
+ICH eCTD v3.2.2, Appendix 2: a name "is a token composed of" a-z, 0-9 and
+the hyphen; "Only lower case letters should be used"; a file name is one
+name, a full stop, one extension; at most 64 characters a name, 230 a path,
+with regions free to be stricter (FDA 150; EMA 180, counted from the
+sequence folder). The spec lists its incorrect examples explicitly --
+`myfile.xml` as a name, `part_a`, `Parta` -- which made the rule easy to
+write down without interpretation.
+
+Measured: 67 of 87 EU files were named `3.2.P.1.pdf`. That is two of ICH's
+listed errors in one name (a full stop inside it, uppercase `P`). Four
+placeholder names ran past 64 characters on a full UUID. One excipient
+path was 167 characters -- over FDA's 150 -- for a reason worth keeping:
+the subject appeared TWICE, in the per-subject folder and again in the file
+name (`excipient-anhydrous-dibasic-calcium-phosphate/.../3.2.P.4.1-anhydrous-
+dibasic-calcium-phosphate.pdf`).
+
+### Fix the output, then write the check
+
+All naming now lives in `app/ctd/naming.py` (three places had each spelled
+file names out for themselves). Three decisions in it:
+
+  - **The section number stays readable** (`3-2-p-1.pdf`). ICH's
+    Appendix 4 names are descriptive words, but optional, and the number is
+    what the platform, the target TOC and a filer navigate by.
+  - **The subject lives only in its folder.** That alone brought the worst
+    path from 167 to well under 150. Past 24 characters the subject is
+    abbreviated with a hash of the full name, so two excipients sharing a
+    long prefix cannot collapse into one folder. The 24 is not a spec
+    number: a test walks the real folder map with an absurd subject and
+    fails if any path could exceed FDA's 150. The constant is trusted
+    because that test exists, not because the arithmetic was done once.
+  - **The instance key is NOT renamed.** It is the lifecycle's section key
+    and an upload's storage key. Only its spelling in a path changed, so an
+    existing project's next sequence treats unchanged leaves as unchanged
+    (they keep their old paths in their old sequence) and changed ones as
+    ordinary replaces.
+
+A consequence caught while making the change, not after: with the subject
+gone from file names, two excipients' 3.2.P.4.1 share a FILE name in
+different folders -- and the rendered PDFs were stored under that file
+name, so the second would have overwritten the first in storage. Storage
+stays keyed by the full instance key. And both builders now refuse two
+leaves resolving to one package path, which a dict assignment had always
+resolved silently in favour of the last.
+
+### The checks do not import the builder's naming
+
+M14-M16 write the ICH rule out themselves. Reusing `app.ctd.naming` would
+have made the validator agree with the builder by construction -- the
+Phase 4a lesson, where M09 verified our own modified-file format for four
+phases. The path limit is regional config on `RegionalBackbone`, beside
+the DTD.
+
+### The file name had become an interface
+
+The first full run after the rename failed five tests that nothing in the
+change was about -- the worked example among them. All five read a section
+number BACK OUT of a file name: the worked example mapped every packaged
+file to its target leaf by trimming suffixes off `3.2.S.1-amlodipine`.
+The name was never documented as a contract, but it had become one. The
+parser now looks the stem up against the ICH spelling of every leaf number,
+exact match first (so `3-2-p-4-1` cannot be trimmed to `3-2-p-4`).
+
+### The LibreOffice count test, again -- now diagnosed further
+
+`test_shutting_down_a_listener_leaves_no_orphaned_libreoffice` failed in
+both full runs of this phase (and the first of 4a), passing alone every
+time. Not caused by the rename; recorded because it is now RECURRING, and
+a flake that recurs is a leak waiting to be found. What was learned:
+`shutdown()` sends SIGTERM to the process group, waits for unoserver, and
+escalates to SIGKILL only if unoserver itself will not die. But `oosplash`
+(LibreOffice's launcher) ignores SIGTERM -- observed in 4a -- so it
+outlives shutdown, orphaned to PID 1. This container's PID 1 is a shell
+that never reaps, so its dead `soffice.bin` child stays a zombie forever,
+and `_count_soffice` counts zombies. On a host with a reaping init (CI) the
+zombies vanish, which is why CI has not seen it. But even an ISOLATED run
+of test_pdf.py left one LIVE soffice.bin behind -- so there is a real leak
+under the environmental noise. Not fixed here (out of this phase's scope);
+put to the user as its own fix.
+
+### Stated, not hidden
+
+EU 180 comes from EMA's harmonised guidance as quoted by search; EMA's site
+refuses connections from this environment, so the document itself was not
+read. FDA's guide says "the entire path must not exceed 150 characters"
+without saying where counting starts; M16 counts from the sequence folder,
+as the EU states explicitly. Both are recorded where the numbers live.
+
+---
+
 ## Phase 4c — FDA validated, worked through, and driven in a browser (2026-09-21)
 
 The end of gap Phase 4. 4b built FDA's backbone; this phase makes the P10

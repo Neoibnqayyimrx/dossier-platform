@@ -66,6 +66,11 @@ class RegionalBackbone:
     # The DTD it must satisfy -- read by the builder before returning and,
     # since gap Phase 4c, by the mechanical check M02 on the built package.
     dtd_path: Path
+    # gap Phase 5a: the longest path this region accepts, counted from the
+    # first digit of the sequence folder (check M16). ICH v3.2.2 allows 230
+    # and tells applicants to "consult regional guidance for further
+    # restrictions" -- which is why it is a property of the region.
+    max_path_length: int
     # util/... path in the package -> file name in reference/ectd_dtd/.
     util_files: dict[str, str]
     build: Callable[[Project, SequenceContext, dict[str, list[Leaf]]], bytes] = field(repr=False)
@@ -78,6 +83,12 @@ REGIONAL_BACKBONES: dict[Region, RegionalBackbone] = {
     Region.EU: RegionalBackbone(
         relative_path=eu_regional.REGIONAL_XML_RELATIVE_PATH,
         dtd_path=eu_regional.DTD_PATH,
+        # EMA's harmonised eCTD guidance: the total path "must not exceed 180
+        # characters", counting from the first digit of the sequence number.
+        # Taken from EMA's guidance as quoted by search -- esubmission.ema.
+        # europa.eu refuses connections from this build environment, so the
+        # document itself was not read. Re-confirm when it can be.
+        max_path_length=180,
         util_files={
             "util/dtd/eu-regional.dtd": "eu-regional.dtd",
             "util/dtd/eu-envelope.mod": "eu-envelope.mod",
@@ -95,6 +106,11 @@ REGIONAL_BACKBONES: dict[Region, RegionalBackbone] = {
     Region.FDA: RegionalBackbone(
         relative_path=us_regional.REGIONAL_XML_RELATIVE_PATH,
         dtd_path=us_regional.DTD_PATH,
+        # FDA eCTD Technical Conformance Guide (v3.2.2), 2.4: "the length of
+        # the entire path must not exceed 150 characters". FDA does not say
+        # where counting starts; this counts from the sequence folder, as
+        # the EU states explicitly -- an assumption, recorded as one.
+        max_path_length=150,
         # ICH v3.2.2 Table 6-2 lists us-regional-vx-x.dtd in every
         # sequence's util/dtd, even though FDA's own header points the
         # DOCTYPE at accessdata.fda.gov -- see app.ectd.us_regional.

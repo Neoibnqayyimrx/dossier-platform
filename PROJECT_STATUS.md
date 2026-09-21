@@ -229,7 +229,7 @@ Registered by decorator in [rules.py](backend/app/validation/rules.py); engine a
 
 Only **R14** is region-scoped (`regions=[Region.NAFDAC]`); the other 32 run for every region. **Phase 4b** adds **R34** (FDA admin data: D-U-N-S, contact, six-digit application number, application type — ERROR) and **R35** (FDA publishes original applications only — ERROR for a renewal or variation), both `regions=[Region.FDA]`. R31 is documented by its own author as *currently unable to fire* because all three documents render from one `shared_values` call — it is a regression guard, not an active check.
 
-### 5.2 Layer 2 — mechanical eCTD checks (~~12~~ 13), `source="mechanical-ectd"`
+### 5.2 Layer 2 — mechanical eCTD checks (~~12~~ ~~13~~ 16), `source="mechanical-ectd"`
 
 Re-validate the **built ZIP**, not the data ([validate.py](backend/app/ectd/validate.py)). Pure functions over `{path: bytes}`.
 
@@ -248,8 +248,11 @@ Re-validate the **built ZIP**, not the data ([validate.py](backend/app/ectd/vali
 | M11 | WARNING | PDF page 1 has extractable text (proxy for "not a scan") | structural/file |
 | M12 | ERROR | Every expanded section instance has appeared live in some sequence | structural/completeness |
 | M13 | ERROR | **Phase 4c.** Every code in `us-regional.xml` is "active" in FDA's published code lists — the check FDA's DTD cannot make, since it types those attributes as CDATA | FDA code conformance |
+| M14 | ERROR | **Phase 5a.** Every folder and file name is an ICH name: `a-z`, `0-9`, `-` only, one extension (ICH v3.2.2 Appendix 2) | naming |
+| M15 | ERROR | **Phase 5a.** No folder or file name exceeds 64 characters | naming |
+| M16 | ERROR | **Phase 5a.** No path exceeds the region's limit, counted from the sequence folder: FDA 150, EU 180, ICH's own 230 otherwise | naming |
 
-**Documented gap, not a silent skip:** font embedding is not checked ([validate.py:249](backend/app/ectd/validate.py#L249)). There are also **no filename-convention checks** — no path-length limit, no character-set restriction, no folder-naming validation. That entire category is absent.
+**Documented gap, not a silent skip:** font embedding is not checked ([validate.py:249](backend/app/ectd/validate.py#L249)). ~~There are also **no filename-convention checks** — no path-length limit, no character-set restriction, no folder-naming validation. That entire category is absent.~~ **Closed in Phase 5a** (M14–M16).
 
 ### 5.3 Layer 3 — external validator + AI reviewer
 
@@ -445,7 +448,7 @@ Measured against LORENZ docuBridge / Extedo EXTEDOPHARMA capability sets.
 - No publishing job queue, progress reporting, or cancellation — builds are synchronous HTTP requests that shell out to LibreOffice per document.
 
 ### 9.5 Validation engine
-- **No filename/path convention checks whatsoever** — no path-length limit, no character restrictions, no folder-name validation. This is a standard eCTD validation category and it is entirely absent.
+- ~~**No filename/path convention checks whatsoever**~~ **Closed in Phase 5a:** M14–M16 check ICH characters, 64-character names and the region's path limit — and the builder's own names were fixed first, because two thirds of every package broke the rule.
 - No agency validation-criteria packs (FDA/EMA published criteria, versioned, selectable per region) — 33 hand-written rules instead.
 - **No real external validator.** `NullExternalValidator` is the only implementation; it exists to say nothing ran.
 - No PDF technical validation: version, PDF/A, font embedding, security settings beyond encryption, page size, image resolution, bookmark presence.
@@ -832,4 +835,33 @@ number: the Build tab retries the sequence it created rather than making
 another -- within the page. An unbuilt sequence from an earlier visit is
 still on file, because nothing records that a sequence was built (Phase 3's
 deferred auto-BUILT).
+
+### Phase 5a — ICH file names, and the checks that hold them
+
+**4. Publishing engine — every package the platform built was
+non-conformant.** Measured before any check was written: in the full
+amlodipine dossier, 67 of 87 EU files (66 of 73 FDA) were named after their
+section number (`3.2.P.1.pdf`), which ICH v3.2.2 Appendix 2 lists as
+incorrect twice over (a full stop inside a name, uppercase). Four
+certificate and declaration names exceeded 64 characters on a full UUID,
+and one excipient path reached 167 characters against FDA's 150, because
+the subject appeared twice (folder and file name). Names now come from one
+module, `app/ctd/naming.py`: `3-2-p-1.pdf`, the subject only in its folder
+(abbreviated with a hash past 24 characters), placeholders as type plus an
+8-character id. The instance KEY -- lifecycle section key, upload storage
+key -- is unchanged, so existing projects' lifecycles are unaffected: an
+unchanged leaf keeps its old path in its old sequence; a changed one is
+filed under the new name with an ordinary replace. Both builders now refuse
+two leaves at one path instead of silently keeping the last.
+
+**5. Validation engine** — M14 (ICH characters, one extension), M15
+(64-character names), M16 (the region's path limit, carried on the
+region's `RegionalBackbone` beside its DTD: FDA 150 from its conformance
+guide, EU 180 from EMA's harmonised guidance as quoted -- EMA's site is
+unreachable from the build environment -- and ICH's 230 otherwise). The
+checks spell the ICH rule out themselves rather than import the builder's
+naming code, so they cannot agree with it by construction. A structural
+test walks the real folder map with an absurdly long subject and proves
+every path fits FDA's 150; `SUBJECT_MAX_LENGTH` is trusted only because of
+it.
 
