@@ -132,7 +132,7 @@ def test_lifecycle_integrity_catches_a_missing_prior_sequence():
         "m3/x.pdf",
         "a" * 32,
         operation="replace",
-        modified_file=f"../0000/m3/x.pdf#{leaf_id_for('3.2.P.1', '0000')}",
+        modified_file=f"../0000/index.xml#{leaf_id_for('3.2.P.1', '0000')}",
     )
     files = {"0001/index.xml": _index_xml(leaf), "0001/m3/x.pdf": b"data"}
     findings = check_lifecycle_integrity("0001", files, prior_files={})
@@ -145,7 +145,7 @@ def test_lifecycle_integrity_catches_a_modified_file_pointing_at_no_real_leaf():
         "m3/x.pdf",
         "a" * 32,
         operation="replace",
-        modified_file="../0000/m3/x.pdf#ID-does-not-exist",
+        modified_file="../0000/index.xml#ID-does-not-exist",
     )
     files = {"0001/index.xml": _index_xml(leaf), "0001/m3/x.pdf": b"data"}
     prior_files = {"0000": {"0000/index.xml": _index_xml(), "0000/m3/x.pdf": b"data"}}
@@ -160,11 +160,150 @@ def test_lifecycle_integrity_passes_a_real_replace_chain():
         "m3/x.pdf",
         md5_hex(b"new"),
         operation="replace",
-        modified_file=f"../0000/m3/x.pdf#{leaf_id_for('3.2.P.1', '0000')}",
+        modified_file=f"../0000/index.xml#{leaf_id_for('3.2.P.1', '0000')}",
     )
     prior_files = {"0000": {"0000/index.xml": _index_xml(prior_leaf), "0000/m3/x.pdf": b"old"}}
     files = {"0001/index.xml": _index_xml(new_leaf), "0001/m3/x.pdf": b"new"}
     assert check_lifecycle_integrity("0001", files, prior_files) == []
+
+
+def _regional_xml(*leaves_xml: str) -> bytes:
+    """Just enough of an eu-regional.xml for the path checks, which read
+    leaves, not structure (M02 is the check that reads structure)."""
+    return (
+        f'<eu:eu-backbone xmlns:eu="http://europa.eu.int"><m1-eu><m1-0-cover>'
+        f'<specific country="common">{"".join(leaves_xml)}</specific>'
+        f"</m1-0-cover></m1-eu></eu:eu-backbone>"
+    ).encode()
+
+
+def _index_listing_regional(sequence: str, regional: bytes) -> bytes:
+    """An index.xml whose only leaf is the regional backbone -- the shape
+    every built sequence has had since gap Phase 4a."""
+    leaf = _leaf_xml(
+        leaf_id_for("regional-backbone", sequence), "m1/eu/eu-regional.xml", md5_hex(regional)
+    )
+    return (
+        f'<ectd:ectd xmlns:ectd="http://www.ich.org/ectd" dtd-version="3.2">'
+        f"<m1-administrative-information-and-prescribing-information>{leaf}"
+        f"</m1-administrative-information-and-prescribing-information></ectd:ectd>"
+    ).encode()
+
+
+def test_lifecycle_integrity_rejects_the_pre_4a_document_path_form():
+    """Before gap Phase 4a, modified-file named the earlier PDF. ICH v3.2.2
+    says it "points to the index.xml file and the leaf ID"; the old form is
+    now reported as what it is, rather than accepted because it was ours."""
+    prior_leaf = _leaf_xml(leaf_id_for("3.2.P.1", "0000"), "m3/x.pdf", md5_hex(b"old"))
+    new_leaf = _leaf_xml(
+        leaf_id_for("3.2.P.1", "0001"),
+        "m3/x.pdf",
+        md5_hex(b"new"),
+        operation="replace",
+        modified_file=f"../0000/m3/x.pdf#{leaf_id_for('3.2.P.1', '0000')}",
+    )
+    prior_files = {"0000": {"0000/index.xml": _index_xml(prior_leaf), "0000/m3/x.pdf": b"old"}}
+    files = {"0001/index.xml": _index_xml(new_leaf), "0001/m3/x.pdf": b"new"}
+    findings = check_lifecycle_integrity("0001", files, prior_files)
+    assert [f.rule_id for f in findings] == ["M07"]
+
+
+def test_lifecycle_integrity_passes_a_regional_replace_chain():
+    """A Module 1 leaf lives in the regional backbone, two folders down, so
+    both its href and its modified-file are written from m1/eu/."""
+    old_id = leaf_id_for("1.0", "0000")
+    prior = {
+        "0000/m1/eu/eu-regional.xml": _regional_xml(
+            _leaf_xml(old_id, "10-cover/1.0.pdf", md5_hex(b"old"))
+        ),
+        "0000/m1/eu/10-cover/1.0.pdf": b"old",
+    }
+    regional = _regional_xml(
+        _leaf_xml(
+            leaf_id_for("1.0", "0001"),
+            "10-cover/1.0.pdf",
+            md5_hex(b"new"),
+            operation="replace",
+            modified_file=f"../../../0000/m1/eu/eu-regional.xml#{old_id}",
+        )
+    )
+    files = {
+        # index.xml lists the regional file, as every built sequence's does
+        # since gap Phase 4a -- without it M06 would (rightly) call it an orphan.
+        "0001/index.xml": _index_listing_regional("0001", regional),
+        "0001/m1/eu/eu-regional.xml": regional,
+        "0001/m1/eu/10-cover/1.0.pdf": b"new",
+    }
+    assert check_lifecycle_integrity("0001", files, {"0000": prior}) == []
+    assert check_href_resolution_and_orphans("0001", files) == []
+    assert check_checksum_integrity("0001", files) == []
+
+
+def test_lifecycle_integrity_catches_a_leaf_modifying_a_different_backbone():
+    """The earlier leaf exists -- but in index.xml, and this leaf is in the
+    regional file. ICH has a replacement submitted "in the same location in
+    the backbone" as what it replaces."""
+    old_id = leaf_id_for("1.0", "0000")
+    prior = {"0000/index.xml": _index_xml(_leaf_xml(old_id, "m3/x.pdf", md5_hex(b"x")))}
+    files = {
+        "0001/m1/eu/eu-regional.xml": _regional_xml(
+            _leaf_xml(
+                leaf_id_for("1.0", "0001"),
+                "10-cover/1.0.pdf",
+                md5_hex(b"new"),
+                operation="replace",
+                modified_file=f"../../../0000/index.xml#{old_id}",
+            )
+        ),
+        "0001/m1/eu/10-cover/1.0.pdf": b"new",
+    }
+    findings = check_lifecycle_integrity("0001", files, {"0000": prior})
+    assert [f.rule_id for f in findings] == ["M09"]
+
+
+def test_a_regional_href_is_read_from_the_regional_folder_not_the_sequence_root():
+    """The same href string, read the old way (from the sequence root),
+    names a file that is not there."""
+    regional = _regional_xml(
+        _leaf_xml(leaf_id_for("1.0", "0000"), "m1/eu/10-cover/1.0.pdf", md5_hex(b"x"))
+    )
+    files = {
+        "0000/index.xml": _index_listing_regional("0000", regional),
+        "0000/m1/eu/eu-regional.xml": regional,
+        "0000/m1/eu/10-cover/1.0.pdf": b"x",
+    }
+    rule_ids = [f.rule_id for f in check_href_resolution_and_orphans("0000", files)]
+    # Resolved from m1/eu/ that is m1/eu/m1/eu/10-cover/1.0.pdf: dangling,
+    # and the real file is left unreferenced.
+    assert sorted(rule_ids) == ["M05", "M06"]
+
+
+def test_a_delete_leaf_carries_no_file_and_is_not_a_dangling_reference():
+    old_id = leaf_id_for("3.2.P.1", "0000")
+    delete = (
+        f'<leaf xmlns:xlink="{XLINK_NS}" ID="{leaf_id_for("3.2.P.1", "0001")}" '
+        f'operation="delete" modified-file="../0000/index.xml#{old_id}" checksum="" '
+        f'checksum-type="md5" xlink:type="simple"><title>t</title></leaf>'
+    )
+    files = {"0001/index.xml": _index_xml(delete)}
+    prior = {"0000": {"0000/index.xml": _index_xml(_leaf_xml(old_id, "m3/x.pdf", "a" * 32))}}
+    assert check_href_resolution_and_orphans("0001", files) == []
+    assert check_checksum_integrity("0001", files) == []
+    assert check_lifecycle_integrity("0001", files, prior) == []
+    assert check_dtd_validity("0001", files) == []
+
+
+def test_an_unreferenced_regional_backbone_is_an_orphan():
+    """It used to be exempted by name, because nothing referenced it. Since
+    gap Phase 4a index.xml does -- so a regional file index.xml does not
+    list is a package defect, and says so."""
+    files = {
+        "0000/index.xml": _index_xml(),
+        "0000/m1/eu/eu-regional.xml": _regional_xml(),
+    }
+    findings = check_href_resolution_and_orphans("0000", files)
+    assert [f.rule_id for f in findings] == ["M06"]
+    assert "eu-regional.xml" in findings[0].message
 
 
 # ---- check_pdf_specs ---------------------------------------------------------

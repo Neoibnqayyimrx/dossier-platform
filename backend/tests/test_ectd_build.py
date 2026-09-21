@@ -25,7 +25,7 @@ from app.seed.documents import attach_certificate_documents
 from app.ectd.build import build_ectd_sequence
 from app.ectd.checksum import md5_hex
 from app.ectd.index_xml import build_index_xml
-from app.ectd.leaf import Leaf, leaf_id_for, slugify_section_key
+from app.ectd.leaf import XLINK_NS, Leaf, leaf_id_for, slugify_section_key
 from app.ectd.lifecycle import NewLeafInput, resolve_lifecycle
 from app.ectd.regional import build_regional_xml
 from app.models import Base, Region, Sequence
@@ -49,6 +49,79 @@ def test_build_leaf_element_requires_modified_file_for_non_new_operations():
     leaf = Leaf(id="x", title="t", href="h", checksum="a" * 32, operation="replace")
     with pytest.raises(ValueError):
         build_leaf_element(leaf)
+
+
+def test_sequence_number_of_inverts_leaf_id_for():
+    from app.ectd.leaf import sequence_number_of
+
+    assert sequence_number_of(leaf_id_for("3.2.P.1", "0007")) == "0007"
+    assert sequence_number_of(leaf_id_for("certificate:1234-abcd", "0000")) == "0000"
+    with pytest.raises(ValueError):
+        sequence_number_of("a1234567")  # somebody else's ID scheme
+
+
+def test_a_leaf_in_index_xml_points_at_the_earlier_index_xml():
+    """ICH v3.2.2 Appendix 6, verbatim example: modified-file="../0001/index.xml#a1234567"."""
+    from app.ectd.leaf import build_leaf_element
+
+    el = build_leaf_element(
+        Leaf(
+            id=leaf_id_for("3.2.P.1", "0002"),
+            title="t",
+            href="m3/32-body-data/3.2.P.1.pdf",
+            checksum="a" * 32,
+            operation="replace",
+            modifies=leaf_id_for("3.2.P.1", "0001"),
+        )
+    )
+    assert el.get("modified-file") == "../0001/index.xml#ID-3-2-P-1-0001"
+    assert el.get(f"{{{XLINK_NS}}}href") == "m3/32-body-data/3.2.P.1.pdf"
+
+
+def test_a_leaf_in_a_regional_backbone_is_written_from_that_file_s_folder():
+    """FDA's Module 1 spec v2.6, section V: "the xlink:href and modified-file
+    leaf attributes should reflect the path relative to the location of the
+    us-regional.xml file", with the example
+    modified-file="../../../0001/m1/us/us-regional.xml#id34567"."""
+    from app.ectd.leaf import build_leaf_element
+
+    el = build_leaf_element(
+        Leaf(
+            id=leaf_id_for("1.0", "0002"),
+            title="t",
+            href="m1/eu/10-cover/1.0.pdf",
+            checksum="a" * 32,
+            operation="replace",
+            modifies=leaf_id_for("1.0", "0001"),
+        ),
+        "m1/eu/eu-regional.xml",
+    )
+    assert el.get(f"{{{XLINK_NS}}}href") == "10-cover/1.0.pdf"
+    assert el.get("modified-file") == "../../../0001/m1/eu/eu-regional.xml#ID-1-0-0001"
+
+
+def test_a_delete_leaf_has_no_href_and_an_empty_checksum():
+    from app.ectd.leaf import build_leaf_element
+
+    el = build_leaf_element(
+        Leaf(
+            id=leaf_id_for("3.2.P.1", "0001"),
+            title="t",
+            href=None,
+            checksum="",
+            operation="delete",
+            modifies=leaf_id_for("3.2.P.1", "0000"),
+        )
+    )
+    assert el.get(f"{{{XLINK_NS}}}href") is None
+    assert el.get("checksum") == ""
+
+
+def test_only_a_delete_may_have_no_file():
+    from app.ectd.leaf import build_leaf_element
+
+    with pytest.raises(ValueError, match="only a delete"):
+        build_leaf_element(Leaf(id="x", title="t", href=None, checksum="", operation="new"))
 
 
 # ---- index_xml.py / regional.py (pure, DTD-validated) ----------------------
@@ -144,7 +217,7 @@ def test_build_regional_xml_is_dtd_valid_and_always_includes_mandatory_cover():
 
 def test_lifecycle_first_sequence_is_all_new():
     result = resolve_lifecycle(
-        None, [], [NewLeafInput("3.2.P.1", "Description", "m3/.../3.2.P.1.pdf", "a" * 32)], "0000"
+        [], [NewLeafInput("3.2.P.1", "Description", "m3/.../3.2.P.1.pdf", "a" * 32)], "0000"
     )
     assert result.backbone_leaves["3.2.P.1"].operation == "new"
     assert "3.2.P.1" in result.cumulative_leaves
@@ -152,7 +225,6 @@ def test_lifecycle_first_sequence_is_all_new():
 
 def test_lifecycle_omits_unchanged_leaves_but_carries_them_forward():
     seq0 = resolve_lifecycle(
-        None,
         [],
         [
             NewLeafInput("3.2.P.1", "Description", "m3/.../3.2.P.1.pdf", "a" * 32),
@@ -161,7 +233,6 @@ def test_lifecycle_omits_unchanged_leaves_but_carries_them_forward():
         "0000",
     )
     seq1 = resolve_lifecycle(
-        "0000",
         list(seq0.cumulative_leaves.values()),
         [
             NewLeafInput("3.2.P.1", "Description", "m3/.../3.2.P.1.pdf", "c" * 32),  # changed
@@ -171,21 +242,60 @@ def test_lifecycle_omits_unchanged_leaves_but_carries_them_forward():
     )
     assert set(seq1.backbone_leaves) == {"3.2.P.1"}
     assert seq1.backbone_leaves["3.2.P.1"].operation == "replace"
-    assert seq1.backbone_leaves["3.2.P.1"].modified_file == (
-        f"../0000/m3/.../3.2.P.1.pdf#{seq0.cumulative_leaves['3.2.P.1'].leaf_id}"
-    )
+    assert seq1.backbone_leaves["3.2.P.1"].modifies == seq0.cumulative_leaves["3.2.P.1"].leaf_id
     # the unchanged leaf is still tracked in the cumulative view for the
     # NEXT sequence's diff, just absent from this sequence's own backbone.
     assert set(seq1.cumulative_leaves) == {"3.2.P.1", "3.2.P.8.1"}
 
 
-def test_lifecycle_three_sequences_deep_deletes_correctly():
+def test_lifecycle_deletes_by_naming_the_retired_leaf_and_carrying_no_file():
     seq0 = resolve_lifecycle(
-        None, [], [NewLeafInput("3.2.P.8.1", "Stability", "m3/.../3.2.P.8.1.pdf", "a" * 32)], "0000"
+        [], [NewLeafInput("3.2.P.8.1", "Stability", "m3/.../3.2.P.8.1.pdf", "a" * 32)], "0000"
     )
-    seq1 = resolve_lifecycle("0000", list(seq0.cumulative_leaves.values()), [], "0001")
-    assert seq1.backbone_leaves["3.2.P.8.1"].operation == "delete"
+    seq1 = resolve_lifecycle(list(seq0.cumulative_leaves.values()), [], "0001")
+    deleted = seq1.backbone_leaves["3.2.P.8.1"]
+    assert deleted.operation == "delete"
+    assert deleted.modifies == leaf_id_for("3.2.P.8.1", "0000")
+    # ICH v3.2.2 Appendix 6: a delete submits no file, and its checksum
+    # "will be empty". Restating the old href pointed at a path inside THIS
+    # sequence where nothing exists.
+    assert deleted.href is None
+    assert deleted.checksum == ""
     assert "3.2.P.8.1" not in seq1.cumulative_leaves
+
+
+def test_lifecycle_targets_the_sequence_that_last_changed_the_document():
+    """Regression, found in gap Phase 4a: the resolver built modified-file
+    from "the immediately prior sequence". Right only when the document
+    changed in that very sequence. Here B is untouched in 0001, so its live
+    leaf is still 0000's -- and the replace in 0002 used to point at 0001,
+    whose backbone never mentioned B."""
+    seq0 = resolve_lifecycle(
+        [],
+        [
+            NewLeafInput("A", "A", "m3/a.pdf", "a" * 32),
+            NewLeafInput("B", "B", "m3/b.pdf", "b" * 32),
+        ],
+        "0000",
+    )
+    seq1 = resolve_lifecycle(
+        list(seq0.cumulative_leaves.values()),
+        [
+            NewLeafInput("A", "A", "m3/a.pdf", "c" * 32),  # changed
+            NewLeafInput("B", "B", "m3/b.pdf", "b" * 32),  # untouched
+        ],
+        "0001",
+    )
+    assert "B" not in seq1.backbone_leaves
+    seq2 = resolve_lifecycle(
+        list(seq1.cumulative_leaves.values()),
+        [
+            NewLeafInput("A", "A", "m3/a.pdf", "c" * 32),
+            NewLeafInput("B", "B", "m3/b.pdf", "d" * 32),  # changed at last
+        ],
+        "0002",
+    )
+    assert seq2.backbone_leaves["B"].modifies == leaf_id_for("B", "0000")
 
 
 # ---- checksum.py: tamper detection -----------------------------------------
@@ -298,7 +408,96 @@ async def test_second_sequence_only_replaces_the_changed_leaf(db_factory):
             assert "certificates/cpp-" in pdfs[0]
             regional_xml = zf.read("0001/m1/eu/eu-regional.xml")
             assert b'operation="replace"' in regional_xml
-            assert b'modified-file="../0000/' in regional_xml
+            # Relative to m1/eu/, pointing at the earlier REGIONAL backbone
+            # (where the certificate's leaf lives), not at its PDF.
+            assert b'modified-file="../../../0000/m1/eu/eu-regional.xml#ID-certificate-' in (
+                regional_xml
+            )
+
+
+def _unzip(data: bytes) -> dict[str, bytes]:
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        return {name: zf.read(name) for name in zf.namelist()}
+
+
+async def test_index_xml_lists_and_checksums_the_regional_backbone(db_factory):
+    """ICH v3.2.2 Appendix 6: the regional file's leaf in index.xml is
+    "always 'new'", and it is how that file gets a checksum at all."""
+    import posixpath
+
+    from app.ectd.validate import run_mechanical_checks
+
+    async with db_factory() as db:
+        project = _eu_examox()
+        db.add(project)
+        await db.commit()
+        seq0 = Sequence(project_id=project.id, number="0000")
+        db.add(seq0)
+        await db.commit()
+
+        storage = InMemoryStorageClient()
+        result = await build_ectd_sequence(db, project, seq0, storage=storage)
+        files = _unzip(storage.get(result.storage_key))
+
+    index = etree.fromstring(files["0000/index.xml"])
+    (m1_leaf,) = index.findall("m1-administrative-information-and-prescribing-information/leaf")
+    assert m1_leaf.get(f"{{{XLINK_NS}}}href") == "m1/eu/eu-regional.xml"
+    assert m1_leaf.get("operation") == "new"
+    assert m1_leaf.get("checksum") == md5_hex(files["0000/m1/eu/eu-regional.xml"])
+
+    # Every regional href resolves from m1/eu/, and none is written from
+    # the sequence root any more.
+    regional = etree.fromstring(files["0000/m1/eu/eu-regional.xml"])
+    hrefs = [leaf.get(f"{{{XLINK_NS}}}href") for leaf in regional.iter("leaf")]
+    assert hrefs and not any(h.startswith("m1/") for h in hrefs)
+    assert all(posixpath.normpath(f"0000/m1/eu/{h}") in files for h in hrefs)
+
+    mechanical = run_mechanical_checks(
+        "0000", files, {}, live_section_keys=set(), expected_section_keys=set()
+    )
+    assert [f for f in mechanical if f.rule_id in {"M01", "M02", "M03", "M04", "M05", "M06"}] == []
+
+
+async def test_a_document_replaced_after_sitting_unchanged_validates_cleanly(db_factory):
+    """The skipped-sequence bug, end to end, judged by the P10 validator.
+
+    The CPP changes in 0001; the TSE/BSE certificate does not change until
+    0002. Its live leaf is therefore 0000's. Before gap Phase 4a, 0002's
+    replace pointed at 0001 -- whose backbone never mentioned it -- and M09
+    fired on a package this project had just built.
+    """
+    from app.ectd.validate import check_lifecycle_integrity
+
+    async with db_factory() as db:
+        project = _eu_examox()
+        db.add(project)
+        await db.commit()
+        storage = InMemoryStorageClient()
+        cpp, tse = project.product.certificates
+
+        bundles: dict[str, dict[str, bytes]] = {}
+        for number, change in (
+            ("0000", None),
+            ("0001", lambda: setattr(cpp, "certificate_number", "CPP-CHANGED")),
+            ("0002", lambda: setattr(tse, "certificate_number", "TSE-CHANGED")),
+        ):
+            if change:
+                change()
+            sequence = Sequence(project_id=project.id, number=number)
+            db.add(sequence)
+            await db.commit()
+            result = await build_ectd_sequence(db, project, sequence, storage=storage)
+            bundles[number] = _unzip(storage.get(result.storage_key))
+
+    regional = bundles["0002"]["0002/m1/eu/eu-regional.xml"]
+    tse_old = f"ID-certificate-{tse.id}-0000".encode()
+    assert b'modified-file="../../../0000/m1/eu/eu-regional.xml#' + tse_old in regional
+    assert (
+        check_lifecycle_integrity(
+            "0002", bundles["0002"], {"0000": bundles["0000"], "0001": bundles["0001"]}
+        )
+        == []
+    )
 
 
 async def test_build_is_blocked_by_unresolved_validation_errors(db_factory):
@@ -515,7 +714,7 @@ async def test_replacing_an_uploaded_document_still_drives_the_lifecycle(db_fact
             # only Module 1.
             index_xml = zf.read("0001/index.xml")
             assert b'operation="replace"' in index_xml
-            assert b'modified-file="../0000/' in index_xml
+            assert b'modified-file="../0000/index.xml#ID-' in index_xml
 
         # ...and version 1's bytes survived being replaced.
         assert storage.get(first.storage_key) == original

@@ -31,6 +31,121 @@ Newest entry at the top.
 
 ---
 
+## Phase 4a — three spec deviations, found by reading the second region's spec (2026-09-21)
+
+Phase 4 builds the FDA backbone. Its research step read FDA's *eCTD
+Backbone Files Specification for Module 1* (v2.6, 2025-03-31) and then the
+ICH eCTD Specification v3.2.2 itself -- and both disagreed with code that
+had shipped for the EU since P09. Fixed before FDA, as its own commit,
+because the lifecycle resolver and the validator are shared: building FDA
+correctly on top of them was impossible without changing EU output too.
+
+### 1. `modified-file` pointed at a PDF
+
+We wrote `../0000/m3/.../3.2.P.1.pdf#ID-3-2-P-1-0000`. ICH v3.2.2,
+Appendix 6: the attribute "points to the index.xml file and the leaf ID of
+the leaf element being altered", example `../0001/index.xml#a1234567`.
+FDA's Module 1 example is the regional equivalent,
+`../../../0001/m1/us/us-regional.xml#id34567`. An agency's review tool finds
+the old document by looking its ID up in the old BACKBONE; a PDF path gives
+it nothing to look that ID up in.
+
+How it survived four phases: our own M09 check verified the value in our
+own format. The builder and the validator were written against the same
+misreading, so they agreed with each other perfectly. A validator that
+shares its author's assumptions is a regression test, not a conformance
+check -- worth remembering for M13 in Phase 4c.
+
+### 2. ...and, hiding behind it, pointed at the wrong SEQUENCE
+
+Found while fixing #1, reproduced before being believed:
+
+    seq 0000: A, B new
+    seq 0001: A changed, B untouched      (0001's backbone never mentions B)
+    seq 0002: B changed
+      -> modified-file = ../0001/m3/b.pdf#ID-B-0000
+
+The ID is right (B's live leaf is 0000's) and the sequence is wrong. The
+resolver built the path from "the immediately prior sequence", which is
+where the leaf lives only if the document changed in that very sequence.
+Every test used two sequences, or changed the same document every time, so
+the prior sequence was always the right one by coincidence -- the P13/P20
+lesson again: with one case every assumption is true.
+
+The fix removes the input rather than correcting it. The ID scheme was made
+deterministic in P09 precisely so an ID could be computed without a lookup;
+its inverse, `sequence_number_of(leaf_id)`, says where a leaf lives just as
+cheaply. `resolve_lifecycle` no longer takes a prior sequence number at all.
+
+### 3. Nothing checksummed the regional backbone
+
+ICH, same appendix: the regional file is referenced from index.xml by a leaf
+whose operation "is always 'new'", and "a separate file containing the
+checksum of the regional index file is unnecessary as that file (and its
+MD5 checksum) is referenced by the index.xml file". We never wrote that
+leaf, so the file describing all of Module 1 had no checksum anywhere --
+and M06 had to exempt `eu-regional.xml` by name to stop calling it an
+orphan. The exemption was the symptom. It is gone; index.xml now carries
+the leaf, built after the regional file because a leaf needs its file's
+MD5.
+
+### 4. Regional paths were written from the wrong folder
+
+FDA v2.6 section V: xlink:href and modified-file "should reflect the path
+relative to the location of the us-regional.xml file". We wrote
+`m1/eu/10-cover/1.0.pdf` inside `m1/eu/eu-regional.xml`, which resolves to
+`m1/eu/m1/eu/10-cover/1.0.pdf`.
+
+The EU half deserves its evidence stated, because the EU spec itself could
+not be fetched (esubmission.ema.europa.eu refused connections from this
+environment). The proof came from a file already in the repo: EMA's own
+`eu-regional.xsl` renders each leaf as `<a href="{@xlink:href}">` in a page
+generated from `m1/eu/eu-regional.xml` -- so in EMA's own viewer, every
+Module 1 link this platform ever produced was broken.
+
+`Leaf.href` still means "relative to the sequence root"; only rendering
+changed. `build_leaf_element(leaf, backbone_path)` re-expresses both
+attributes relative to the backbone file being written, which is the one
+thing that knows where it is. That is also why `Leaf.modified_file` became
+`Leaf.modifies` (a leaf ID): the resolver knows WHAT is modified but not
+which backbone file, at what depth, the reference will be written into.
+
+### 5. Delete, while in the same paragraph of the spec
+
+A delete leaf restated the old href and checksum, on the belief that the
+DTD required both. It requires the checksum ATTRIBUTE; xlink:href is
+IMPLIED, and ICH says a delete's checksum "will be empty". Restating the
+href also pointed inside the NEW sequence where no file exists, so our own
+M05 would have failed every delete we produced. Nothing noticed because
+nothing had ever validated a delete (P09 flagged that branch as untested).
+
+### No migration, on purpose
+
+`SequenceLeaf.modified_file` keeps its name and now stores the target leaf
+ID. Old rows hold the old path form; the reader takes the part after the
+last `#`, which is the ID in both. Packages already built are
+non-conformant and the validator now says so (M07 on old-form references,
+M06 on an unlisted regional file); rebuilding a sequence fixes it.
+
+### Observed, not caused here: the soffice count test, and oosplash
+
+The first full run for 4a failed one test that 4a does not touch:
+`test_shutting_down_a_listener_leaves_no_orphaned_libreoffice` (baseline 4
+soffice.bin, then 5). The process table explained it: five `oosplash`
+launchers from earlier in the same run, reparented to PID 1, each holding a
+`<defunct>` soffice.bin child. The container's PID 1 is a shell that never
+reaps, so those zombies are permanent -- and `_count_soffice` counts
+zombies. Two further facts worth keeping: `oosplash` IGNORES SIGTERM (still
+alive minutes after `kill`; only SIGKILL removed it), and the file passes
+in isolation (11 passed, 1 skipped). So a run that leaves one launcher
+behind makes the NEXT process-count comparison flaky -- the 2026-09-20
+entry's "an orphaned listener is still expensive", with a new way of
+showing it. Which test leaves the launcher behind was not established;
+this phase did not touch conversion code, so that hunt is recorded rather
+than started.
+
+---
+
 ## Phase 3 — the conversation, and an envelope that was lying (2026-09-20)
 
 A registration is not a package, it is an exchange: the dossier goes in, a

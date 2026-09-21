@@ -536,7 +536,6 @@ def test_the_regional_backbone_actually_carries_the_three_pi_docs():
             href=f"m1/eu/13-product-information/{key}.pdf",
             checksum="0" * 32,
             operation="new",
-            modified_file=None,
         )
 
     # `related-sequence+` is #REQUIRED by the envelope's own content model,

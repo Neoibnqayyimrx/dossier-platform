@@ -159,10 +159,10 @@ A Next.js frontend exists (8 pages, 15 components — [frontend/src/](frontend/s
 
 Yes. It is not a template string — it is built with lxml using real namespaces, carries `dtd-version="3.2"`, a `<!DOCTYPE>` pointing at the shipped DTD, per-leaf `checksum`/`checksum-type="md5"`/`xlink:href`, and **self-validates against the ICH DTD before returning** ([index_xml.py:750](backend/app/ectd/index_xml.py#L750)). The DTD's own misspelled xlink namespace (`w3c.org`) is reproduced verbatim because DTD `#FIXED` matching is exact ([leaf.py:41](backend/app/ectd/leaf.py#L41)).
 
-Lifecycle operations are DTD-compliant: `new | replace | append | delete`, with `modified-file` pointing at `../<prior-seq>/<path>#<prior-leaf-id>`, and `build_leaf_element` **refuses** a non-`new` operation without a `modified_file` ([leaf.py:74](backend/app/ectd/leaf.py#L74)). Unchanged leaves are correctly **omitted** from the sequence's own backbone while being carried forward in a persisted cumulative view ([lifecycle.py](backend/app/ectd/lifecycle.py)).
+Lifecycle operations are DTD-compliant: `new | replace | append | delete`, and `build_leaf_element` **refuses** a non-`new` operation that names no earlier leaf ([leaf.py](backend/app/ectd/leaf.py)). ~~`modified-file` pointing at `../<prior-seq>/<path>#<prior-leaf-id>`~~ **Corrected in Phase 4a:** `modified-file` now points at the earlier sequence's *backbone file* plus the leaf ID (`../0000/index.xml#ID-…`, or `../../../0000/m1/eu/eu-regional.xml#ID-…` from the regional file), as ICH v3.2.2 Appendix 6 specifies, and names the sequence that actually holds that leaf rather than the immediately prior one. Unchanged leaves are correctly **omitted** from the sequence's own backbone while being carried forward in a persisted cumulative view ([lifecycle.py](backend/app/ectd/lifecycle.py)).
 
 Caveats, all self-documented:
-- `delete` is implemented but, per [lifecycle.py:129](backend/app/ectd/lifecycle.py#L129), **not covered by golden-fixture tests** — only by the unit test `test_lifecycle_three_sequences_deep_deletes_correctly`.
+- `delete` is implemented but **not covered by an end-to-end build** — only by unit tests. **Phase 4a** made it spec-conformant (no `xlink:href`, empty checksum, per ICH) and proved the validator accepts it (`test_a_delete_leaf_carries_no_file_and_is_not_a_dangling_reference`); before that, every delete restated a path inside the new sequence where no file exists, which our own M05 would have failed.
 - `append` is in the vocabulary but is **never produced** by `resolve_lifecycle` — it only ever emits `new`, `replace`, `delete`.
 - The EU envelope's agency / procedure-type / country values are **hard-coded constants**, because `Project` does not model them ([regional.py:20](backend/app/ectd/regional.py#L20)).
 
@@ -238,10 +238,10 @@ Re-validate the **built ZIP**, not the data ([validate.py](backend/app/ectd/vali
 | M03 | ERROR | Each leaf's stated checksum = the file's actual MD5 | structural/file |
 | M04 | ERROR | `index-md5.txt` matches `index.xml`'s actual MD5 | structural/file |
 | M05 | ERROR | Every leaf `xlink:href` resolves to a file in the package | structural/file |
-| M06 | WARNING | No orphan files (in the package, referenced by no leaf) | structural/file |
-| M07 | ERROR | Non-`new` leaf has a parseable `modified-file` | lifecycle/referential integrity |
+| M06 | WARNING | No orphan files (in the package, referenced by no leaf). **Phase 4a:** the regional backbone is no longer exempt — index.xml now references it | structural/file |
+| M07 | ERROR | Non-`new` leaf has a `modified-file` naming an earlier sequence's backbone file + a leaf ID (ICH form; **Phase 4a**) | lifecycle/referential integrity |
 | M08 | ERROR | The prior sequence a `modified-file` targets was actually built | lifecycle/referential integrity |
-| M09 | ERROR | That target leaf ID + path really exists in the prior sequence | lifecycle/referential integrity |
+| M09 | ERROR | That leaf ID really exists in the **same** backbone file of that sequence (**Phase 4a**: was "ID + document path") | lifecycle/referential integrity |
 | M10 | ERROR | No PDF is encrypted | structural/file |
 | M11 | WARNING | PDF page 1 has extractable text (proxy for "not a scan") | structural/file |
 | M12 | ERROR | Every expanded section instance has appeared live in some sequence | structural/completeness |
@@ -712,3 +712,39 @@ entity, a third axis again.
 automatically. It is defensible either way — a status the build sets is one
 a human cannot forget, but coupling the builder to workflow state is a
 decision worth making on its own rather than smuggling into this phase.
+
+
+### Phase 4a — shared eCTD layer brought to the ICH/FDA specs
+
+A sub-phase of gap.md Phase 4 (the FDA backbone). Reading FDA's Module 1
+backbone spec v2.6 and the ICH eCTD spec v3.2.2 for Phase 4 found the
+shared lifecycle and backbone code disagreeing with both, so it was fixed
+first: FDA could not be built correctly on top of it without changing EU
+output anyway. Full account in `reference/build-log.md`.
+
+**4. Publishing engine** — three deviations, all present in EU packages
+since P09:
+- `modified-file` named the earlier **PDF**; ICH says it names the earlier
+  **backbone file** plus the leaf ID (`../0001/index.xml#a1234567`).
+- index.xml never referenced the regional backbone, so **no checksum
+  covered `eu-regional.xml`**; ICH requires that leaf (always `new`), and
+  it is now written.
+- Regional hrefs were written from the sequence root; FDA's spec and EMA's
+  own `eu-regional.xsl` both resolve them from the regional file's folder.
+- Also: a `delete` leaf now carries no href and an empty checksum (ICH).
+
+**5. Validation engine** — M07/M09 now check the ICH form and require the
+target leaf to be in the *same* backbone file; M06 no longer exempts the
+regional file. Packages built before this fix now report M07/M06 — which is
+true of them; a rebuild clears it.
+
+**6. Submission lifecycle management — a bug fixed.** A document left
+unchanged in one sequence and replaced in a later one had its
+`modified-file` aimed at the immediately prior sequence, whose backbone
+never mentioned it. Two-sequence tests could not see it. The resolver no
+longer takes the prior sequence number at all: the leaf ID carries its own
+sequence (`sequence_number_of`). Regression:
+`test_a_document_replaced_after_sitting_unchanged_validates_cleanly`, three
+real EU builds judged by the real validator. No migration —
+`SequenceLeaf.modified_file` now stores the target leaf ID, and old rows
+still read correctly.

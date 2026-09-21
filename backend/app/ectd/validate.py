@@ -12,6 +12,7 @@ sequence's zip and any prior sequences' zips from storage) and calls these.
 
 from __future__ import annotations
 
+import posixpath
 import re
 from dataclasses import dataclass
 
@@ -28,10 +29,10 @@ from app.validation.engine import Finding, Severity
 
 SOURCE = "mechanical-ectd"
 
-# "../0000/m3/.../3.2.P.1.pdf#ID-3-2-P-1-0000" -> full_path is captured
-# WITH the sequence-number prefix, so it's directly usable as a dict key
-# into a `{path: bytes}` bundle -- no reassembly needed by callers.
-_MODIFIED_FILE_RE = re.compile(r"^\.\./(?P<full_path>(?P<sequence>\d{4})/.+)#(?P<leaf_id>[^#]+)$")
+# A modified-file value, once resolved against the folder of the backbone
+# file it appears in, must name "<sequence>/<a backbone file>" -- e.g.
+# "0000/index.xml" or "0000/m1/eu/eu-regional.xml". See `_resolve`.
+_BACKBONE_TARGET_RE = re.compile(r"^(?P<sequence>\d{4})/(?P<backbone>[^#]+\.xml)$")
 
 _INFRA_PREFIXES = ("index.xml", "index-md5.txt", "util/")
 
@@ -39,22 +40,33 @@ _INFRA_PREFIXES = ("index.xml", "index-md5.txt", "util/")
 @dataclass(frozen=True)
 class ParsedLeaf:
     id: str
-    href: str  # full path, WITH the sequence-number prefix
+    # Full zip path, WITH the sequence-number prefix -- None for a delete,
+    # which carries no file.
+    href: str | None
     checksum: str
     operation: str
-    modified_file: str | None
-    backbone: str  # "index" | "regional" -- which file this leaf came from
+    modified_file: str | None  # the raw attribute, as written
+    backbone: str  # zip path of the backbone file this leaf came from
+
+
+def _resolve(backbone_path: str, relative: str) -> str:
+    """A path written inside `backbone_path`, as a full zip path.
+
+    WHY (gap Phase 4a): every path in a backbone is relative to that
+    backbone file's own folder -- ICH and FDA say so, and EMA's stylesheet
+    resolves them that way. This used to prepend the sequence prefix
+    instead, which only agrees for index.xml, at the sequence root.
+    """
+    return posixpath.normpath(posixpath.join(posixpath.dirname(backbone_path), relative))
 
 
 def _parse_leaves(prefix: str, files: dict[str, bytes]) -> list[ParsedLeaf]:
-    """Every `<leaf>` across `index.xml` and (if present) the EU regional
+    """Every `<leaf>` across `index.xml` and (if present) the regional
     backbone, with hrefs resolved to full zip-relative paths."""
     leaves: list[ParsedLeaf] = []
-    for backbone_name, rel_path in (
-        ("index", "index.xml"),
-        ("regional", REGIONAL_XML_RELATIVE_PATH),
-    ):
-        xml_bytes = files.get(f"{prefix}/{rel_path}")
+    for rel_path in ("index.xml", REGIONAL_XML_RELATIVE_PATH):
+        backbone_path = f"{prefix}/{rel_path}"
+        xml_bytes = files.get(backbone_path)
         if xml_bytes is None:
             continue
         root = etree.fromstring(xml_bytes)
@@ -63,11 +75,11 @@ def _parse_leaves(prefix: str, files: dict[str, bytes]) -> list[ParsedLeaf]:
             leaves.append(
                 ParsedLeaf(
                     id=el.get("ID"),
-                    href=f"{prefix}/{href}",
+                    href=_resolve(backbone_path, href) if href is not None else None,
                     checksum=el.get("checksum"),
                     operation=el.get("operation"),
                     modified_file=el.get("modified-file"),
-                    backbone=backbone_name,
+                    backbone=backbone_path,
                 )
             )
     return leaves
@@ -111,6 +123,8 @@ def check_checksum_integrity(prefix: str, files: dict[str, bytes]) -> list[Findi
     root cause, one finding, not two."""
     findings: list[Finding] = []
     for leaf in _parse_leaves(prefix, files):
+        if leaf.href is None:
+            continue  # a delete: no file, and an empty checksum by spec
         data = files.get(leaf.href)
         if data is None:
             continue
@@ -151,10 +165,11 @@ def check_checksum_integrity(prefix: str, files: dict[str, bytes]) -> list[Findi
 
 def check_href_resolution_and_orphans(prefix: str, files: dict[str, bytes]) -> list[Finding]:
     findings: list[Finding] = []
-    referenced = {leaf.href for leaf in _parse_leaves(prefix, files)}
+    leaves = _parse_leaves(prefix, files)
+    referenced = {leaf.href for leaf in leaves if leaf.href is not None}
 
-    for leaf in _parse_leaves(prefix, files):
-        if leaf.href not in files:
+    for leaf in leaves:
+        if leaf.href is not None and leaf.href not in files:
             findings.append(
                 Finding(
                     rule_id="M05",
@@ -167,7 +182,10 @@ def check_href_resolution_and_orphans(prefix: str, files: dict[str, bytes]) -> l
 
     for path in files:
         rel = path[len(prefix) + 1 :]
-        if rel.startswith(_INFRA_PREFIXES) or rel == REGIONAL_XML_RELATIVE_PATH:
+        # The regional backbone used to be exempted here by name, because
+        # nothing referenced it. Since gap Phase 4a index.xml does, so an
+        # unreferenced regional file is a real finding again.
+        if rel.startswith(_INFRA_PREFIXES):
             continue
         if path not in referenced:
             findings.append(
@@ -185,23 +203,33 @@ def check_href_resolution_and_orphans(prefix: str, files: dict[str, bytes]) -> l
 def check_lifecycle_integrity(
     prefix: str, files: dict[str, bytes], prior_files: dict[str, dict[str, bytes]]
 ) -> list[Finding]:
-    """Every `replace`/`append`/`delete` leaf's `modified-file` must
-    resolve to a REAL leaf, with a matching ID, inside the prior
-    sequence's OWN built package -- not just a plausible-looking path."""
+    """Every `replace`/`append`/`delete` leaf's `modified-file` must name a
+    REAL leaf, by ID, inside the same backbone file of an earlier
+    sequence's OWN built package -- not just a plausible-looking path.
+
+    The ICH form is "<backbone file of an earlier sequence>#<leaf ID>"
+    ("../0001/index.xml#a1234567"), written relative to the backbone the
+    leaf itself sits in. Before gap Phase 4a this project wrote the earlier
+    DOCUMENT's path instead, and checked for that; such a value now fails
+    here as M07, which is the truth about packages built before the fix.
+    """
     findings: list[Finding] = []
     for leaf in _parse_leaves(prefix, files):
         if leaf.operation == "new":
             continue
-        match = _MODIFIED_FILE_RE.match(leaf.modified_file or "")
-        if not match:
+        path, sep, target_id = (leaf.modified_file or "").rpartition("#")
+        match = _BACKBONE_TARGET_RE.match(_resolve(leaf.backbone, path)) if sep else None
+        if not match or not target_id:
             findings.append(
                 Finding(
                     rule_id="M07",
                     severity=Severity.ERROR,
                     category="lifecycle",
                     message=(
-                        f"leaf {leaf.id!r} has operation={leaf.operation!r} but an "
-                        f"unparseable modified-file={leaf.modified_file!r}"
+                        f"leaf {leaf.id!r} has operation={leaf.operation!r} but "
+                        f"modified-file={leaf.modified_file!r} does not name an earlier "
+                        f"sequence's backbone file and a leaf ID "
+                        f"(expected e.g. '../0000/index.xml#<ID>')"
                     ),
                     source=SOURCE,
                 )
@@ -209,8 +237,8 @@ def check_lifecycle_integrity(
             continue
 
         sequence_number = match.group("sequence")
-        full_path = match.group("full_path")
-        target_id = match.group("leaf_id")
+        target_backbone = match.group(0)
+        own_backbone = leaf.backbone[len(prefix) + 1 :]
 
         prior_bundle = prior_files.get(sequence_number)
         if prior_bundle is None:
@@ -228,17 +256,24 @@ def check_lifecycle_integrity(
             )
             continue
 
-        prior_leaves = {pl.id: pl for pl in _parse_leaves(sequence_number, prior_bundle)}
-        target = prior_leaves.get(target_id)
-        if target is None or target.href != full_path:
+        # A leaf may only modify a leaf in the same backbone file: the ICH
+        # spec has the new leaf submitted "in the same location in the
+        # backbone as the leaf element being appended, replaced or deleted".
+        prior_ids = {
+            pl.id
+            for pl in _parse_leaves(sequence_number, prior_bundle)
+            if pl.backbone == target_backbone
+        }
+        if match.group("backbone") != own_backbone or target_id not in prior_ids:
             findings.append(
                 Finding(
                     rule_id="M09",
                     severity=Severity.ERROR,
                     category="lifecycle",
                     message=(
-                        f"leaf {leaf.id!r}'s modified-file points at leaf {target_id!r}/"
-                        f"{full_path} in sequence {sequence_number}, but no such leaf exists there"
+                        f"leaf {leaf.id!r} in {own_backbone} has modified-file pointing at "
+                        f"leaf {target_id!r} in {target_backbone}, but no such leaf exists "
+                        f"in that sequence's {own_backbone}"
                     ),
                     source=SOURCE,
                 )

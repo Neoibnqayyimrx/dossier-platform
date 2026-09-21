@@ -170,7 +170,7 @@ def _build_specific(country: str, leaves: list[Leaf]) -> etree._Element:
     specific = etree.Element("specific", nsmap={"xlink": XLINK_NS})
     specific.set("country", country)
     for leaf in leaves:
-        specific.append(build_leaf_element(leaf))
+        specific.append(build_leaf_element(leaf, REGIONAL_XML_RELATIVE_PATH))
     return specific
 
 
@@ -180,7 +180,7 @@ def _build_node_extension(group_id: str, title: str, leaves: list[Leaf]) -> etre
     title_el = etree.SubElement(node, "title")
     title_el.text = title
     for leaf in leaves:
-        node.append(build_leaf_element(leaf))
+        node.append(build_leaf_element(leaf, REGIONAL_XML_RELATIVE_PATH))
     return node
 
 
@@ -197,7 +197,7 @@ def _build_pi_doc(pi_type: str, leaves: list[Leaf]) -> etree._Element:
     pi_doc.set("type", pi_type)
     pi_doc.set("country", _DOCUMENT_COUNTRY)
     for leaf in leaves:
-        pi_doc.append(build_leaf_element(leaf))
+        pi_doc.append(build_leaf_element(leaf, REGIONAL_XML_RELATIVE_PATH))
     return pi_doc
 
 
@@ -260,7 +260,7 @@ def build_regional_xml(
         specific = etree.SubElement(m1_2_form, "specific", nsmap={"xlink": XLINK_NS})
         specific.set("country", _DOCUMENT_COUNTRY)
         for leaf in form_leaves:
-            specific.append(build_leaf_element(leaf))
+            specific.append(build_leaf_element(leaf, REGIONAL_XML_RELATIVE_PATH))
         if certificate_leaves:
             specific.append(
                 _build_node_extension(

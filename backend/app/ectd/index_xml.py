@@ -13,12 +13,21 @@ makes the real DTD sequence the single source of truth for sibling
 order -- the same "small whitelist that fails loudly rather than guesses"
 instinct as `app.ctd.structure.folder_for_section`.
 
-Module 1 is DELIBERATELY not represented here at all. The ICH DTD itself
+Module 1's DOCUMENTS are deliberately not represented here. The ICH DTD
 declares `m1-administrative-information-and-prescribing-information` as a
 flat `(leaf*)` bag with no real substructure -- the actual Module 1
 hierarchy lives in the *regional* backbone (`app.ectd.regional`), which is
 how real eCTD submissions do it too: index.xml covers m2-m5, the regional
 XML covers m1.
+
+What index.xml DOES hold under m1 is one leaf: the regional backbone file
+itself (gap Phase 4a). The ICH spec (v3.2.2, Appendix 6): "For each
+sequence, the operation attribute of the leaf element referencing this file
+is always 'new'. A separate file containing the checksum of the regional
+index file is unnecessary as that file (and its MD5 checksum) is referenced
+by the index.xml file." Until 4a nothing referenced it, so nothing
+checksummed the file that describes all of Module 1 -- and the validator
+had to exempt it from the orphan check to stay quiet about that.
 """
 
 from __future__ import annotations
@@ -700,6 +709,7 @@ def _attach(el: etree._Element, node: _Node) -> None:
 def build_index_xml(
     leaves_by_section: dict[str, Leaf],
     repeat_info: dict[str, tuple[str, dict[str, str]]] | None = None,
+    regional_leaf: Leaf | None = None,
 ) -> bytes:
     """Build and DTD-validate `index.xml` from this sequence's leaves,
     keyed by `section_key` (an `app.templating.registry.SECTIONS` number).
@@ -713,9 +723,18 @@ def build_index_xml(
     P20 widened this from P13's drug-substance-only `substance_info`: the
     excipient axis needed exactly the same treatment, and a second
     parameter for it would have been the second special case.
+
+    `regional_leaf` is the leaf pointing at this sequence's regional
+    backbone file -- see this module's docstring. Optional only so that
+    unit tests of the m2-m5 tree can leave Module 1 out; the sequence
+    builder always passes one.
     """
     repeat_info = repeat_info or {}
     root_node = _Node("ectd:ectd")
+    if regional_leaf is not None:
+        root_node.child("m1-administrative-information-and-prescribing-information").leaves.append(
+            regional_leaf
+        )
     for section_key, leaf in leaves_by_section.items():
         repeated = repeat_info.get(section_key)
         if repeated is not None:

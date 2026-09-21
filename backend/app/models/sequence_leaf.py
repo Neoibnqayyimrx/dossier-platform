@@ -42,8 +42,12 @@ class SequenceLeaf(Base):
     checksum: Mapped[str] = mapped_column(String(32))  # MD5 hex digest
 
     operation: Mapped[str] = mapped_column(String(10))  # new | replace | append | delete
-    # relative-path-into-a-prior-sequence + that leaf's ID, e.g.
-    # "../0000/m3/.../3.2.P.1.pdf#ID_32P1_0000" -- None for `operation="new"`.
+    # The ID of the leaf that `operation` modified, e.g. "ID-3-2-P-1-0000" --
+    # None for `operation="new"`. Rows written before gap Phase 4a hold the
+    # old rendered form ("../0000/m3/.../3.2.P.1.pdf#ID-3-2-P-1-0000"), which
+    # `app.ectd.build` reads by taking the part after "#". The rendered
+    # `modified-file` attribute is no longer stored because it depends on
+    # which backbone file the leaf is written into (see `app.ectd.leaf.Leaf`).
     modified_file: Mapped[str | None] = mapped_column(String(600), nullable=True)
 
     sequence: Mapped["Sequence"] = relationship(back_populates="leaves")

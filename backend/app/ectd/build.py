@@ -90,10 +90,21 @@ async def _prior_cumulative_state(
             path=row.path,
             checksum=row.checksum,
             operation=row.operation,
-            modified_file=row.modified_file,
+            modifies=_modified_leaf_id(row.modified_file),
         )
         for row in rows
     ]
+
+
+def _modified_leaf_id(stored: str | None) -> str | None:
+    """The leaf ID a stored `modified_file` value names.
+
+    Rows written before gap Phase 4a hold the old path form
+    ("../0000/m3/.../x.pdf#ID-3-2-P-1-0000"), rows written since hold the
+    bare ID. The ID is the part after the last "#" in both, so reading it
+    this way needs no data migration.
+    """
+    return stored.rsplit("#", 1)[-1] if stored else None
 
 
 async def build_ectd_sequence(
@@ -182,7 +193,7 @@ async def build_ectd_sequence(
     # state, decide new/replace/delete, and compute what this sequence's
     # own backbone should (and should NOT) restate. ----------------------
     prior_number, prior_cumulative = await _prior_cumulative_state(db, project, sequence)
-    lifecycle = resolve_lifecycle(prior_number, prior_cumulative, new_leaves, sequence.number)
+    lifecycle = resolve_lifecycle(prior_cumulative, new_leaves, sequence.number)
 
     # Persist the resulting cumulative view as THIS sequence's own
     # SequenceLeaf rows. Idempotent: clear any rows from a previous build
@@ -199,7 +210,7 @@ async def build_ectd_sequence(
                 path=cum.path,
                 checksum=cum.checksum,
                 operation=cum.operation,
-                modified_file=cum.modified_file,
+                modified_file=cum.modifies,
             )
         )
     await db.flush()
