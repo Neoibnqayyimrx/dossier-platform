@@ -278,13 +278,19 @@ Re-validate the **built ZIP**, not the data ([validate.py](backend/app/ectd/vali
 - `append` is never generated.
 - Diff granularity is whole-document checksum. No content-level diff, no redline.
 
-### 6.3 Submission status — essentially absent
+### 6.3 Submission status — ~~essentially absent~~ **present (Phase 3)**
 
-`Sequence` has exactly three non-key columns: `number`, `description`, `submitted_at` ([sequence.py:26](backend/app/models/sequence.py#L26)). `submitted_at` is a nullable timestamp a user can PATCH. There is **no status enum** (draft / published / submitted / acknowledged / under review / approved), no submission type per sequence, no gateway/ESG transmission record, no acknowledgement tracking.
+~~`Sequence` has exactly three non-key columns... There is **no status enum**, no submission type per sequence.~~ **Closed in Phase 3.** `Sequence` now carries `status` (`SequenceStatus`: draft → built → submitted → acknowledged → under-review → approved/rejected) and `submission_unit_type`.
 
-### 6.4 Regulator correspondence — not started
+Status moves only through `PATCH /projects/{id}/sequences/{seq_id}/status`, which enforces `ALLOWED_SEQUENCE_TRANSITIONS` and answers **409** on an illegal jump, naming what *was* possible. Deliberately *not* settable by the ordinary PATCH: a status any PATCH can set is a status that can record a history which never happened (DRAFT straight to APPROVED, or a rejection quietly reopened). Transitioning to SUBMITTED stamps `submitted_at` if absent — a sequence marked submitted with no date cannot answer the question it exists to answer.
 
-No entity, endpoint, or field anywhere for agency questions, deficiency letters, responses, commitments, due dates, or any correspondence at all. Grep confirms zero occurrences.
+**Still absent:** gateway/ESG transmission records and acknowledgement receipts. `ACKNOWLEDGED` is currently a human assertion, not a parsed gateway response.
+
+### 6.4 Regulator correspondence — ~~not started~~ **present (Phase 3)**
+
+~~No entity, endpoint, or field anywhere.~~ **Closed in Phase 3.** A `correspondence` table with direction (inbound/outbound), type (deficiency letter / query / response / commitment / other), subject, `received_or_sent_at`, a nullable `due_date`, open/closed status, optional notes, and optional links to both a sequence and an uploaded document. CRUD under `/projects/{id}/correspondence`, mounted through the same `build_child_router` factory `Declaration` uses.
+
+The `due_date` is the point: missing a deficiency-letter deadline can lapse an application — the dossier is fine and the registration is lost on a date. `is_overdue` is derived at read time, never stored, because "is this late?" is a question about today. A closed item is never overdue however old its due date.
 
 ---
 
@@ -666,3 +672,43 @@ entered product information — completed through the API rather than by
 relaxing the assertion, since "nothing behind the API's back" is the claim
 that test exists to make. Backend went from `30 failed, 519 passed` at the
 audit baseline to **557 passed, 14 skipped, 0 failed**.
+
+### Phase 3 — sequence status and regulator correspondence
+
+**1. Regulatory data model** — one new table and two new columns.
+`correspondence` (project-scoped, nullable sequence), plus
+`sequence.status` and `sequence.submission_unit_type`. Both sequence
+columns take server defaults, so existing rows become DRAFT/initial with no
+backfill — the honest reading in both cases, and for `submission_unit_type`
+it preserves exactly what a rebuild produced before.
+
+**4. Publishing engine — a bug fixed, not just a field added.**
+`app/ectd/regional.py` hardcoded `submission-unit type="initial"` for every
+sequence, so a response to a deficiency letter was filed telling the agency
+it was a fresh submission. **DTD-valid, and wrong** — the kind of defect
+that survives validation all the way to a reviewer. The value now comes
+from the sequence. Asserted by
+`test_the_sequence_type_reaches_the_envelope_instead_of_a_hardcoded_initial`.
+
+**6. Submission lifecycle management** — §6.3 and §6.4 above. This is the
+area the audit rated *Prototype*; the two findings it named as absent are
+now present, though the gateway/acknowledgement half of 6.3 remains open.
+
+**On the brief's "submission_type per sequence (initial / variation /
+renewal / response-to-query)":** that list conflates two axes, and the
+codebase already had one of them. *Variation* and *renewal* describe the
+**application** and already drive `submission/@type` through
+`Product.registration_type`; *initial* and *response* describe **this
+transaction**. They coexist — a variation application's first sequence is
+`initial` and its answer to the assessor is `response`, and both are
+variations. Folding them together would make one of those two facts
+unrepresentable, so the per-sequence field is the eCTD
+`submission-unit/@type` and takes the EU regional DTD's own enumeration
+(verified equal to it, not retyped from memory). The pre-existing
+`SubmissionType` was **not** reused: it means multisource vs new chemical
+entity, a third axis again.
+
+**Deliberately deferred:** the build does not move a sequence to BUILT
+automatically. It is defensible either way — a status the build sets is one
+a human cannot forget, but coupling the builder to workflow state is a
+decision worth making on its own rather than smuggling into this phase.

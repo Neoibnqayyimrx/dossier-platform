@@ -31,6 +31,125 @@ Newest entry at the top.
 
 ---
 
+## Phase 3 — the conversation, and an envelope that was lying (2026-09-20)
+
+A registration is not a package, it is an exchange: the dossier goes in, a
+deficiency letter comes back with a deadline, the answer to that letter is
+itself a sequence. The platform could model the packages and none of the
+exchange.
+
+### The brief asked for one field and the codebase already had two of them
+
+`gap.md` wanted "a submission_type per sequence (initial / variation /
+renewal / response-to-query)". That list quietly mixes two different axes,
+and checking `enums.py` first -- which the brief itself told me to do --
+found the codebase already had both:
+
+  - `SubmissionType` (Project): multisource vs new chemical entity.
+    Decides how much of the CTD is OWED.
+  - `RegistrationType` (Product): new / renewal / variation. Decides what
+    the APPLICATION is, and already drives `submission/@type`.
+
+*Variation* and *renewal* are the second of those. *Initial* and *response*
+are a third thing entirely: what THIS TRANSACTION is. They coexist -- a
+variation application's first sequence is `initial`, and its answer to the
+assessor is `response`, and both of them are variations. Folding them
+together would make one of the two facts unrepresentable.
+
+So the per-sequence field is the eCTD `submission-unit/@type`, and its
+values are not invented: they are read off the EU regional DTD's own
+enumeration in `reference/ectd_dtd/eu-envelope.mod`, with a check that the
+enum equals the DTD exactly rather than being retyped from memory.
+
+### The field replaced a value that was WRONG, not merely missing
+
+`app/ectd/regional.py` had:
+
+    _SUBMISSION_UNIT_TYPE = "initial"  # always -- procedural
+                                       # correspondence types are out of scope
+
+Every sequence claimed to be a fresh submission. A response to a deficiency
+letter was filed telling the agency it was an initial filing. That is
+**DTD-valid and wrong**, which is the worst combination available: it
+passes every mechanical check the platform has and is caught, if at all, by
+a human reading the envelope.
+
+Worth noting how it got there. The comment is honest -- it says "out of
+scope" -- and in P09 that was true. What made it a defect was a later
+phase's arrival, not the original decision. A hardcoded value with a
+reason attached is fine; it just needs re-reading when the reason expires.
+
+### Status: the order IS the information
+
+`SequenceStatus` (draft, built, submitted, acknowledged, under-review,
+approved, rejected) moves only through its own endpoint, which enforces
+`ALLOWED_SEQUENCE_TRANSITIONS`.
+
+WHY not a field on the ordinary PATCH, which would have been less code: a
+status any PATCH can set is a status that can record a history that never
+happened. DRAFT straight to APPROVED. A rejection quietly reopened. The
+whole reason to model status rather than store a free string is that the
+ORDER means something, and enforcing it in one place is what lets a refusal
+say what was actually possible ("from here it can only become: built").
+
+409 and not 422 for an illegal jump: the request is well-formed and the
+value is a real status. What makes it wrong is the state the sequence is
+in, which is a conflict.
+
+Two small decisions inside that:
+
+  - BUILT -> DRAFT is allowed. A built package someone then edits honestly
+    IS a draft again, and refusing that pushes people to lie about the
+    status rather than fix it.
+  - REJECTED is terminal. What follows a rejection is a NEW sequence
+    answering it -- which is exactly what the `response` unit type is for
+    -- not the same sequence changing its mind.
+
+### Correspondence, and the clock that makes it matter
+
+The table is unremarkable; the reason it is urgent is `due_date`. Missing a
+deficiency-letter deadline can lapse an application: the dossier is fine
+and the registration is lost on a date.
+
+Design notes worth keeping:
+
+  - `sequence_id` is NULLABLE. A pre-submission meeting request, a fee
+    notice, a general query -- plenty of real correspondence belongs to the
+    application and to no transaction. Forcing a sequence would mean
+    inventing one, and an invented sequence number is a regulatory
+    identifier that does not exist.
+  - Both FKs are ON DELETE SET NULL, not CASCADE. Deleting a sequence must
+    not destroy the record of the agency's letter ABOUT it; the letter
+    outlives the transaction it referred to.
+  - `due_date` is a Date, not a DateTime. An agency says "by 14 March",
+    never "by 14 March at 16:20". Storing a time would invent a precision
+    the obligation does not have, and then someone would compare against it.
+  - `is_overdue` is DERIVED at read time and never stored, because "is this
+    late?" is a question about today. A closed item is never overdue
+    however old its due date -- reading overdue off the date alone would
+    light up every historical letter the platform has ever recorded.
+  - There is no `body` column. The letter is a document and documents
+    already have a home; retyping a regulator's letter into a text column
+    creates a second version of it nobody can check against the original.
+
+CRUD came almost free from `build_child_router`, the same factory that
+mounts `Declaration` under a Project. One deviation recorded rather than
+worked around: the factory's `order_by` is ascending-only, and rather than
+change a shared factory for one caller's preference, the list reads
+oldest-first -- which is right anyway, for the same reason the document
+version history is: a conversation reads forwards.
+
+### Deferred, deliberately
+
+The build does NOT set a sequence to BUILT automatically. Defensible both
+ways -- a status the builder sets is one a human cannot forget, but
+coupling the builder to workflow state deserves its own decision rather
+than being smuggled in here. Likewise `ACKNOWLEDGED` is a human assertion
+today, not a parsed gateway receipt; the gateway/ESG half of the audit's
+§6.3 stays open.
+
+---
+
 ## Phase 2 — a document's history, and the fixed-key trap again (2026-09-20)
 
 P18 said replacing an upload overwrites it, and justified that by pointing

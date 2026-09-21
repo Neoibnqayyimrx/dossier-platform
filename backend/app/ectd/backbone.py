@@ -43,6 +43,7 @@ class BackboneBuilder(ABC):
         related_sequence_numbers: list[str],
         ich_leaves: dict[str, Leaf],
         regional_leaves_by_slot: dict[str, list[Leaf]],
+        submission_unit_type: str = "initial",
     ) -> BackboneResult: ...
 
 
@@ -60,6 +61,10 @@ class V322BackboneBuilder(BackboneBuilder):
         related_sequence_numbers: list[str],
         ich_leaves: dict[str, Leaf],
         regional_leaves_by_slot: dict[str, list[Leaf]],
+        # P27: what KIND of transaction this sequence is. Defaulted so the
+        # older callers and tests that predate the field keep working and
+        # keep getting exactly what they got before.
+        submission_unit_type: str = "initial",
     ) -> BackboneResult:
         if project.region != Region.EU:
             raise NotImplementedError(
@@ -70,7 +75,11 @@ class V322BackboneBuilder(BackboneBuilder):
         index_xml_bytes = build_index_xml(ich_leaves, repeat_info=repeat_element_info(project))
         index_md5_bytes = index_md5_line(index_xml_bytes).encode("utf-8")
         regional_xml_bytes = build_regional_xml(
-            project, sequence_number, related_sequence_numbers, regional_leaves_by_slot
+            project,
+            sequence_number,
+            related_sequence_numbers,
+            regional_leaves_by_slot,
+            submission_unit_type,
         )
 
         return BackboneResult(

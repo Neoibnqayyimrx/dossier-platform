@@ -519,3 +519,57 @@ async def test_replacing_an_uploaded_document_still_drives_the_lifecycle(db_fact
 
         # ...and version 1's bytes survived being replaced.
         assert storage.get(first.storage_key) == original
+
+
+async def test_the_sequence_type_reaches_the_envelope_instead_of_a_hardcoded_initial(
+    db_factory,
+):
+    """P27 regression: `submission-unit/@type` was a constant.
+
+    `app/ectd/regional.py` set type="initial" on EVERY sequence, so a
+    response to a deficiency letter was filed telling the agency it was a
+    fresh submission. DTD-valid, and wrong -- which is the kind of defect
+    that survives validation all the way to a reviewer.
+
+    The values come from the EU regional DTD's own enumeration for the
+    attribute, so a filer's choice is automatically a legal one; this test
+    also proves the chosen value still passes DTD validation, which
+    build_regional_xml performs before returning.
+    """
+    from app.models import SubmissionUnitType
+
+    async with db_factory() as db:
+        project = _eu_examox()
+        db.add(project)
+        await db.commit()
+
+        storage = InMemoryStorageClient()
+        attach_certificate_documents(project, storage)
+
+        seq0 = Sequence(project_id=project.id, number="0000")
+        db.add(seq0)
+        await db.commit()
+        first = await build_ectd_sequence(db, project, seq0, storage=storage)
+
+        with zipfile.ZipFile(io.BytesIO(storage.get(first.storage_key))) as zf:
+            assert b'<submission-unit type="initial"/>' in zf.read("0000/m1/eu/eu-regional.xml")
+
+        # The next sequence answers the agency, and says so.
+        seq1 = Sequence(
+            project_id=project.id,
+            number="0001",
+            submission_unit_type=SubmissionUnitType.RESPONSE,
+        )
+        db.add(seq1)
+        await db.commit()
+        second = await build_ectd_sequence(db, project, seq1, storage=storage)
+
+        with zipfile.ZipFile(io.BytesIO(storage.get(second.storage_key))) as zf:
+            regional = zf.read("0001/m1/eu/eu-regional.xml")
+        assert b'<submission-unit type="response"/>' in regional
+        assert b'type="initial"' not in regional
+
+        # The OTHER type axis is untouched: `submission/@type` still comes
+        # from the product's registration type, because "this is a renewal"
+        # and "this sequence is a response" are both true at once.
+        assert b'<submission type="renewal">' in regional

@@ -213,9 +213,6 @@ still ahead:
   `docs/decisions/0001-nafdac-format.md`. Blocked on obtaining the US
   regional DTD, without which the FDA path cannot self-validate the way the
   EU path does.
-- **Sequence status and regulator correspondence.** A `Sequence` records no
-  lifecycle state (submitted, acknowledged, approved) and nothing models
-  deficiency letters, queries or their due dates.
 - **Validation gaps.** No filename/path-convention rules (length limits,
   allowed characters, folder naming), and findings are JSON only — no
   human-readable report to hand a colleague.

@@ -4,7 +4,7 @@ override endpoints live in app.api.routers.validation (P06)."""
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -15,8 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, get_db, require_project_owner
 from app.api.loading import PROJECT_CHILD_OPTIONS
 from app.models import Applicant, Product, Project, Sequence, User
+from app.models.enums import ALLOWED_SEQUENCE_TRANSITIONS, SequenceStatus
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
-from app.schemas.sequence import SequenceRead, SequenceUpdate
+from app.schemas.sequence import SequenceRead, SequenceStatusUpdate, SequenceUpdate
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -207,6 +208,61 @@ async def list_sequences(
 ) -> list[Sequence]:
     stmt = select(Sequence).where(Sequence.project_id == project_id).order_by(Sequence.number)
     return list((await db.scalars(stmt)).all())
+
+
+@router.patch("/{project_id}/sequences/{sequence_id}/status", response_model=SequenceRead)
+async def update_sequence_status(
+    project_id: uuid.UUID,
+    sequence_id: uuid.UUID,
+    payload: SequenceStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    _owned: None = Depends(require_project_owner),
+) -> Sequence:
+    """Move a sequence to the next legal status.
+
+    WHY this is its own endpoint rather than a field on the ordinary PATCH
+    (P27): a status that any PATCH can set is a status that can record a
+    history which never happened -- DRAFT straight to APPROVED, or a
+    rejection quietly reopened. The ORDER is the information. Putting the
+    transition behind its own route is what lets the rule be enforced in
+    exactly one place, and lets a refusal say what was actually possible.
+
+    Setting a sequence to its CURRENT status is accepted as a no-op rather
+    than refused: it is idempotent, which a client retrying a request
+    after a dropped response depends on.
+    """
+    sequence = await db.scalar(
+        select(Sequence).where(Sequence.id == sequence_id, Sequence.project_id == project_id)
+    )
+    if sequence is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Sequence not found")
+
+    target = payload.status
+    if target is not sequence.status:
+        allowed = ALLOWED_SEQUENCE_TRANSITIONS[sequence.status]
+        if target not in allowed:
+            # 409, not 422: the request is perfectly well-formed and the
+            # value is a real status. What makes it wrong is the state the
+            # sequence is in, which is a conflict, not a validation error.
+            legal = ", ".join(sorted(status_.value for status_ in allowed)) or "nothing"
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"A sequence that is {sequence.status.value} cannot become "
+                f"{target.value}. From here it can only become: {legal}.",
+            )
+        sequence.status = target
+
+        # WHY the timestamp is set here and not left to the caller: a
+        # sequence marked SUBMITTED with no submission date is a record
+        # that cannot answer the one question it exists to answer. Only
+        # filled if absent, so a filer back-entering a real historical
+        # date is not overwritten by today's.
+        if target is SequenceStatus.SUBMITTED and sequence.submitted_at is None:
+            sequence.submitted_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(sequence)
+    return sequence
 
 
 @router.patch("/{project_id}/sequences/{sequence_id}", response_model=SequenceRead)

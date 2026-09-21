@@ -228,6 +228,9 @@ async def build_ectd_sequence(
         related_sequence_numbers,
         lifecycle.backbone_leaves,
         regional_leaves_by_slot,
+        # P27: the sequence says what kind of transaction it is; the
+        # envelope reports it. Previously every sequence claimed "initial".
+        sequence.submission_unit_type.value,
     )
 
     # ---- 4. Package: utility files + both backbones + only the leaves

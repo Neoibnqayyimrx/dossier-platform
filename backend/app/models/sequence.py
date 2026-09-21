@@ -11,11 +11,14 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import String, Text, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
+from app.models.enums import SequenceStatus, SubmissionUnitType
 
 if TYPE_CHECKING:
+    from app.models.correspondence import Correspondence
     from app.models.project import Project
     from app.models.sequence_leaf import SequenceLeaf
 
@@ -42,9 +45,33 @@ class Sequence(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # P27: where this sequence stands with the agency. Moved through the
+    # dedicated status endpoint, which enforces
+    # `ALLOWED_SEQUENCE_TRANSITIONS` -- not by PATCHing this column, so a
+    # history that could not have happened cannot be recorded.
+    status: Mapped[SequenceStatus] = mapped_column(
+        SAEnum(SequenceStatus), default=SequenceStatus.DRAFT, server_default="DRAFT"
+    )
+
+    # P27: what KIND of transaction this sequence is, in the agency's own
+    # vocabulary. Feeds `submission-unit/@type` in the EU regional
+    # backbone, which until now was hardcoded to "initial" for every
+    # sequence -- so a response to a deficiency letter told the agency it
+    # was a fresh submission. See SubmissionUnitType for why this is a
+    # different axis from Project.submission_type and
+    # Product.registration_type.
+    submission_unit_type: Mapped[SubmissionUnitType] = mapped_column(
+        SAEnum(SubmissionUnitType),
+        default=SubmissionUnitType.INITIAL,
+        server_default="INITIAL",
+    )
+
     project: Mapped["Project"] = relationship(back_populates="sequences")
     # P09: the leaf inventory this sequence was built with -- see
     # app/models/sequence_leaf.py for why this is persisted at all.
     leaves: Mapped[list["SequenceLeaf"]] = relationship(
         back_populates="sequence", cascade="all, delete-orphan"
     )
+    # P27: letters tied to THIS transaction. Nullable on the other side --
+    # plenty of correspondence predates any sequence (see Correspondence).
+    correspondence: Mapped[list["Correspondence"]] = relationship(back_populates="sequence")

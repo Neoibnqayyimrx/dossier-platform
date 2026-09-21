@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from app.models.applicant import Applicant
     from app.models.declaration import Declaration
     from app.models.product import Product
+    from app.models.correspondence import Correspondence
     from app.models.section_document import SectionDocument
     from app.models.sequence import Sequence
     from app.models.narrative import NarrativeGeneration
@@ -123,6 +124,13 @@ class Project(Base):
     # load there raises under async SQLAlchemy rather than merely being slow.
     documents: Mapped[list["SectionDocument"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", lazy="selectin"
+    )
+    # P27: the conversation with the agency about this filing. NOT
+    # lazy="selectin" like documents above -- nothing in the build path
+    # reads correspondence, so loading it on every project read would be
+    # work no builder needs.
+    correspondence: Mapped[list["Correspondence"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
     )
 
 

@@ -499,3 +499,143 @@ class NarrativeRegister(str, enum.Enum):
 
     REGULATORY = "regulatory"
     PATIENT = "patient"
+
+
+class SequenceStatus(str, enum.Enum):
+    """Where one sequence stands with the agency (P27).
+
+    Before this, a `Sequence` carried a `submitted_at` timestamp and
+    nothing else, so the only two states the platform could tell apart
+    were "has a date" and "has not". Everything a regulatory affairs
+    officer actually tracks -- did the gateway acknowledge it, is it in
+    assessment, was it approved -- lived in someone's spreadsheet.
+
+    WHY an enum and not a free-text field: these are the states the WORK
+    depends on. A sequence that has been submitted must not be rebuilt
+    into different bytes than the agency holds, and "submitted" spelled
+    three ways in three rows cannot be checked for. See
+    ALLOWED_SEQUENCE_TRANSITIONS below for why the transitions are
+    constrained too.
+
+    WHY BUILT is a state at all, rather than being inferred from whether a
+    package exists: a package can be rebuilt, deleted, or built and never
+    filed. The status records the DECISION; object storage records the
+    artifact. Conflating them means "is this filed?" is answered by
+    checking for a file.
+    """
+
+    DRAFT = "draft"
+    BUILT = "built"
+    SUBMITTED = "submitted"
+    ACKNOWLEDGED = "acknowledged"
+    UNDER_REVIEW = "under-review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+# WHY the transitions are a map and not "any status to any status": the
+# point of modelling status at all is that the order means something. A
+# sequence cannot be ACKNOWLEDGED before it was SUBMITTED, and a dossier
+# that jumped DRAFT -> APPROVED is a data-entry error, not a fast
+# approval. Enforcing this in one place means the API cannot record a
+# history that could not have happened.
+#
+# WHY REJECTED is reachable from the review states but APPROVED is not
+# reachable from REJECTED: a rejected sequence is closed. What follows a
+# rejection is a NEW sequence answering it -- which is exactly what the
+# submission-unit type `response` is for -- not the same sequence changing
+# its mind.
+ALLOWED_SEQUENCE_TRANSITIONS: dict[SequenceStatus, frozenset[SequenceStatus]] = {
+    SequenceStatus.DRAFT: frozenset({SequenceStatus.BUILT}),
+    # Back to DRAFT is legal: a built package that someone then edits is
+    # honestly a draft again, and refusing that would push people to lie
+    # about the status rather than fix it.
+    SequenceStatus.BUILT: frozenset({SequenceStatus.DRAFT, SequenceStatus.SUBMITTED}),
+    SequenceStatus.SUBMITTED: frozenset({SequenceStatus.ACKNOWLEDGED, SequenceStatus.REJECTED}),
+    SequenceStatus.ACKNOWLEDGED: frozenset({SequenceStatus.UNDER_REVIEW, SequenceStatus.REJECTED}),
+    SequenceStatus.UNDER_REVIEW: frozenset({SequenceStatus.APPROVED, SequenceStatus.REJECTED}),
+    # Terminal. See the note above on why a rejection is answered by a new
+    # sequence rather than by reopening this one.
+    SequenceStatus.APPROVED: frozenset(),
+    SequenceStatus.REJECTED: frozenset(),
+}
+
+
+class SubmissionUnitType(str, enum.Enum):
+    """What KIND of transaction this sequence is, in the agency's own
+    vocabulary (P27).
+
+    These values are not invented: they are the complete enumeration the
+    EU regional DTD declares for `submission-unit/@type`
+    (`reference/ectd_dtd/eu-envelope.mod`). Using the DTD's own list means
+    a filer's choice is automatically a legal one, and that adding a value
+    here without the DTD agreeing would be caught by the regional
+    backbone's own validation rather than by a reviewer.
+
+    WHY this is not `SubmissionType` (which already exists) and not
+    `RegistrationType`: they are different axes and a dossier has all
+    three.
+
+      - `SubmissionType` (on Project) -- multisource vs new chemical
+        entity. Decides how much of the CTD is OWED.
+      - `RegistrationType` (on Product) -- new / renewal / variation.
+        Decides what the APPLICATION is, and drives `submission/@type`.
+      - this one (on Sequence) -- initial / response / additional-info.
+        Decides what THIS TRANSACTION is.
+
+    A variation application's first sequence is `initial`; its answer to
+    the assessor's questions is `response`. Both are variations. Folding
+    these together would make one of those two facts unrepresentable.
+
+    WHY it matters that this was previously hardcoded: `app/ectd/regional.py`
+    set `submission-unit type="initial"` on EVERY sequence, so a response
+    to a deficiency letter was filed telling the agency it was a fresh
+    submission. DTD-valid, and wrong.
+    """
+
+    INITIAL = "initial"
+    VALIDATION_RESPONSE = "validation-response"
+    RESPONSE = "response"
+    ADDITIONAL_INFO = "additional-info"
+    CLOSING = "closing"
+    CONSOLIDATING = "consolidating"
+    CORRIGENDUM = "corrigendum"
+    REFORMAT = "reformat"
+    RE_EXAMINATION = "re-examination"
+
+
+class CorrespondenceDirection(str, enum.Enum):
+    """Who sent it. INBOUND is from the agency, OUTBOUND is to it."""
+
+    INBOUND = "inbound"
+    OUTBOUND = "outbound"
+
+
+class CorrespondenceType(str, enum.Enum):
+    """What kind of letter this is.
+
+    WHY a deficiency letter and a query are separate values rather than
+    one "question from the agency": a deficiency letter is a formal
+    procedural event with a clock attached -- miss its deadline and the
+    application can lapse -- whereas a query is often an informal
+    clarification with no such consequence. Collapsing them would lose the
+    distinction that decides whether a due date is urgent.
+    """
+
+    DEFICIENCY_LETTER = "deficiency-letter"
+    QUERY = "query"
+    RESPONSE = "response"
+    COMMITMENT = "commitment"
+    OTHER = "other"
+
+
+class CorrespondenceStatus(str, enum.Enum):
+    """Whether this item still needs something from us.
+
+    Deliberately two states and not a workflow: the useful question is
+    "what is outstanding", and richer states (acknowledged, in progress)
+    would be guessing at a process this platform does not yet model.
+    """
+
+    OPEN = "open"
+    CLOSED = "closed"

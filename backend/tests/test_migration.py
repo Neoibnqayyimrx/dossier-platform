@@ -53,6 +53,10 @@ EXPECTED_TABLES = {
     "validation_override",
     "applicant",
     "declaration",
+    # P26/P27 -- the subset assertion means an omission here is silent, so
+    # newer tables are added as they arrive rather than left out.
+    "document_version",
+    "correspondence",
 }
 
 

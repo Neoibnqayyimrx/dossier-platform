@@ -43,6 +43,11 @@ from app.models.enums import (
     SpecificationOwnerKind,
     StabilityStudyType,
     SubmissionType,
+    SubmissionUnitType,
+    SequenceStatus,
+    CorrespondenceDirection,
+    CorrespondenceStatus,
+    CorrespondenceType,
 )
 from app.models.product import Product
 from app.models.manufacturer import Manufacturer
@@ -66,6 +71,7 @@ from app.models.certificate import Certificate
 from app.models.applicant import Applicant
 from app.models.declaration import Declaration
 from app.models.project import Project, Section
+from app.models.correspondence import Correspondence
 from app.models.document_version import DocumentVersion
 from app.models.section_document import SectionDocument
 from app.models.sequence import Sequence
@@ -78,6 +84,7 @@ from app.models.validation_override import ValidationOverride
 __all__ = [
     "Base",
     "SpecificationTest",
+    "Correspondence",
     "DocumentVersion",
     "SectionDocument",
     # enums
@@ -111,6 +118,11 @@ __all__ = [
     "SpecificationOwnerKind",
     "StabilityStudyType",
     "SubmissionType",
+    "SubmissionUnitType",
+    "SequenceStatus",
+    "CorrespondenceDirection",
+    "CorrespondenceStatus",
+    "CorrespondenceType",
     # entities
     "Product",
     "Manufacturer",

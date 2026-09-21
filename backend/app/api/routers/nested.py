@@ -24,6 +24,7 @@ from __future__ import annotations
 from app.api.routers.product_children import build_child_router
 from app.models import (
     ActiveIngredient,
+    Correspondence,
     BatchAnalysis,
     BioequivalenceStudy,
     Biowaiver,
@@ -44,6 +45,11 @@ from app.schemas.active_ingredient import (
     ActiveIngredientCreate,
     ActiveIngredientRead,
     ActiveIngredientUpdate,
+)
+from app.schemas.correspondence import (
+    CorrespondenceCreate,
+    CorrespondenceRead,
+    CorrespondenceUpdate,
 )
 from app.schemas.batch_analysis import (
     BatchAnalysisCreate,
@@ -303,6 +309,24 @@ NESTED_ROUTERS = [
     # so it belongs to the Project -- next year's renewal may appoint
     # someone else. Project -> Product is one hop, so the same owner_via
     # the specification router uses covers it unchanged.
+    # P27: same parent shape as declarations below -- a Project child that
+    # reaches its owner through `product`. Ordered oldest-first, for the
+    # reason the document version history is: a correspondence thread is a
+    # conversation and a conversation reads forwards. (The factory's
+    # order_by is ascending-only; a descending variant would mean changing
+    # a shared factory for one caller's preference.)
+    build_child_router(
+        resource="correspondence",
+        model=Correspondence,
+        create_schema=CorrespondenceCreate,
+        update_schema=CorrespondenceUpdate,
+        read_schema=CorrespondenceRead,
+        parent_model=Project,
+        parent_segment="projects",
+        parent_fk="project_id",
+        owner_via="product",
+        order_by="received_or_sent_at",
+    ),
     build_child_router(
         resource="declarations",
         model=Declaration,

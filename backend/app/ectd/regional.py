@@ -57,7 +57,13 @@ _AGENCY_CODE = "DE-BFARM"
 _ENVELOPE_COUNTRY = "de"
 _PROCEDURE_TYPE = "national"
 _DOCUMENT_COUNTRY = "common"  # `specific`/leaf docs not tied to one member state
-_SUBMISSION_UNIT_TYPE = "initial"  # always -- procedural correspondence types are out of scope
+# P27: no longer a constant. The submission-unit type is a property of the
+# SEQUENCE (see app.models.enums.SubmissionUnitType), and hardcoding
+# "initial" meant a response to a deficiency letter was filed telling the
+# agency it was a fresh submission -- DTD-valid, and wrong. Kept as the
+# default for callers that have no sequence to hand (older tests, and the
+# CTD path which has no envelope at all).
+_DEFAULT_SUBMISSION_UNIT_TYPE = "initial"
 # The leaflet, the SmPC and the label are filed in one language per set; the
 # DTD marks `xml:lang` #REQUIRED on every pi-doc. English, to match the
 # `common` document country already used above -- a real multi-member-state
@@ -104,7 +110,10 @@ def _submission_type(project: Project) -> str:
 
 
 def _build_envelope(
-    project: Project, sequence_number: str, related_sequence_numbers: list[str]
+    project: Project,
+    sequence_number: str,
+    related_sequence_numbers: list[str],
+    submission_unit_type: str = _DEFAULT_SUBMISSION_UNIT_TYPE,
 ) -> etree._Element:
     envelope_root = etree.Element("eu-envelope")
     envelope = etree.SubElement(envelope_root, "envelope")
@@ -124,7 +133,7 @@ def _build_envelope(
     number.text = "PENDING-PROCEDURE-NUMBER"
 
     submission_unit = etree.SubElement(envelope, "submission-unit")
-    submission_unit.set("type", _SUBMISSION_UNIT_TYPE)
+    submission_unit.set("type", submission_unit_type)
 
     applicant = etree.SubElement(envelope, "applicant")
     applicant.text = project.applicant.company_name if project.applicant else "UNKNOWN APPLICANT"
@@ -197,6 +206,7 @@ def build_regional_xml(
     sequence_number: str,
     related_sequence_numbers: list[str],
     leaves_by_slot: dict[str, list[Leaf]],
+    submission_unit_type: str = _DEFAULT_SUBMISSION_UNIT_TYPE,
 ) -> bytes:
     """Build and DTD-validate `eu-regional.xml`.
 
@@ -208,7 +218,9 @@ def build_regional_xml(
     root = etree.Element(f"{{{EU_NS}}}eu-backbone", nsmap={"eu": EU_NS, "xlink": XLINK_NS})
     root.set("dtd-version", "3.1")
 
-    root.append(_build_envelope(project, sequence_number, related_sequence_numbers))
+    root.append(
+        _build_envelope(project, sequence_number, related_sequence_numbers, submission_unit_type)
+    )
 
     m1_eu = etree.SubElement(root, "m1-eu")
 
