@@ -31,6 +31,78 @@ Newest entry at the top.
 
 ---
 
+## Phase 5b — a report you can forward, and a tripwire called a tripwire (2026-09-22)
+
+The end of gap Phase 5.
+
+### The report renders; it does not judge
+
+`GET /projects/{id}/validation-report` returns the findings as a PDF --
+readiness by default, one sequence's consolidated eCTD validation with
+`?sequence_id=`. The findings and the verdict are exactly what the JSON
+endpoints return; the tests compare the two rather than trusting it.
+
+Built through the pipeline the table of contents already uses (python-docx,
+then `convert_docx_to_pdf`), so no new dependency, and it inherits the two
+table courtesies P17 learnt the hard way: the header row repeats per page,
+and a row never splits across a break.
+
+Two design points worth keeping. Waived checks get their OWN section, above
+the findings, with the reason a human recorded -- the Build tab has said
+since P15 that a package built over a waived ERROR is byte-for-byte as
+convincing as one that passed; a report is where that difference has to be
+readable by someone who never opens the app. And `generated_at` is passed
+in, not read from the clock: a report is a statement about a moment.
+
+### Looked at, not just asserted
+
+The first render passed every text assertion and was unpleasant to read:
+equal column widths wrapped the Finding column after every word. Rendered
+page one to PNG with LibreOffice and looked. Fixed widths (Word keeps them
+on the grid AND each cell; LibreOffice honours the cells), then a second
+look found the category column breaking "consistency" mid-word and
+"(waived)" losing its bracket to the next line. Three rounds, each found
+by looking. A text-extraction assertion would have passed all three.
+
+### Content-Disposition, and CORS once more
+
+The UI saves the report under the filename the server chose. Cross-origin,
+a script may read only CORS-safelisted response headers unless the server
+exposes more -- and Content-Disposition is not safelisted, so every report
+would have been saved under one generic name. Caught by reasoning about the
+browser before running it (httpx tests never see CORS; P11's first lesson),
+fixed with `expose_headers=["Content-Disposition"]`, then confirmed in a
+real browser: the download arrives as `validation-report-examox.pdf`. The
+failure itself was not observed -- the fix rests on the CORS rule plus a
+test that the header is exposed.
+
+### R31: armed, and declared
+
+The audit called R31 "a silent no-op" and gap.md offered two exits: make it
+fire, or formally disable it. Neither fitted. It already runs, and a test
+already forces the regression and watches it fire; what it cannot do is
+fire on real data, by design. Disabling would remove the only running
+guard. Making it fire on real data was examined: the one live path for the
+three documents to disagree is prose stating a strength, and R01 already
+reads every section's prose, the leaflet's included.
+
+So the engine gained `@rule(..., tripwire=True)` and `tripwire_rule_ids()`.
+It changes nothing about how a rule runs -- a tripped tripwire is an
+ordinary finding at its severity -- only that its status lives in the
+registry, where a list of checks can report it, instead of only in a
+docstring the audit did not read. `tests/test_tripwires.py` holds EVERY
+tripwire silent on every seed, clean and planted-defect, in every region,
+so the next rule declared a tripwire is held to the same claim without
+anyone remembering to write the test.
+
+### Still open
+
+The LibreOffice count-test flake from 5a (recurring; diagnosis in the 5a
+entry). Asked after 5a whether to fix it first; the reply was to start 5b,
+so it is carried, not fixed.
+
+---
+
 ## Phase 5a — file names: measure your own output before writing the rule (2026-09-21)
 
 gap.md asked for filename and path checks. The first thing done was not to

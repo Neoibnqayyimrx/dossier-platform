@@ -163,6 +163,10 @@ def _project_probes(victim: dict) -> list[tuple[str, str, dict | None]]:
         ("GET", f"/projects/{project}/sequences", None),
         ("PATCH", f"/projects/{project}/sequences/{sequence}", {"description": "hijacked"}),
         ("GET", f"/projects/{project}/readiness", None),
+        # gap Phase 5b: a report is a READ of every finding on the project,
+        # in both its forms -- readiness, and one sequence's eCTD validation.
+        ("GET", f"/projects/{project}/validation-report", None),
+        ("GET", f"/projects/{project}/validation-report?sequence_id={sequence}", None),
         # P18: the upload path is a WRITE into another project's storage
         # prefix, so it is the probe that matters most on this list.
         ("GET", f"/projects/{project}/documents", None),

@@ -223,11 +223,11 @@ Registered by decorator in [rules.py](backend/app/validation/rules.py); engine a
 | R28 | ERROR | Leaflet/SmPC 6.1 excipients ↔ batch formula, both directions | regional business rule |
 | R29 | ERROR | Label storage temperature supported by an actual study condition | regional business rule |
 | R30 | ERROR/WARN | SmPC's authored sections are authored | structural/completeness |
-| R31 | ERROR | SmPC/label/leaflet agree on strength, shelf life, storage, pack size | regional business rule |
+| R31 | ERROR | SmPC/label/leaflet agree on strength, shelf life, storage, pack size — **a declared tripwire** (Phase 5b): cannot fire on today's data by design | regional business rule |
 | R32 | WARNING | Every SmPC contraindication recognisable in the leaflet | regional business rule |
 | R33 | WARNING | Approved leaflet text meets the plain-language register | regional business rule |
 
-Only **R14** is region-scoped (`regions=[Region.NAFDAC]`); the other 32 run for every region. **Phase 4b** adds **R34** (FDA admin data: D-U-N-S, contact, six-digit application number, application type — ERROR) and **R35** (FDA publishes original applications only — ERROR for a renewal or variation), both `regions=[Region.FDA]`. R31 is documented by its own author as *currently unable to fire* because all three documents render from one `shared_values` call — it is a regression guard, not an active check.
+Only **R14** is region-scoped (`regions=[Region.NAFDAC]`); the other 32 run for every region. **Phase 4b** adds **R34** (FDA admin data: D-U-N-S, contact, six-digit application number, application type — ERROR) and **R35** (FDA publishes original applications only — ERROR for a renewal or variation), both `regions=[Region.FDA]`. R31 is documented by its own author as *currently unable to fire* because all three documents render from one `shared_values` call — it is a regression guard, not an active check. **Phase 5b:** that status is now declared in the registry (`@rule("R31", tripwire=True)`), a test holds every tripwire silent on every seed in every region, and R31's own forcing test proves it still fires on the regression it guards. Kept running rather than disabled: disabling would remove the only guard against that regression, and teaching it to read prose would duplicate R01.
 
 ### 5.2 Layer 2 — mechanical eCTD checks (~~12~~ ~~13~~ 16), `source="mechanical-ectd"`
 
@@ -261,7 +261,7 @@ Re-validate the **built ZIP**, not the data ([validate.py](backend/app/ectd/vali
 
 ### 5.4 Report format and determinism
 
-**Format:** a JSON list of `FindingRead{rule_id, severity, category, message, section, source}` plus `is_exportable` and `overridden_rule_ids` ([schemas/validation.py](backend/app/schemas/validation.py)). Served by `GET /projects/{id}/readiness` (data rules) and `POST /projects/{id}/validate/ectd` (all four layers merged). There is **no human-readable report artifact** — no PDF, no HTML, no CSV export of findings.
+**Format:** a JSON list of `FindingRead{rule_id, severity, category, message, section, source}` plus `is_exportable` and `overridden_rule_ids` ([schemas/validation.py](backend/app/schemas/validation.py)). Served by `GET /projects/{id}/readiness` (data rules) and `POST /projects/{id}/validate/ectd` (all four layers merged). ~~There is **no human-readable report artifact** — no PDF, no HTML, no CSV export of findings.~~ **Phase 5b:** `GET /projects/{id}/validation-report` renders the same findings as a PDF through the existing DOCX→PDF pipeline — readiness by default, one sequence's full eCTD validation with `?sequence_id=` — with waived checks and their recorded reasons in their own section. A download button sits on the Validation tab.
 
 **Determinism:** the data-rule and mechanical layers are deterministic — `run_all` iterates a fixed registry in registration order, rules are pure functions over the loaded aggregate, and pass/fail per rule is explicit. Two real caveats:
 - The **AI reviewer layer is not deterministic** by nature. It is quarantined to `ADVISORY` and cannot affect `is_exportable`, so *the gate* is deterministic even though *the report* is not.
@@ -391,7 +391,7 @@ Notably well-covered: eCTD build and lifecycle (16 tests), mechanical eCTD check
 
 6. **Sequence numbering has a race.** No unique constraint on `(project_id, number)`; `create_sequence` reads `max()` then inserts. *(Being fixed in the uncommitted P25 work — see the baseline caveat at the top.)*
 
-7. **R31 cannot currently fire** — its own docstring says so. It is a guard against a future regression, not an active check.
+7. **R31 cannot currently fire** — its own docstring says so. It is a guard against a future regression, not an active check. *(Phase 5b: declared as a tripwire in the registry, and tested as one.)*
 
 8. **Font embedding unchecked** in PDFs ([validate.py:249](backend/app/ectd/validate.py#L249)).
 
@@ -454,9 +454,9 @@ Measured against LORENZ docuBridge / Extedo EXTEDOPHARMA capability sets.
 - No PDF technical validation: version, PDF/A, font embedding, security settings beyond encryption, page size, image resolution, bookmark presence.
 - No XML well-formedness checks beyond the two DTDs; no schema validation for v4.0.
 - No validation profiles / severity configuration per region; no rule enable/disable.
-- No validation report artifact — no PDF/HTML/Excel export, no shareable report file. JSON over HTTP only.
+- ~~No validation report artifact — no PDF/HTML/Excel export, no shareable report file. JSON over HTTP only.~~ **Closed in Phase 5b** (PDF report endpoint + download button).
 - Cumulative validation is partial: M12 checks completeness against this sequence's cumulative `SequenceLeaf` view, and prior packages are fetched only to resolve `modified-file` targets. There is no "validate the whole application across every sequence" report.
-- R31 is inert by construction; R10 is heuristic.
+- R31 is inert by construction — now a declared, tested tripwire (Phase 5b); R10 is heuristic.
 
 ### 9.6 Submission lifecycle management
 - **No submission status model** — three columns on `Sequence`, one of them a nullable timestamp.
@@ -864,4 +864,28 @@ naming code, so they cannot agree with it by construction. A structural
 test walks the real folder map with an absurdly long subject and proves
 every path fits FDA's 150; `SUBJECT_MAX_LENGTH` is trusted only because of
 it.
+
+### Phase 5b — a report a person can read, and R31 said plainly
+
+**5. Validation engine.**
+- *Report:* `GET /projects/{id}/validation-report` returns the findings as a
+  PDF, built by `app/validation/report_pdf.py` through the same python-docx
+  → `convert_docx_to_pdf` path the table of contents uses (no new
+  dependency). Readiness findings by default; `?sequence_id=` renders that
+  sequence's consolidated eCTD validation. It renders, it does not judge:
+  the findings and verdict are exactly those the JSON endpoints return.
+  Waived checks get their own section, with the reason a human recorded,
+  because a package built over a waived ERROR is otherwise indistinguishable
+  from one that passed. Verified in a real browser: the download saves as
+  `validation-report-examox.pdf` -- which needed `Content-Disposition`
+  added to the CORS `expose_headers`, since a cross-origin script cannot
+  otherwise read that header (httpx-based tests never see CORS).
+- *R31:* declared a tripwire in the registry (`tripwire=True`, new in the
+  engine), with a general test holding every tripwire silent on every seed
+  (clean and planted-defect) in every region, and R31's existing forcing
+  test proving it still fires. gap.md offered "intentionally disabled";
+  keeping it armed and declared was chosen instead (see the rule's
+  docstring for why).
+
+**Web UI** — "Download report (PDF)" on the Validation tab.
 

@@ -933,31 +933,59 @@ export const api = {
    * one-time signed URL if packages ever get large).
    */
   async downloadArtifact(projectId: string, key: string): Promise<void> {
-    const token = getStoredToken();
-    const headers = new Headers();
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-
     const params = new URLSearchParams({ key });
-    const response = await fetch(
-      `${API_BASE_URL}/projects/${projectId}/artifacts?${params}`,
-      { headers },
-    );
-    // Its own fetch (see the WHY above), so the shared 401 handling has to
-    // be asked for by name here rather than coming free from request().
-    if (!response.ok) throw await toApiError(response);
+    const response = await fetchWithAuth(`/projects/${projectId}/artifacts?${params}`);
+    await saveAs(response, key.split("/").pop() ?? "package.zip");
+  },
 
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = objectUrl;
-    link.download = key.split("/").pop() ?? "package.zip";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    // Revoking immediately would race the browser's save on some engines.
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+  /**
+   * gap Phase 5b: the findings as a PDF to forward or file. Without a
+   * sequence, the readiness findings the Validation tab shows; with one,
+   * that sequence's full eCTD validation. Same fetch-then-save as a
+   * package download, for the same reason (the token stays in a header).
+   */
+  async downloadValidationReport(projectId: string, sequenceId?: string): Promise<void> {
+    const query = sequenceId ? `?${new URLSearchParams({ sequence_id: sequenceId })}` : "";
+    const response = await fetchWithAuth(`/projects/${projectId}/validation-report${query}`);
+    await saveAs(
+      response,
+      attachmentFilename(response.headers.get("Content-Disposition")) ?? "validation-report.pdf",
+    );
   },
 };
+
+/** A GET with the bearer token, refused as an ApiError if not 2xx. Its own
+ * fetch rather than request(), because the body is bytes, not JSON -- so
+ * the shared 401 handling is asked for by name (toApiError). */
+async function fetchWithAuth(path: string): Promise<Response> {
+  const token = getStoredToken();
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, { headers });
+  if (!response.ok) throw await toApiError(response);
+  return response;
+}
+
+/** Hand the browser the response body as a file called `filename`. */
+async function saveAs(response: Response, filename: string): Promise<void> {
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Revoking immediately would race the browser's save on some engines.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+}
+
+/** The filename a server named in `Content-Disposition: attachment;
+ * filename="..."`, or null. Exported for its test. */
+export function attachmentFilename(header: string | null): string | null {
+  const match = header?.match(/filename="([^"]+)"/);
+  return match ? match[1] : null;
+}
 
 /** The child collections mounted under /products/{id}/... */
 export type ProductChildResource =

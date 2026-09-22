@@ -40,6 +40,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # gap Phase 5b: a cross-origin script may read only CORS-safelisted
+    # response headers unless the server exposes others. Content-Disposition
+    # is not safelisted, so without this the UI could not read the filename
+    # the report endpoint chose -- and would save every report under one
+    # generic name. Another thing httpx-based tests cannot see.
+    expose_headers=["Content-Disposition"],
 )
 
 register_error_handlers(app)

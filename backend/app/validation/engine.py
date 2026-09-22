@@ -70,9 +70,10 @@ class Report:
 Rule = Callable[["object"], list[Finding]]
 
 _REGISTRY: list[tuple[str, Rule, list[Region] | None]] = []
+_TRIPWIRES: set[str] = set()
 
 
-def rule(rule_id: str, regions: list[Region] | None = None):
+def rule(rule_id: str, regions: list[Region] | None = None, *, tripwire: bool = False):
     """Decorator to register a rule. WHY a registry: rules will grow to
     hundreds; registration keeps them decoupled and individually testable.
 
@@ -81,13 +82,31 @@ def rule(rule_id: str, regions: list[Region] | None = None):
     `None` (the default) means the rule applies everywhere. The rule
     function itself never branches on region; filtering happens once,
     centrally, in `run_all`.
+
+    `tripwire=True` (gap Phase 5b) declares a rule that CANNOT fire on data
+    the platform produces today, by design, and runs anyway to catch the
+    regression that would make it fire. It changes nothing about how the
+    rule runs or what a finding means -- a tripped tripwire is an ordinary
+    finding at its declared severity. What it changes is that the rule's
+    status is stated in the registry rather than only in a docstring, so a
+    list of the platform's checks can say which ones guard against a
+    regression instead of implying live coverage they do not provide
+    (the exact misreading the audit made of R31), and so a test can hold
+    every tripwire silent on every seed dossier.
     """
 
     def deco(fn: Rule) -> Rule:
         _REGISTRY.append((rule_id, fn, regions))
+        if tripwire:
+            _TRIPWIRES.add(rule_id)
         return fn
 
     return deco
+
+
+def tripwire_rule_ids() -> frozenset[str]:
+    """The registered rules declared `tripwire=True`."""
+    return frozenset(_TRIPWIRES)
 
 
 def run_all(project) -> Report:

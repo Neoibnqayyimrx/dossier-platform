@@ -1853,10 +1853,25 @@ def product_information_sections_are_present(project) -> list[Finding]:
 _PRODUCT_INFORMATION_LEAVES = ("1.3.1", "1.3.2", "1.3.3")
 
 
-@rule("R31")
+@rule("R31", tripwire=True)
 def product_information_agrees_across_the_three_documents(project) -> list[Finding]:
     """Strength, shelf life, storage and pack size must read identically in
     the SmPC, the label and the leaflet. ERROR -- it blocks the export.
+
+    ## Status: a TRIPWIRE, declared as one (gap Phase 5b)
+
+    The platform audit read this rule as "a silent no-op" and gap.md asked
+    for it to be either made able to fire or formally disabled. It is
+    neither, and the answer chosen was to say so in the registry
+    (`tripwire=True`) rather than only here. Disabling it was rejected: it
+    would remove the only running guard against the one regression it
+    exists for. Making it "able to fire" on real data was examined and
+    rejected too: the only live path by which the three documents could
+    disagree is approved prose stating a strength, and R01 already reads
+    every section's prose -- the leaflet's included -- for exactly that.
+    `tests/test_tripwires.py` holds every tripwire silent on every seed
+    dossier; `test_r31_fires_when_a_second_copy_of_a_value_is_introduced`
+    proves this one still fires when the regression is forced.
 
     ## This rule cannot fire today, and that is the point
 

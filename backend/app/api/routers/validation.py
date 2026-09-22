@@ -8,14 +8,17 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, require_project_owner
-from app.api.overrides import active_override_rule_ids
+from app.api.overrides import active_override_rule_ids, active_overrides
 from app.api.loading import READINESS_LOAD_OPTIONS
-from app.models import Project, User, ValidationOverride
+from app.ctd.naming import ich_name
+from app.ectd.report import SequenceNotBuiltError, validate_ectd_sequence
+from app.models import Project, Sequence, User, ValidationOverride
+from app.validation.report_pdf import build_validation_report_pdf
 from app.schemas.validation import (
     FindingRead,
     ReadinessResponse,
@@ -65,6 +68,61 @@ async def get_readiness(
         is_exportable=report.is_exportable(overridden),
         findings=[FindingRead(**vars(f)) for f in report.findings],
         overridden_rule_ids=sorted(overridden),
+    )
+
+
+@router.get(
+    "/validation-report",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+async def get_validation_report(
+    project_id: uuid.UUID,
+    sequence_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """The findings as a PDF someone can read, forward and file (gap
+    Phase 5b).
+
+    Without `sequence_id`: the readiness findings -- the data rules the
+    Validation tab shows. With it: that built sequence's consolidated eCTD
+    validation, the same four layers POST /validate/ectd returns. Either
+    way the findings are exactly those the JSON endpoints return; the
+    report renders, it does not judge (app/validation/report_pdf.py).
+    """
+    project = await _get_project_or_404(project_id, db)
+    overrides = await active_overrides(db, project_id)
+    overridden = frozenset(o.rule_id for o in overrides)
+
+    if sequence_id is None:
+        report = run_all(project)
+        scope, suffix = "Data rules (readiness)", ""
+    else:
+        sequence = await db.scalar(
+            select(Sequence).where(Sequence.id == sequence_id, Sequence.project_id == project_id)
+        )
+        if sequence is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Sequence not found on this project")
+        try:
+            report = await validate_ectd_sequence(db, project, sequence)
+        except SequenceNotBuiltError as exc:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        scope = f"eCTD sequence {sequence.number} -- data rules, eCTD checks, external validator, AI reviewer"
+        suffix = f"-sequence-{sequence.number}"
+
+    pdf = build_validation_report_pdf(
+        project=project,
+        scope=scope,
+        findings=report.findings,
+        is_exportable=report.is_exportable(overridden),
+        waived=[(o.rule_id, o.reason) for o in overrides],
+        generated_at=datetime.now(timezone.utc),
+    )
+    filename = f"validation-report-{ich_name(project.product.brand_name)}{suffix}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

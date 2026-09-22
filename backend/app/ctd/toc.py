@@ -56,11 +56,11 @@ def build_toc_pdf(project: Project, titles_by_path: dict[str, str]) -> bytes:
     header_cells[0].text = "Document"
     header_cells[1].text = "Path"
 
-    _repeat_header_on_every_page(table.rows[0])
+    repeat_header_on_every_page(table.rows[0])
 
     for path in sorted(titles_by_path):
         row = table.add_row()
-        _keep_row_on_one_page(row)
+        keep_row_on_one_page(row)
         cells = row.cells
         cells[0].text = titles_by_path[path]
         cells[1].text = path
@@ -89,12 +89,12 @@ def build_toc_pdf(project: Project, titles_by_path: dict[str, str]) -> bytes:
 # underlying WordprocessingML directly.
 
 
-def _keep_row_on_one_page(row) -> None:
+def keep_row_on_one_page(row) -> None:
     """`w:cantSplit` -- never break this row across a page boundary."""
     row._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
 
 
-def _repeat_header_on_every_page(row) -> None:
+def repeat_header_on_every_page(row) -> None:
     """`w:tblHeader` -- reprint this row at the top of each new page."""
     row._tr.get_or_add_trPr().append(OxmlElement("w:tblHeader"))
 
@@ -207,11 +207,11 @@ def build_module_toc_pdf(
         header_cells = table.rows[0].cells
         header_cells[0].text = "Document"
         header_cells[1].text = "Path"
-        _repeat_header_on_every_page(table.rows[0])
+        repeat_header_on_every_page(table.rows[0])
 
         for path in paths:
             row = table.add_row()
-            _keep_row_on_one_page(row)
+            keep_row_on_one_page(row)
             cells = row.cells
             cells[0].text = titles_by_path[path]
             cells[1].text = path

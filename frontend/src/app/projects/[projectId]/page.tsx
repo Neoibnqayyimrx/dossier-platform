@@ -13,6 +13,7 @@ import type {
 import { AuthGuard } from "@/components/AuthGuard";
 import { BuildPanel } from "@/components/BuildPanel";
 import { Module1Panel } from "@/components/Module1Panel";
+import { ReportDownloadButton } from "@/components/ReportDownloadButton";
 import { OverridePanel } from "@/components/OverridePanel";
 import { ProductInformationComparison } from "@/components/ProductInformationComparison";
 import { SectionListPanel } from "@/components/SectionListPanel";
@@ -247,6 +248,7 @@ function ProjectDetail({ projectId }: { projectId: string }) {
 
       {tab === "Validation" && (
         <div className="space-y-4">
+          <ReportDownloadButton projectId={projectId} />
           <ValidationReport
             findings={readiness.findings}
             isExportable={readiness.is_exportable}
