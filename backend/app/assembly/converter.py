@@ -121,6 +121,79 @@ class SofficeSubprocessConverter:
         itself. Present so the two converters are interchangeable."""
 
 
+# How long LibreOffice gets to exit on SIGTERM before the group is killed.
+_TERMINATE_GRACE_SECONDS = 5.0
+
+
+def _stop_process_group(leader: subprocess.Popen, group: int | None) -> None:
+    """SIGTERM a process group, give it a grace period, then SIGKILL it.
+
+    SIGTERM first so a LibreOffice that CAN exit cleanly does; SIGKILL
+    always follows for whatever did not, because `oosplash` can block
+    SIGTERM outright (see LibreOfficeListenerConverter.shutdown). A group
+    that has already emptied answers ProcessLookupError, which is success.
+
+    What this cannot do is reap the leader's GRANDCHILDREN: once unoserver
+    exits, oosplash and soffice.bin are reparented to PID 1, and it is PID
+    1's job to collect them. In this devcontainer PID 1 is a shell that
+    never does, so a killed LibreOffice lingers as a zombie there -- dead,
+    holding no port or memory, just a process-table entry. On CI and any
+    host with a real init they are collected at once.
+    """
+
+    def signal_group(sig: int) -> bool:
+        """True if the group still had members to signal."""
+        try:
+            if group is not None:
+                os.killpg(group, sig)
+            else:
+                leader.send_signal(sig)
+            return True
+        except (ProcessLookupError, PermissionError):
+            return False
+
+    signal_group(signal.SIGTERM)
+    try:
+        leader.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        pass
+    deadline = time.monotonic() + _TERMINATE_GRACE_SECONDS
+    while time.monotonic() < deadline and _group_has_live_members(group):
+        time.sleep(0.1)
+    signal_group(signal.SIGKILL)
+    try:
+        leader.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _group_has_live_members(group: int | None) -> bool:
+    """Whether any process in `group` is still running (zombies excluded).
+
+    Read from /proc, because `os.killpg(group, 0)` also succeeds for a group
+    of zombies -- which, under a non-reaping PID 1, would keep the grace
+    period waiting its full length for processes that are already dead.
+    Where /proc does not exist, assume members remain and let SIGKILL settle it.
+    """
+    if group is None:
+        return True
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return True
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+        except (OSError, IndexError):
+            continue
+        # After the command name: state, ppid, pgrp, ...
+        state, pgrp = fields[0], int(fields[2])
+        if pgrp == group and state != "Z":
+            return True
+    return False
+
+
 class LibreOfficeListenerConverter:
     """One `soffice` process, started once and reused (the Phase 1a fix).
 
@@ -149,6 +222,8 @@ class LibreOfficeListenerConverter:
         )
         self._start_timeout = start_timeout
         self._process: subprocess.Popen[bytes] | None = None
+        # The listener's process group, recorded at spawn -- see shutdown().
+        self._group: int | None = None
         # Resolved at start time, not here: a restart must be free to pick
         # different ports if the old ones are wedged.
         self._active_port: int | None = None
@@ -238,6 +313,11 @@ class LibreOfficeListenerConverter:
         with self._lock:
             if self._is_running():
                 return
+            # A listener that died on its own still has a process GROUP:
+            # its LibreOffice outlives it. Tear that down before starting a
+            # replacement, or every crash leaves one running forever.
+            if self._process is not None:
+                self.shutdown()
             self._active_port = self._resolve_port()
             self._process = subprocess.Popen(
                 [
@@ -266,6 +346,9 @@ class LibreOfficeListenerConverter:
                 # is the only way to be sure the child goes too.
                 start_new_session=True,
             )
+            # A new session makes the leader its own group leader, so the
+            # group id IS its pid -- recorded now, while it is certainly true.
+            self._group = self._process.pid
             # WHY the try/except wraps the whole wait: anything that escapes
             # here leaves `self._process` set and running, and the next call
             # sees `_is_running()` and never restarts it. That is precisely
@@ -304,44 +387,36 @@ class LibreOfficeListenerConverter:
         return probe.returncode == 0
 
     def shutdown(self) -> None:
-        """Stop the listener AND the `soffice` it forked.
+        """Stop the listener AND every LibreOffice process it forked.
 
         Terminating just the parent leaves an orphaned LibreOffice holding
         its UNO port and burning CPU indefinitely -- observed directly:
         six of them, at ~20% CPU each, after a test run that had called
         shutdown() every time. Signal the whole process group instead.
+
+        Two further leaks, found by tracing what survived a real shutdown
+        (the fix-after-Phase-5 commit):
+
+        - `oosplash`, LibreOffice's launcher, can sit on a futex with SIGTERM
+          BLOCKED (`SigBlk` bit 15 in /proc/<pid>/status). The old code sent
+          SIGTERM and escalated to SIGKILL only if unoserver itself refused
+          to die -- so a stuck oosplash outlived every shutdown. Now the
+          group always gets SIGKILL after a short grace period, which
+          nothing can block.
+        - The group id was looked up from the LEADER with `os.getpgid`. When
+          the listener had crashed and been reaped, that lookup failed, only
+          the dead leader was signalled, and its LibreOffice lived on beside
+          the replacement listener. The group id is now remembered at spawn
+          (with `start_new_session=True` it equals the leader's pid), so it
+          needs no living process to find.
         """
         with self._lock:
             if self._process is None:
                 return
-            try:
-                group = os.getpgid(self._process.pid)
-            except (ProcessLookupError, PermissionError):
-                group = None
-
-            def _signal(sig: int) -> None:
-                if group is not None:
-                    try:
-                        os.killpg(group, sig)
-                        return
-                    except (ProcessLookupError, PermissionError):
-                        pass
-                try:
-                    self._process.send_signal(sig) if self._process else None
-                except ProcessLookupError:
-                    pass
-
+            leader, group = self._process, self._group
+            self._process = self._group = None
             self._active_port = None
-            _signal(signal.SIGTERM)
-            try:
-                self._process.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                _signal(signal.SIGKILL)
-                try:
-                    self._process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    pass
-            self._process = None
+            _stop_process_group(leader, group)
 
     # -- conversion --------------------------------------------------------
 

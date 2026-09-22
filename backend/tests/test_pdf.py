@@ -145,6 +145,7 @@ def test_a_dead_listener_is_restarted_rather_than_failing_every_later_call():
     """
     from app.assembly.converter import LibreOfficeListenerConverter
 
+    baseline = _count_soffice()
     converter = LibreOfficeListenerConverter()  # auto port, like production
     try:
         docx = _docx_bytes()
@@ -162,6 +163,16 @@ def test_a_dead_listener_is_restarted_rather_than_failing_every_later_call():
         assert len(second) == len(first)
     finally:
         converter.shutdown()
+
+    # Regression (the fix after gap Phase 5): the crashed listener's own
+    # LibreOffice used to outlive it. The restart spawned a replacement
+    # beside it, and shutdown could not find the old group because it asked
+    # the dead, reaped leader for its group id. Nothing may survive either.
+    for _ in range(20):
+        if _count_soffice() <= baseline:
+            break
+        time.sleep(1)
+    assert _count_soffice() <= baseline, "a crashed listener's LibreOffice outlived it"
 
 
 def test_gotenberg_converter_matches_the_local_converters():
@@ -211,10 +222,24 @@ def test_gotenberg_converter_matches_the_local_converters():
 
 
 def _count_soffice() -> int:
+    """LIVE LibreOffice processes: soffice.bin and its launcher, oosplash.
+
+    Live only, since the fix after gap Phase 5: this used to count zombies
+    too, and in a container whose PID 1 never reaps (this devcontainer),
+    every LibreOffice ever killed stays a zombie -- so the count crept up
+    through a run and the test failed at random, for processes that were
+    already dead. And oosplash as well as soffice.bin, because a live,
+    SIGTERM-blocking oosplash is what actually leaked.
+    """
     import subprocess
 
-    return subprocess.run(["ps", "-eo", "comm"], capture_output=True, text=True).stdout.count(
-        "soffice.bin"
+    out = subprocess.run(["ps", "-eo", "stat=,comm="], capture_output=True, text=True).stdout
+    return sum(
+        1
+        for line in out.splitlines()
+        if (parts := line.split())
+        and not parts[0].startswith("Z")
+        and parts[-1] in ("soffice.bin", "oosplash")
     )
 
 
@@ -287,3 +312,50 @@ def test_the_default_listener_does_not_collide_with_a_squatter():
     finally:
         auto.shutdown()
         squatter.shutdown()
+
+
+def test_a_group_member_that_ignores_sigterm_is_still_killed():
+    """The oosplash leak, reproduced without LibreOffice.
+
+    LibreOffice's launcher can block SIGTERM, and the old shutdown escalated
+    to SIGKILL only if the LEADER refused to die -- so a member that shrugged
+    off SIGTERM outlived every shutdown. Here the leader exits politely and a
+    child ignores SIGTERM outright; after the stop, the child must be gone.
+    """
+    import os
+    import signal
+    import subprocess
+    import sys
+
+    from app.assembly.converter import _group_has_live_members, _stop_process_group
+
+    child = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(120)"
+    leader = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            f"import subprocess, sys, time; "
+            f"subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(120)",
+        ],
+        start_new_session=True,
+    )
+    group = leader.pid
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:  # wait for the stubborn child to exist
+            members = subprocess.run(
+                ["ps", "-o", "pid=", "-g", str(group)], capture_output=True, text=True
+            ).stdout.split()
+            if len(members) >= 2:
+                break
+            time.sleep(0.1)
+        assert _group_has_live_members(group)
+
+        _stop_process_group(leader, group)
+
+        assert not _group_has_live_members(group)
+    finally:
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass

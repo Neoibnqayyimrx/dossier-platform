@@ -31,6 +31,74 @@ Newest entry at the top.
 
 ---
 
+## Fix after Phase 5 — the LibreOffice leak, found by tracing instead of guessing (2026-09-22)
+
+The count test had failed in three of four full runs, always passing alone.
+Carried through 5b; fixed here, as its own commit, at the user's request.
+
+### Measure what survives, per test
+
+A single start -> convert -> shutdown cycle, traced with `ps -o
+pid,ppid,pgid,stat`, cleaned up completely -- so the leak was not in the
+basic path. Running each test in test_pdf.py alone and listing survivors
+found it: every test that converted through the shared listener left one
+`oosplash` ALIVE holding a zombie `soffice.bin`, and the crash-recovery
+test left a LIVE `soffice.bin` as well.
+
+### Two real bugs
+
+**oosplash blocks SIGTERM.** `/proc/<pid>/status` on a survivor:
+`SigBlk: 0x4000` -- bit 15, SIGTERM -- and `wchan: futex_wait_queue`. The
+launcher was parked on a futex with the polite signal blocked, and had
+stopped collecting its dead child. `shutdown()` sent SIGTERM to the group
+and escalated to SIGKILL only if UNOSERVER refused to die; unoserver always
+died politely, so the stuck launcher never saw SIGKILL. Now the group
+always gets SIGKILL after a grace period (live members read from /proc,
+because `killpg(g, 0)` also succeeds for a group of zombies).
+
+**Crash recovery orphaned the old group.** `shutdown()` found the group with
+`os.getpgid(leader.pid)`. After a crash the leader was dead and REAPED, the
+lookup raised, the code fell back to signalling the dead leader alone, and
+its LibreOffice -- a live soffice.bin holding its UNO port -- ran on beside
+the replacement listener. In production that is one leaked LibreOffice per
+crash. The group id is now recorded at spawn (`start_new_session=True`
+makes it equal the leader's pid), and `_start` tears down a dead
+predecessor's group before starting a new one.
+
+### Proving the test models the bug
+
+A new test reproduces the oosplash case with no LibreOffice at all: a
+leader that exits on SIGTERM and a child that ignores it. The new stop
+kills the child. The OLD logic, replayed against the same pair, never
+escalated and left the child alive -- so the test fails for the reason the
+leak happened, not merely passes after the fix.
+
+### The zombies are the environment's, and the test now says so
+
+`_count_soffice` counted zombies. This devcontainer's PID 1 is a shell that
+never reaps, so every LibreOffice ever killed stays a zombie and the count
+crept up through a run. A zombie holds no port or memory; on CI and any
+host with a real init it is collected at once. The count is now of LIVE
+soffice.bin and oosplash -- stricter where it matters (a live oosplash was
+the leak) and blind only to what is already dead. Worth doing separately:
+`"init": true` in the devcontainer, which would stop the zombie pile-up
+itself.
+
+### The Gotenberg question, answered on the way
+
+Asked alongside the fix: LibreOffice or Gotenberg? Gotenberg converts DOCX
+WITH LibreOffice, in its own container, so it is a choice of transport, not
+of renderer. It owns the process lifecycle this fix repairs (restarting
+LibreOffice every 10 conversions by default) and keeps LibreOffice out of
+the API image; it needs Docker wherever it runs and still converts one
+document at a time per instance. Recommendation recorded: the listener
+stays the default for development, tests and CI; Gotenberg is the
+production option; and whichever runs, pin the LibreOffice version --
+`docker-compose.yml` pulls the floating `gotenberg/gotenberg:8`, and a
+different LibreOffice can change PDF bytes, which are eCTD checksums.
+
+---
+
 ## Phase 5b — a report you can forward, and a tripwire called a tripwire (2026-09-22)
 
 The end of gap Phase 5.

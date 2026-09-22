@@ -889,3 +889,19 @@ it.
 
 **Web UI** — "Download report (PDF)" on the Validation tab.
 
+
+### Fix after Phase 5 — LibreOffice process leak
+
+**8. Test coverage & reliability** (and a production defect under it). The
+recurring `test_shutting_down_a_listener_leaves_no_orphaned_libreoffice`
+failure traced to two real bugs in the listener's teardown
+(`app/assembly/converter.py`): LibreOffice's `oosplash` launcher can block
+SIGTERM, and shutdown escalated to SIGKILL only if `unoserver` refused to
+die; and after a listener crash the group id was looked up from the dead,
+reaped leader, so the crashed listener's LibreOffice kept running beside
+its replacement. The group id is now recorded at spawn, a dead
+predecessor's group is torn down before a restart, and the group always
+gets SIGKILL after a grace period. The count test now counts live
+processes (this devcontainer's non-reaping PID 1 makes zombies permanent),
+and a new test reproduces a SIGTERM-ignoring group member without
+LibreOffice -- the old logic, replayed against it, left it alive.
