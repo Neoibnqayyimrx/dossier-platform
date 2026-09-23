@@ -57,6 +57,8 @@ EXPECTED_TABLES = {
     # newer tables are added as they arrive rather than left out.
     "document_version",
     "correspondence",
+    # gap Phase 6a
+    "organization",
 }
 
 
@@ -194,5 +196,93 @@ def test_the_p26_migration_backfills_a_version_for_every_existing_document(tmp_p
         # look like the new per-version convention would put a false
         # statement in the audit trail this table exists to provide.
         assert version.storage_key == f"projects/{project_id}/documents/1.2.7.pdf"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_the_gap6a_migration_gives_each_existing_user_their_own_organization(tmp_path, monkeypatch):
+    """The user's decision, asserted on rows that predate organizations:
+    one organization per existing user, holding exactly what they owned,
+    so nobody can see anything afterwards that they could not see before.
+    Global ADMINs become super-admins, everyone becomes their own
+    organization's ADMIN -- and the downgrade restores the old roles."""
+    db_file = tmp_path / "gap6a.db"
+    db_url = f"sqlite+aiosqlite:///{db_file}"
+    monkeypatch.setenv("DATABASE_URL", db_url)
+    get_settings.cache_clear()
+
+    try:
+        command.upgrade(_alembic_config(db_url), "a7d4c1f09e62")
+        engine = sa.create_engine(f"sqlite:///{db_file}")
+        stamp = "2026-03-01 09:00:00"
+        ids = {name: str(uuid.uuid4()) for name in ("ada", "bo", "p_ada", "p_bo", "a_bo")}
+        with engine.begin() as conn:
+            for name, role in (("ada", "ADMIN"), ("bo", "USER")):
+                conn.execute(
+                    sa.text(
+                        "INSERT INTO user (id, email, hashed_password, role, is_active,"
+                        " created_at, updated_at) VALUES (:i, :e, 'x', :r, 1, :t, :t)"
+                    ),
+                    {"i": ids[name], "e": f"{name}@example.com", "r": role, "t": stamp},
+                )
+            for product, owner in (("p_ada", "ada"), ("p_bo", "bo")):
+                conn.execute(
+                    sa.text(
+                        "INSERT INTO product (id, brand_name, generic_name, owner_id,"
+                        " created_at, updated_at) VALUES (:i, 'X', 'Y', :o, :t, :t)"
+                    ),
+                    {"i": ids[product], "o": ids[owner], "t": stamp},
+                )
+            conn.execute(
+                sa.text(
+                    "INSERT INTO applicant (id, company_name, owner_id, created_at, updated_at)"
+                    " VALUES (:i, 'Bo Pharma', :o, :t, :t)"
+                ),
+                {"i": ids["a_bo"], "o": ids["bo"], "t": stamp},
+            )
+        engine.dispose()
+
+        command.upgrade(_alembic_config(db_url), "head")
+
+        engine = sa.create_engine(f"sqlite:///{db_file}")
+        with engine.begin() as conn:
+            users = {
+                row.email: row
+                for row in conn.execute(
+                    sa.text("SELECT id, email, role, is_superadmin, organization_id FROM user")
+                )
+            }
+            orgs = {
+                row.id: row.name
+                for row in conn.execute(sa.text("SELECT id, name FROM organization"))
+            }
+            product_org = dict(
+                conn.execute(sa.text("SELECT id, organization_id FROM product")).all()
+            )
+            applicant_org = dict(
+                conn.execute(sa.text("SELECT id, organization_id FROM applicant")).all()
+            )
+        engine.dispose()
+
+        ada, bo = users["ada@example.com"], users["bo@example.com"]
+        # One organization each, named after its user, and not shared.
+        assert len(orgs) == 2 and ada.organization_id != bo.organization_id
+        assert orgs[bo.organization_id] == "bo@example.com's organization"
+        # Everything each user owned is in THEIR organization.
+        assert product_org[ids["p_ada"]] == ada.organization_id
+        assert product_org[ids["p_bo"]] == bo.organization_id
+        assert applicant_org[ids["a_bo"]] == bo.organization_id
+        # The global admin became a super-admin; both administer their own org.
+        assert (ada.is_superadmin, bo.is_superadmin) == (1, 0)
+        assert ada.role == bo.role == "ADMIN"
+
+        command.downgrade(_alembic_config(db_url), "a7d4c1f09e62")
+        engine = sa.create_engine(f"sqlite:///{db_file}")
+        with engine.begin() as conn:
+            roles = dict(conn.execute(sa.text("SELECT email, role FROM user")).all())
+            columns = {row[1] for row in conn.execute(sa.text("PRAGMA table_info(user)"))}
+        engine.dispose()
+        assert roles == {"ada@example.com": "ADMIN", "bo@example.com": "USER"}
+        assert "organization_id" not in columns and "is_superadmin" not in columns
     finally:
         get_settings.cache_clear()

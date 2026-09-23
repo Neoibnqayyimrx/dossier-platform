@@ -13,13 +13,13 @@ import uuid
 
 from pypdf import PdfReader
 
-from app.models import Region
+from app.models import Region, User
 from app.seed.examox import build_examox
 
 
 async def _seed(session_factory, owner_id: uuid.UUID, *, buggy: bool, region: Region) -> uuid.UUID:
     async with session_factory() as session:
-        project = build_examox(buggy=buggy, owner_id=owner_id)
+        project = build_examox(buggy=buggy, owner=await session.get(User, owner_id))
         project.region = region
         session.add(project)
         await session.commit()

@@ -57,8 +57,8 @@ async def _get_batch_or_404(batch_id: uuid.UUID, user: User, db: AsyncSession) -
     """The batch, if this user owns the product it ultimately belongs to.
 
     Two owner paths, because a batch is a batch of the substance or of the
-    finished product. Both end at `Product.owner_id`, which is the only
-    ownership column in the schema (see Product's WHY).
+    finished product. Both end at the product's organization, the
+    unit of access since gap Phase 6a (see app/models/organization.py).
 
     404, never 403: a batch belonging to someone else must look exactly
     like one that does not exist -- the same call every other router here
@@ -73,14 +73,16 @@ async def _get_batch_or_404(batch_id: uuid.UUID, user: User, db: AsyncSession) -
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Batch not found")
 
     if batch.product_id is not None:
-        owner_id = await db.scalar(select(Product.owner_id).where(Product.id == batch.product_id))
+        organization_id = await db.scalar(
+            select(Product.organization_id).where(Product.id == batch.product_id)
+        )
     else:
-        owner_id = await db.scalar(
-            select(Product.owner_id)
+        organization_id = await db.scalar(
+            select(Product.organization_id)
             .join(ActiveIngredient, ActiveIngredient.product_id == Product.id)
             .where(ActiveIngredient.id == batch.active_ingredient_id)
         )
-    if owner_id != user.id:
+    if organization_id != user.organization_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Batch not found")
     return batch
 

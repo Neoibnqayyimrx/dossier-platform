@@ -67,7 +67,7 @@ async def _get_product_or_404(product_id: uuid.UUID, user: User, db: AsyncSessio
     """
     product = await db.scalar(
         select(Product)
-        .where(Product.id == product_id, Product.owner_id == user.id)
+        .where(Product.id == product_id, Product.organization_id == user.organization_id)
         .options(
             selectinload(Product.product_information),
             selectinload(Product.apis),
@@ -187,7 +187,7 @@ async def _get_project_or_404(project_id: uuid.UUID, user: User, db: AsyncSessio
     project = await db.scalar(
         select(Project)
         .join(Product, Product.id == Project.product_id)
-        .where(Project.id == project_id, Product.owner_id == user.id)
+        .where(Project.id == project_id, Product.organization_id == user.organization_id)
         .options(
             selectinload(Project.applicant),
             selectinload(Project.product).selectinload(Product.product_information),

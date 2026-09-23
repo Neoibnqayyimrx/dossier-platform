@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import uuid
 
+from app.models import User
 from app.seed.documents import attach_certificate_documents
 from app.seed.examox import build_examox
 
 
 async def _seed_project(session_factory, owner_id: uuid.UUID, buggy: bool = False) -> uuid.UUID:
     async with session_factory() as session:
-        project = build_examox(buggy=buggy, owner_id=owner_id)
+        project = build_examox(buggy=buggy, owner=await session.get(User, owner_id))
         # P18: a finished filing has its certificate documents attached --
         # R20 blocks the export otherwise, and the corrected EXAMOX fixture
         # is meant to model a dossier that is ready to go.

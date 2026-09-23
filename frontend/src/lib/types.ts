@@ -195,12 +195,26 @@ export interface AuthToken {
  * reasoning as NarrativeStatus below (Pydantic serializes `.value`). */
 export type UserRole = "user" | "admin";
 
+/** Matches backend/app/schemas/user.py::OrganizationSummary -- the tenant
+ * every account belongs to (gap Phase 6a). */
+export interface OrganizationSummary {
+  id: string;
+  name: string;
+}
+
 /** Matches backend/app/schemas/user.py::UserRead. */
 export interface User {
   id: string;
   email: string;
   is_active: boolean;
+  /** WITHIN the organization since gap Phase 6a: an admin manages its
+   * members, and reaches no more dossier data than a user does. */
   role: UserRole;
+  organization: OrganizationSummary;
+  /** Platform account administration across organizations, and never a way
+   * into another organization's dossiers. No UI grants it -- see
+   * backend/scripts/promote_admin.py. */
+  is_superadmin: boolean;
   created_at: string;
 }
 

@@ -5,9 +5,11 @@ data, like Product. A local agent files a dozen foreign products over the
 years and is one legal entity, not a dozen copies -- so it is created
 once, listed, and pointed at by Project.applicant_id.
 
-WHY it carries its own owner_id (see the model's WHY): unlike a
+WHY it carries its own owner (see the model's WHY): unlike a
 certificate or a declaration, it is reached directly rather than through
-a Product, so it has no owner to borrow. Every query here filters on it,
+a Product, so it has no owner to borrow. Since gap Phase 6a that owner is
+an ORGANIZATION (organization_id); owner_id stays as who created it.
+Every query here filters on the organization,
 and 404 rather than 403 keeps someone else's applicant indistinguishable
 from one that never existed -- the same rule as everywhere else.
 """
@@ -28,7 +30,9 @@ router = APIRouter(prefix="/applicants", tags=["applicants"])
 
 
 async def _get_applicant_or_404(applicant_id: uuid.UUID, user: User, db: AsyncSession) -> Applicant:
-    stmt = select(Applicant).where(Applicant.id == applicant_id, Applicant.owner_id == user.id)
+    stmt = select(Applicant).where(
+        Applicant.id == applicant_id, Applicant.organization_id == user.organization_id
+    )
     applicant = await db.scalar(stmt)
     if applicant is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Applicant not found")
@@ -43,7 +47,9 @@ async def create_applicant(
 ) -> Applicant:
     # owner_id comes from the token, never the payload -- ApplicantCreate
     # has no such field, so there is nothing for a client to spoof.
-    applicant = Applicant(**payload.model_dump(), owner_id=user.id)
+    applicant = Applicant(
+        **payload.model_dump(), owner_id=user.id, organization_id=user.organization_id
+    )
     db.add(applicant)
     await db.commit()
     await db.refresh(applicant)
@@ -54,7 +60,11 @@ async def create_applicant(
 async def list_applicants(
     db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
 ) -> list[Applicant]:
-    stmt = select(Applicant).where(Applicant.owner_id == user.id).order_by(Applicant.company_name)
+    stmt = (
+        select(Applicant)
+        .where(Applicant.organization_id == user.organization_id)
+        .order_by(Applicant.company_name)
+    )
     return list((await db.scalars(stmt)).all())
 
 

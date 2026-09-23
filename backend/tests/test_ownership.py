@@ -19,6 +19,18 @@ WHY 404 and not 403 throughout: see require_project_owner's docstring --
 someone else's project must be indistinguishable from one that was never
 created, rather than confirming its existence to a caller who cannot
 touch it.
+
+gap Phase 6a moved the boundary from the USER to the ORGANIZATION, and
+extended this file rather than loosening it, in two directions:
+
+- Every stranger probe runs TWICE (the `stranger` fixture): as a plain
+  account in another organization, and as a platform SUPER-ADMIN in
+  another organization. The user's decision was "super-admin, accounts
+  only", and this is where "only" is enforced.
+- Every probe the owner replays, a COLLEAGUE replays too -- a plain USER
+  the owner's admin added to the same organization. Without that mirror,
+  an ownership check still comparing user ids would pass every stranger
+  test here and quietly keep the platform single-seat.
 """
 
 from __future__ import annotations
@@ -135,6 +147,17 @@ async def victim(auth_client):
     return await _seed_victim(auth_client)
 
 
+@pytest.fixture(params=["another-organization", "superadmin-of-another-organization"])
+def stranger(request, intruder_client, superadmin_client):
+    """Someone outside the victim's organization, in both forms that
+    matter (see the module docstring). Both clients are always built --
+    choosing between two ready fixtures is simpler and safer than
+    resolving an async fixture lazily from inside a parametrized one."""
+    if request.param == "another-organization":
+        return intruder_client
+    return superadmin_client
+
+
 # Probes whose OWNER-side answer needs real Postgres: narrative generation
 # runs a pgvector similarity search (`<=>`), an operator the SQLite fixture
 # has no equivalent for. The intruder side still runs here -- the gate is a
@@ -217,9 +240,9 @@ def _assert_looks_unowned(response, expected_message: str) -> None:
     _project_probes({"project_id": "{project}", "sequence_id": "{sequence}"}),
     ids=_ids(_project_probes({"project_id": "{project}", "sequence_id": "{sequence}"})),
 )
-async def test_a_stranger_cannot_reach_a_project_route(intruder_client, victim, method, url, body):
+async def test_a_stranger_cannot_reach_a_project_route(stranger, victim, method, url, body):
     url = url.format(project=victim["project_id"], sequence=victim["sequence_id"])
-    _assert_looks_unowned(await _send(intruder_client, method, url, body), PROJECT_NOT_FOUND)
+    _assert_looks_unowned(await _send(stranger, method, url, body), PROJECT_NOT_FOUND)
 
 
 @pytest.mark.parametrize(
@@ -245,8 +268,63 @@ async def test_the_owner_is_never_stopped_by_the_gate(
         assert response.json()["error"]["message"] != PROJECT_NOT_FOUND, response.text
 
 
-async def test_a_stranger_sees_none_of_your_projects(intruder_client, victim):
-    listing = await intruder_client.get("/projects")
+@pytest.mark.parametrize(
+    "method,url,body",
+    _project_probes({"project_id": "{project}", "sequence_id": "{sequence}"}),
+    ids=_ids(_project_probes({"project_id": "{project}", "sequence_id": "{sequence}"})),
+)
+async def test_a_colleague_is_never_stopped_by_the_gate(
+    member_client, victim, method, url, body, request
+):
+    """gap Phase 6a: the owner's mirror, replayed by a plain USER in the
+    same organization. The same assertion as the owner's -- never the
+    OWNERSHIP 404 -- because a colleague is supposed to be exactly as able
+    to work the dossier as the person who created it."""
+    if request.node.callspec.id in PG_ONLY_FOR_THE_OWNER:
+        pytest.skip("colleague side needs pgvector; see PG_ONLY_FOR_THE_OWNER")
+    url = url.format(project=victim["project_id"], sequence=victim["sequence_id"])
+    response = await _send(member_client, method, url, body)
+    if response.status_code == 404:
+        assert response.json()["error"]["message"] != PROJECT_NOT_FOUND, response.text
+
+
+async def test_a_colleague_sees_everything_the_organization_holds(member_client, victim):
+    """Every listing a stranger sees empty, a colleague sees populated --
+    and can write into the product and edit the applicant, the two roots
+    the organization now owns."""
+    assert [p["id"] for p in (await member_client.get("/projects")).json()] == [
+        victim["project_id"]
+    ]
+    assert [p["id"] for p in (await member_client.get("/products")).json()] == [
+        victim["product_id"]
+    ]
+    assert [a["id"] for a in (await member_client.get("/applicants")).json()] == [
+        victim["applicant_id"]
+    ]
+    added = await member_client.post(
+        f"/products/{victim['product_id']}/manufacturers",
+        json={"name": "Second site", "role": "finished product", "gmp_status": "certified"},
+    )
+    assert added.status_code == 201, added.text
+    renamed = await member_client.patch(
+        f"/applicants/{victim['applicant_id']}", json={"company_name": "Victim Pharma Plc"}
+    )
+    assert renamed.status_code == 200, renamed.text
+
+
+async def test_what_a_colleague_creates_the_owner_reaches(member_client, auth_client):
+    """The same boundary from the other side: access follows the
+    organization, not whoever happened to create the row."""
+    product = await member_client.post(
+        "/products", json={"brand_name": "COLLEAGUOX", "generic_name": "Ibuprofen"}
+    )
+    assert product.status_code == 201, product.text
+    reached = await auth_client.get(f"/products/{product.json()['id']}")
+    assert reached.status_code == 200, reached.text
+
+
+async def test_a_stranger_sees_none_of_your_projects(stranger, victim):
+    listing = await stranger.get("/projects")
     assert listing.status_code == 200
     assert listing.json() == []
 
@@ -257,30 +335,28 @@ async def test_a_stranger_sees_none_of_your_projects(intruder_client, victim):
 @pytest.mark.parametrize(
     "method,body", [("GET", None), ("PATCH", {"country": "Ghana"}), ("DELETE", None)]
 )
-async def test_a_stranger_cannot_reach_a_product(intruder_client, victim, method, body):
-    response = await _send(intruder_client, method, f"/products/{victim['product_id']}", body)
+async def test_a_stranger_cannot_reach_a_product(stranger, victim, method, body):
+    response = await _send(stranger, method, f"/products/{victim['product_id']}", body)
     _assert_looks_unowned(response, PRODUCT_NOT_FOUND)
 
 
-async def test_a_stranger_sees_none_of_your_products(intruder_client, victim):
-    listing = await intruder_client.get("/products")
+async def test_a_stranger_sees_none_of_your_products(stranger, victim):
+    listing = await stranger.get("/products")
     assert listing.status_code == 200
     assert listing.json() == []
 
 
 @pytest.mark.parametrize("collection", PRODUCT_CHILD_COLLECTIONS)
-async def test_a_stranger_cannot_list_a_product_child_collection(
-    intruder_client, victim, collection
-):
-    response = await intruder_client.get(f"/products/{victim['product_id']}/{collection}")
+async def test_a_stranger_cannot_list_a_product_child_collection(stranger, victim, collection):
+    response = await stranger.get(f"/products/{victim['product_id']}/{collection}")
     _assert_looks_unowned(response, PRODUCT_NOT_FOUND)
 
 
-async def test_a_stranger_cannot_write_into_your_product(intruder_client, victim):
+async def test_a_stranger_cannot_write_into_your_product(stranger, victim):
     """A valid payload on purpose: the parent-ownership check lives INSIDE
     the handler, after body validation, so an invalid body would 422 and
     prove nothing about the gate."""
-    response = await intruder_client.post(
+    response = await stranger.post(
         f"/products/{victim['product_id']}/manufacturers",
         json={"name": "Someone else's site", "role": "finished product", "gmp_status": "certified"},
     )
@@ -290,11 +366,9 @@ async def test_a_stranger_cannot_write_into_your_product(intruder_client, victim
 @pytest.mark.parametrize(
     "method,body", [("GET", None), ("PATCH", {"name": "renamed"}), ("DELETE", None)]
 )
-async def test_a_stranger_cannot_reach_one_of_your_child_rows(
-    intruder_client, victim, method, body
-):
+async def test_a_stranger_cannot_reach_one_of_your_child_rows(stranger, victim, method, body):
     response = await _send(
-        intruder_client,
+        stranger,
         method,
         f"/products/{victim['product_id']}/manufacturers/{victim['manufacturer_id']}",
         body,
@@ -305,17 +379,17 @@ async def test_a_stranger_cannot_reach_one_of_your_child_rows(
 # ---- the one collection that is two hops from an owner -----------------------
 
 
-async def test_a_stranger_cannot_list_a_drug_substance_specification(intruder_client, victim):
+async def test_a_stranger_cannot_list_a_drug_substance_specification(stranger, victim):
     """ActiveIngredient has no owner_id of its own; this route is gated by
     the factory's `owner_via="product"` hop (see build_child_router). It is
     the only collection whose ownership is checked through a join, so it
     gets its own probe rather than riding on the loop above."""
-    response = await intruder_client.get(f"/apis/{victim['ingredient_id']}/specification")
+    response = await stranger.get(f"/apis/{victim['ingredient_id']}/specification")
     _assert_looks_unowned(response, INGREDIENT_NOT_FOUND)
 
 
-async def test_a_stranger_cannot_add_a_specification_row(intruder_client, victim):
-    response = await intruder_client.post(
+async def test_a_stranger_cannot_add_a_specification_row(stranger, victim):
+    response = await stranger.post(
         f"/apis/{victim['ingredient_id']}/specification",
         json={"test_name": "Assay", "method": "HPLC", "acceptance_criterion": "95-105 %"},
     )
@@ -325,9 +399,9 @@ async def test_a_stranger_cannot_add_a_specification_row(intruder_client, victim
 @pytest.mark.parametrize(
     "method,body", [("GET", None), ("PATCH", {"acceptance_criterion": "0-1 %"}), ("DELETE", None)]
 )
-async def test_a_stranger_cannot_reach_a_specification_row(intruder_client, victim, method, body):
+async def test_a_stranger_cannot_reach_a_specification_row(stranger, victim, method, body):
     response = await _send(
-        intruder_client,
+        stranger,
         method,
         f"/apis/{victim['ingredient_id']}/specification/{victim['specification_id']}",
         body,
@@ -342,35 +416,35 @@ async def test_a_stranger_cannot_reach_a_specification_row(intruder_client, vict
     "method,body",
     [("GET", None), ("PATCH", {"company_name": "renamed"}), ("DELETE", None)],
 )
-async def test_a_stranger_cannot_reach_your_applicant(intruder_client, victim, method, body):
+async def test_a_stranger_cannot_reach_your_applicant(stranger, victim, method, body):
     """Applicant is the second owned root (P15a) -- it is reached directly
     rather than through a Product, so it carries its own owner_id and its
     router does its own filtering."""
-    response = await _send(intruder_client, method, f"/applicants/{victim['applicant_id']}", body)
+    response = await _send(stranger, method, f"/applicants/{victim['applicant_id']}", body)
     _assert_looks_unowned(response, APPLICANT_NOT_FOUND)
 
 
-async def test_a_stranger_sees_none_of_your_applicants(intruder_client, victim):
-    listing = await intruder_client.get("/applicants")
+async def test_a_stranger_sees_none_of_your_applicants(stranger, victim):
+    listing = await stranger.get("/applicants")
     assert listing.status_code == 200
     assert listing.json() == []
 
 
 async def test_a_stranger_cannot_name_your_applicant_on_their_own_project(
-    intruder_client, victim, auth_client
+    stranger, victim, auth_client
 ):
     """The applicant equivalent of filing against someone else's product:
     the intruder owns the project, so the project-level gate would let this
     through -- only the payload check stops it, and a company's contact
     details would otherwise leak through their own project's reads."""
     their_product = (
-        await intruder_client.post(
+        await stranger.post(
             "/products",
             json={"brand_name": "THEIRS", "generic_name": "Testolol", "country": "Nigeria"},
         )
     ).json()
 
-    response = await intruder_client.post(
+    response = await stranger.post(
         "/projects",
         json={
             "name": "borrowed applicant",
@@ -382,44 +456,44 @@ async def test_a_stranger_cannot_name_your_applicant_on_their_own_project(
     _assert_looks_unowned(response, APPLICANT_NOT_FOUND)
 
 
-async def test_a_stranger_cannot_repoint_their_project_at_your_applicant(intruder_client, victim):
+async def test_a_stranger_cannot_repoint_their_project_at_your_applicant(stranger, victim):
     """Same hole through PATCH rather than POST -- re-pointable FKs have to
     be re-checked on update, not only at creation."""
     their_product = (
-        await intruder_client.post(
+        await stranger.post(
             "/products",
             json={"brand_name": "THEIRS2", "generic_name": "Testolol", "country": "Nigeria"},
         )
     ).json()
     their_project = (
-        await intruder_client.post(
+        await stranger.post(
             "/projects",
             json={"name": "theirs", "region": "NAFDAC", "product_id": their_product["id"]},
         )
     ).json()
 
-    response = await intruder_client.patch(
+    response = await stranger.patch(
         f"/projects/{their_project['id']}",
         json={"applicant_id": victim["applicant_id"]},
     )
     _assert_looks_unowned(response, APPLICANT_NOT_FOUND)
 
 
-async def test_a_stranger_cannot_repoint_their_project_at_your_product(intruder_client, victim):
+async def test_a_stranger_cannot_repoint_their_project_at_your_product(stranger, victim):
     their_product = (
-        await intruder_client.post(
+        await stranger.post(
             "/products",
             json={"brand_name": "THEIRS3", "generic_name": "Testolol", "country": "Nigeria"},
         )
     ).json()
     their_project = (
-        await intruder_client.post(
+        await stranger.post(
             "/projects",
             json={"name": "theirs", "region": "NAFDAC", "product_id": their_product["id"]},
         )
     ).json()
 
-    response = await intruder_client.patch(
+    response = await stranger.patch(
         f"/projects/{their_project['id']}", json={"product_id": victim["product_id"]}
     )
     _assert_looks_unowned(response, PRODUCT_NOT_FOUND)
@@ -428,15 +502,15 @@ async def test_a_stranger_cannot_repoint_their_project_at_your_product(intruder_
 # ---- declarations: the first collection whose parent is a Project ------------
 
 
-async def test_a_stranger_cannot_list_your_declarations(intruder_client, victim):
+async def test_a_stranger_cannot_list_your_declarations(stranger, victim):
     """Parent is Project, not Product, so ownership is reached by the
     factory's owner_via hop (Project -> Product -> owner)."""
-    response = await intruder_client.get(f"/projects/{victim['project_id']}/declarations")
+    response = await stranger.get(f"/projects/{victim['project_id']}/declarations")
     _assert_looks_unowned(response, PROJECT_NOT_FOUND)
 
 
-async def test_a_stranger_cannot_add_a_declaration_to_your_project(intruder_client, victim):
-    response = await intruder_client.post(
+async def test_a_stranger_cannot_add_a_declaration_to_your_project(stranger, victim):
+    response = await stranger.post(
         f"/projects/{victim['project_id']}/declarations",
         json={"declaration_type": "declaration-of-authenticity"},
     )
@@ -446,11 +520,9 @@ async def test_a_stranger_cannot_add_a_declaration_to_your_project(intruder_clie
 @pytest.mark.parametrize(
     "method,body", [("GET", None), ("PATCH", {"signed": False}), ("DELETE", None)]
 )
-async def test_a_stranger_cannot_reach_one_of_your_declarations(
-    intruder_client, victim, method, body
-):
+async def test_a_stranger_cannot_reach_one_of_your_declarations(stranger, victim, method, body):
     response = await _send(
-        intruder_client,
+        stranger,
         method,
         f"/projects/{victim['project_id']}/declarations/{victim['declaration_id']}",
         body,
@@ -461,13 +533,13 @@ async def test_a_stranger_cannot_reach_one_of_your_declarations(
 # ---- the hole a project-level check alone would leave ------------------------
 
 
-async def test_a_stranger_cannot_file_a_project_against_your_product(intruder_client, victim):
+async def test_a_stranger_cannot_file_a_project_against_your_product(stranger, victim):
     """The subtlest one. Creating a Project needs only a product_id, and
     without the owner check in create_project the intruder would end up
     owning a project whose whole data tree is someone else's product --
     reachable through every /projects/{id}/... route, since those check
     the project, not the payload that made it."""
-    response = await intruder_client.post(
+    response = await stranger.post(
         "/projects",
         json={"name": "borrowed", "region": "NAFDAC", "product_id": victim["product_id"]},
     )

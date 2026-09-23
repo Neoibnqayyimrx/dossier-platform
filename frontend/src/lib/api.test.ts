@@ -203,3 +203,49 @@ describe("login", () => {
     expect(String(init.body)).toContain("username=user%40example.com");
   });
 });
+
+describe("organizations (gap Phase 6a)", () => {
+  it("omits organization_name when the sign-up form left it blank", async () => {
+    // The backend's fallback is "<email>'s organization"; sending an empty
+    // string instead would name an organization "" and still validate.
+    const spy = mockFetchOnce({ json: {} });
+
+    await api.register("ra@examox.example", "s3cret-password");
+
+    expect(JSON.parse(spy.mock.calls[0][1].body as string)).toEqual({
+      email: "ra@examox.example",
+      password: "s3cret-password",
+    });
+  });
+
+  it("sends the organization name when one was typed", async () => {
+    const spy = mockFetchOnce({ json: {} });
+
+    await api.register("ra@examox.example", "s3cret-password", "Examox Pharma Ltd");
+
+    expect(JSON.parse(spy.mock.calls[0][1].body as string).organization_name).toBe(
+      "Examox Pharma Ltd",
+    );
+  });
+
+  it("adds a colleague without naming an organization", async () => {
+    // A member always joins the CALLER'S organization, taken from the token --
+    // so an organization id in this body could only be a way to aim it
+    // somewhere else.
+    const spy = mockFetchOnce({ json: {} });
+
+    await api.addMember({
+      email: "colleague@examox.example",
+      password: "first-password",
+      role: "user",
+    });
+
+    expect(spy.mock.calls[0][0]).toContain("/admin/users");
+    expect(spy.mock.calls[0][1].method).toBe("POST");
+    expect(JSON.parse(spy.mock.calls[0][1].body as string)).toEqual({
+      email: "colleague@examox.example",
+      password: "first-password",
+      role: "user",
+    });
+  });
+});

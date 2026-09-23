@@ -20,14 +20,21 @@ cd frontend && npm run dev        # http://localhost:3000
 ```
 
 Sign in at `/login`, or create an account at `/register` (registering signs
-you straight in — the backend has no email verification step). Every account
-registers as a plain user; `/admin/users` and its nav link appear only for an
-admin, and the first one is made with `scripts/promote_admin.py`.
+you straight in — the backend has no email verification step). Registering
+creates an **organization** and makes you its admin, so `/admin/users` and
+its nav link are there from the start: that is where you add colleagues,
+who then share the organization's dossiers. Joining an organization that
+already exists is its admin's doing, never self-service.
+
+The platform **super-admin** (accounts across organizations, and
+`/kb/ingest`) has no UI and is granted with
+`backend/scripts/promote_admin.py`.
 
 To get a project to look at:
 `cd backend && uv run python scripts/seed_demo.py your@email` — pass the
-account you sign in with, or the demo will belong to someone else and stay
-invisible to you (products are owned; see P14a in `reference/build-log.md`).
+account you sign in with, or the demo will land in someone else's
+organization and stay invisible to you (see
+`docs/decisions/0004-organization-tenancy.md`).
 
 ## Configuration
 

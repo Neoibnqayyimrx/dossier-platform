@@ -55,7 +55,7 @@ def build_child_router(
     order_by: str | None = None,
     nested_collections: tuple[str, ...] = (),
     # WHY this instead of a `Product`-only ownership check: Product is the
-    # only model with an owner_id column (see its WHY), but ActiveIngredient
+    # only model with an organization_id column (see its WHY), but ActiveIngredient
     # is one hop away from it. Naming the relationship attribute to walk
     # ("product") lets one factory cover both without hard-coding either
     # parent shape. Every parent_model this factory is ever called with is
@@ -91,10 +91,12 @@ def build_child_router(
     async def _get_parent_or_404(parent_id: uuid.UUID, user: User, db: AsyncSession) -> None:
         stmt = select(parent_model.id)
         if owner_via is None:
-            stmt = stmt.where(parent_model.id == parent_id, parent_model.owner_id == user.id)
+            stmt = stmt.where(
+                parent_model.id == parent_id, parent_model.organization_id == user.organization_id
+            )
         else:
             stmt = stmt.join(getattr(parent_model, owner_via)).where(
-                parent_model.id == parent_id, Product.owner_id == user.id
+                parent_model.id == parent_id, Product.organization_id == user.organization_id
             )
         # 404, not 403: a parent belonging to someone else should look
         # indistinguishable from one that doesn't exist (same reasoning as
@@ -106,7 +108,7 @@ def build_child_router(
         parent_id: uuid.UUID, child_id: uuid.UUID, user: User, db: AsyncSession
     ) -> Any:
         # Ownership is always checked through the parent -- a child row has
-        # no owner_id of its own, and never needs one.
+        # no organization of its own, and never needs one.
         await _get_parent_or_404(parent_id, user, db)
         stmt = (
             select(model)

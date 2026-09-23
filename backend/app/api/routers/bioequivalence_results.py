@@ -55,7 +55,7 @@ async def _get_study_or_404(
     study = await db.scalar(
         select(BioequivalenceStudy)
         .join(Product, Product.id == BioequivalenceStudy.product_id)
-        .where(BioequivalenceStudy.id == study_id, Product.owner_id == user.id)
+        .where(BioequivalenceStudy.id == study_id, Product.organization_id == user.organization_id)
     )
     if study is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Bioequivalence study not found")

@@ -8,6 +8,10 @@ available when this was written (P02 built no roles, and this docstring
 said a real role check was the follow-up); UserRole (P14b) is that role,
 so the check is now the honest one.
 
+gap Phase 6a moved it to the SUPER-ADMIN: every registrant now becomes
+their own organization's ADMIN, so an admin role no longer says anything
+about who may change what every organization retrieves.
+
 Search stays open because retrieval is read-only over documents that are
 freely redistributable by construction -- copyrighted pharmacopoeial text
 is refused at ingest (see KBIngestRejected), so there is nothing here
@@ -19,7 +23,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db, require_admin
+from app.api.deps import get_db, require_superadmin
 from app.core.config import get_settings
 from app.knowledge.embeddings import get_embedding_client
 from app.knowledge.ingest import KBIngestRejected, ingest_document
@@ -34,7 +38,7 @@ router = APIRouter(prefix="/kb", tags=["knowledge-base"])
 async def ingest(
     payload: KBIngestRequest,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(require_admin),
+    _superadmin: User = Depends(require_superadmin),
 ) -> KBIngestResponse:
     settings = get_settings()
     try:

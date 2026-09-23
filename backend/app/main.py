@@ -22,6 +22,7 @@ from app.api.routers.products import router as products_router
 from app.api.routers.projects import router as projects_router
 from app.api.routers.regions import router as regions_router
 from app.api.routers.sections import router as sections_router
+from app.api.routers.superadmin import router as superadmin_router
 from app.api.routers.validation import router as validation_router
 from app.core.config import get_settings
 
@@ -52,6 +53,7 @@ register_error_handlers(app)
 
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(superadmin_router)
 app.include_router(applicants_router)
 app.include_router(products_router)
 app.include_router(product_information_router)

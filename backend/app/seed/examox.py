@@ -10,10 +10,14 @@ packaging/stability/storage), not a third party's.
 
 from __future__ import annotations
 
-import uuid
+from typing import TYPE_CHECKING
+
 from datetime import date
 
 from app.seed import attach_owner, same_owner_as
+
+if TYPE_CHECKING:
+    from app.models import User
 from app.models import (
     Project,
     Product,
@@ -82,7 +86,7 @@ Batch Size: 250,000 capsules.
 """
 
 
-def build_examox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Project:
+def build_examox(buggy: bool = True, owner: User | None = None) -> Project:
     product = Product(
         brand_name="EXAMOX",
         generic_name="Amoxicillin",
@@ -92,7 +96,7 @@ def build_examox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Proje
         registration_type=RegistrationType.RENEWAL,
         country="Nigeria",
     )
-    attach_owner(product, owner_id)
+    attach_owner(product, owner)
     project = Project(name="EXAMOX renewal", region=Region.NAFDAC, product=product)
     # P17: the scoping questions this filing answers. A conventional generic
     # claims none of them -- no prior marketing authorization, no CEP or

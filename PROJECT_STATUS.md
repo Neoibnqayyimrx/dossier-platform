@@ -905,3 +905,44 @@ gets SIGKILL after a grace period. The count test now counts live
 processes (this devcontainer's non-reaping PID 1 makes zombies permanent),
 and a new test reproduces a SIGTERM-ignoring group member without
 LibreOffice -- the old logic, replayed against it, left it alive.
+
+
+### Phase 6a — the organization is the unit of access
+
+**1. Regulatory data model.** New `organization` table; `user`, `product`
+and `applicant` carry `organization_id`; `user` gains `is_superadmin`
+(migration `c5b8e2d4f071`). `owner_id` survives on product and applicant,
+demoted to *who created the row* — an audit fact no access check reads.
+Recorded in
+[docs/decisions/0004-organization-tenancy.md](docs/decisions/0004-organization-tenancy.md),
+including the four decisions the project owner made for this phase.
+
+**7. CLI / API surface.** Every ownership check moved from
+`owner_id = :user` to `organization_id = :user_org` — 17 call sites across
+`deps.py`, the product/applicant/project routers, the child-router factory
+and the three result routers. New: `POST /admin/users` (an org admin adds a
+colleague — the only way into an existing organization, since registering
+always creates a new one) and `/superadmin/*` (organizations with their
+first admin, and accounts across organizations). `/admin/users` is now
+scoped to the caller's organization; another organization's account 404s,
+the same rule the dossier routes use. `/kb/ingest` moved from
+`require_admin` to `require_superadmin`: the knowledge base is global and
+the org-admin role is now self-service, so it could no longer gate it.
+`scripts/promote_admin.py` grants `is_superadmin` instead of a global role.
+
+**8. Test coverage & reliability.** `test_ownership.py` extended, not
+loosened: every stranger probe runs twice (another organization, and a
+super-admin of another organization), and every probe the owner replays a
+COLLEAGUE now replays too — a check still comparing user ids passes the
+whole file without that mirror. New `test_superadmin_api.py` ends on the
+"accounts only" half: a super-admin gets the stranger's 404 on another
+organization's product. The migration's backfill is asserted against rows
+inserted at the previous revision, including the downgrade restoring the
+old roles.
+
+**Web UI** — sign-up takes an optional organization name; the Users page
+names the organization it is managing and has an "Add a colleague" form.
+The super-admin has no UI by decision (see the ADR's consequences).
+
+**2. Document management / 3. Dossier workspace / 4. Publishing engine /
+5. Validation engine / 6. Submission lifecycle** — unchanged.

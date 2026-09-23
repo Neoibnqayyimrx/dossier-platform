@@ -10,13 +10,18 @@ from __future__ import annotations
 
 import uuid
 
+from app.models import User
 from app.models.narrative import NarrativeGeneration
 from app.seed.examox import build_examox
 
 
 async def _seed_project(session_factory, owner_id: uuid.UUID | None = None) -> uuid.UUID:
     async with session_factory() as session:
-        project = build_examox(buggy=False, owner_id=owner_id)
+        # owner_id is optional here: without one the seed invents its own
+        # user and organization, and session.get(User, None) would be a
+        # NULL-primary-key lookup (SAWarning) that returns None anyway.
+        owner = await session.get(User, owner_id) if owner_id is not None else None
+        project = build_examox(buggy=False, owner=owner)
         session.add(project)
         await session.commit()
         return project.id
@@ -143,7 +148,7 @@ async def test_generate_round_trip_over_http(pg_session_factory):
             token = login.json()["access_token"]
 
             async with pg_session_factory() as db:
-                project = build_examox(buggy=False, owner_id=owner_id)
+                project = build_examox(buggy=False, owner=await db.get(User, owner_id))
                 db.add(project)
                 await db.commit()
                 project_id = project.id

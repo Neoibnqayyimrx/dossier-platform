@@ -7,12 +7,18 @@ here, not the other way round. See build-log.md for why this differs
 from the original LAMOX vertical slice, which nested Product 1:1 inside
 Project.
 
-WHY owner_id lives here and not on Project: Product is the root of
+WHY ownership lives here and not on Project: Product is the root of
 everything a user can touch — every Project points at a Product, and
 every child resource (manufacturers, excipients, specs, ...) hangs off
 Product or off an ActiveIngredient that itself hangs off Product. One
-owner column here, checked once, covers the whole tree instead of a
+ownership column here, checked once, covers the whole tree instead of a
 column (and a check) repeated on every table.
+
+gap Phase 6a moved WHICH column that is: `organization_id`, not
+`owner_id`. A dossier is a company's filing, worked by a department, so
+the organization is the honest unit of access -- `owner_id` stays as the
+audit record of who created the row. See
+docs/decisions/0004-organization-tenancy.md.
 
 WHY strength is NOT a column here (it moved to ActiveIngredient): a
 fixed-dose combination product -- Ampiclox (ampicillin + cloxacillin),
@@ -46,6 +52,7 @@ if TYPE_CHECKING:
     from app.models.excipient import Excipient
     from app.models.impurity import Impurity
     from app.models.manufacturer import Manufacturer
+    from app.models.organization import Organization
     from app.models.packaging import Packaging
     from app.models.product_information import ProductInformation
     from app.models.project import Project
@@ -57,8 +64,17 @@ if TYPE_CHECKING:
 class Product(Base):
     __tablename__ = "product"
 
+    # gap Phase 6a: who CREATED the product -- an audit fact, no longer the
+    # access rule. Access is `organization_id`'s.
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"))
     owner: Mapped["User"] = relationship(back_populates="products")
+
+    # gap Phase 6a: the organization that holds this product and, through
+    # it, every Project, Sequence and document filed for it. Every
+    # ownership check in the API compares this with the caller's
+    # organization (app.api.deps.require_project_owner and its siblings).
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organization.id"))
+    organization: Mapped["Organization"] = relationship(back_populates="products")
 
     brand_name: Mapped[str] = mapped_column(String(120))
     generic_name: Mapped[str] = mapped_column(String(200))

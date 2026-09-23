@@ -31,6 +31,83 @@ Newest entry at the top.
 
 ---
 
+## gap Phase 6a — the organization becomes the unit of access (2026-09-23)
+
+Since P14a a dossier belonged to a PERSON: `Product.owner_id`, and every
+ownership check was a variant of `owner_id = :current_user`. That made the
+platform single-seat by construction. A filing is worked by a department --
+RA lead, CMC writer, QA reviewer, publisher -- and the regulator deals with
+the applicant COMPANY, which FDA's Module 1 backbone even identifies by a
+company-level D-U-N-S number (Phase 4b). The organization is the honest
+unit, and this phase made it one.
+
+Four decisions were put to the user before any code; all four took the
+recommendation, and they are written up in
+`docs/decisions/0004-organization-tenancy.md`: one organization per user
+(no membership table), one organization per existing user at migration, a
+platform super-admin for ACCOUNTS ONLY, and sequences staying on Project.
+
+### What the switch actually was
+
+17 ownership checks, mechanically: `Product.owner_id == user.id` became
+`Product.organization_id == user.organization_id`. `owner_id` stayed, but
+demoted -- it now records who CREATED a row and is read by nothing that
+decides access. That distinction is worth keeping: deleting an account no
+longer orphans a dossier.
+
+### The trap the migration test caught
+
+The data migration reads each user's id and writes back an organization,
+`WHERE user.id = :id`. Typed as `sa.Uuid()`, that bind is rendered as
+32-hex on SQLite, while rows the test inserts with raw SQL hold the
+36-character hyphenated form -- so the UPDATE matched NOTHING, every
+`organization_id` stayed NULL, and the NOT NULL step at the end of the
+migration would have failed on a real database seeded that way. The fix is
+one line and worth remembering: the id column in the migration's table stub
+is UNTYPED, so a value read out compares equal to itself going back in.
+
+### The gate that quietly became self-service
+
+Registering now creates an organization and makes you its ADMIN -- someone
+has to be able to add colleagues, and a new organization has nobody else.
+The consequence is easy to miss: the ADMIN role is now something anyone can
+grant themselves by signing up. Anything gated on it that is SHARED between
+organizations was therefore wide open, and `/kb/ingest` was exactly that --
+the knowledge base is global, so one account's ingest changes what every
+other organization retrieves. It moved to the new `require_superadmin`.
+`scripts/promote_admin.py` now grants that flag instead of a global role.
+
+The super-admin creates organizations (each with its first admin, because
+an organization with no admin is born locked out) and fixes accounts across
+them -- the answer to "our only admin left". It reads no dossiers: no
+ownership check anywhere looks at the flag, and a test asserts a super-admin
+gets the same 404 on another organization's product that a stranger gets.
+
+### Extending a security test instead of loosening it
+
+gap.md asked for `test_ownership.py` to be extended, not weakened, and the
+risk was real: change the checks to compare organizations, and every
+existing test in that file still passes while the platform stays single-
+seat -- because a stranger is refused either way. Two additions close that:
+
+- every stranger probe now runs TWICE, via a parametrized `stranger`
+  fixture -- an account in another organization, and a SUPER-ADMIN of
+  another organization;
+- every probe the owner replays, a COLLEAGUE replays too: a plain USER
+  added to the owner's organization by its admin, asserting the ownership
+  404 never fires for them.
+
+The colleague mirror is the one that would fail against the old code, which
+is what makes the pair meaningful rather than decorative.
+
+### Seeds take a User, not an id
+
+`build_examox(owner_id=...)` became `build_examox(owner=...)`. A user
+already knows its organization, so one argument carries both halves and no
+caller can pair a user from one organization with the org of another.
+
+---
+
 ## Fix after Phase 5 — the LibreOffice leak, found by tracing instead of guessing (2026-09-22)
 
 The count test had failed in three of four full runs, always passing alone.

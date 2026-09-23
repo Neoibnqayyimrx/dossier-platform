@@ -58,7 +58,9 @@ async def _assert_owns_product(db: AsyncSession, product_id: uuid.UUID, user: Us
     Product would let you read and edit that product's whole tree through
     the project, defeating the ownership check on every other route."""
     owned = await db.scalar(
-        select(Product.id).where(Product.id == product_id, Product.owner_id == user.id)
+        select(Product.id).where(
+            Product.id == product_id, Product.organization_id == user.organization_id
+        )
     )
     if owned is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Product not found")
@@ -66,10 +68,12 @@ async def _assert_owns_product(db: AsyncSession, product_id: uuid.UUID, user: Us
 
 async def _assert_owns_applicant(db: AsyncSession, applicant_id: uuid.UUID, user: User) -> None:
     """Same reasoning for the applicant (P15a): an Applicant carries its own
-    owner_id, and naming someone else's on your project would expose their
+    organization, and naming someone else's on your project would expose their
     company and contact details through this project's reads."""
     owned = await db.scalar(
-        select(Applicant.id).where(Applicant.id == applicant_id, Applicant.owner_id == user.id)
+        select(Applicant.id).where(
+            Applicant.id == applicant_id, Applicant.organization_id == user.organization_id
+        )
     )
     if owned is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Applicant not found")
@@ -98,7 +102,7 @@ async def list_projects(
     stmt = (
         select(Project)
         .join(Product, Project.product_id == Product.id)
-        .where(Product.owner_id == user.id)
+        .where(Product.organization_id == user.organization_id)
         .options(*PROJECT_CHILD_OPTIONS)
     )
     return list((await db.scalars(stmt)).all())

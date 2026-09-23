@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 
+from app.models import User
 from app.seed.documents import attach_certificate_documents
 from app.seed.examox import build_examox
 
@@ -17,7 +18,11 @@ async def _seed_project(
     session_factory, owner_id: uuid.UUID | None = None, buggy: bool = True
 ) -> uuid.UUID:
     async with session_factory() as session:
-        project = build_examox(buggy=buggy, owner_id=owner_id)
+        # owner_id is optional here: without one the seed invents its own
+        # user and organization, and session.get(User, None) would be a
+        # NULL-primary-key lookup (SAWarning) that returns None anyway.
+        owner = await session.get(User, owner_id) if owner_id is not None else None
+        project = build_examox(buggy=buggy, owner=owner)
         # P18: R20 blocks export while a certificate is still a placeholder,
         # so a fixture whose whole point is "a clean project IS exportable"
         # has to have the documents a clean project has.

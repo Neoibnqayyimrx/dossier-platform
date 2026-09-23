@@ -18,10 +18,14 @@ exactly the bug this fixture was built to catch.
 
 from __future__ import annotations
 
-import uuid
+from typing import TYPE_CHECKING
+
 from datetime import date
 
 from app.seed import attach_owner, same_owner_as
+
+if TYPE_CHECKING:
+    from app.models import User
 from app.models import (
     Project,
     Product,
@@ -88,7 +92,7 @@ Batch Size: 100,000 capsules.
 """
 
 
-def build_ampiclox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Project:
+def build_ampiclox(buggy: bool = True, owner: User | None = None) -> Project:
     product = Product(
         brand_name="AMPICLOX",
         generic_name="Ampicillin + Cloxacillin",
@@ -98,7 +102,7 @@ def build_ampiclox(buggy: bool = True, owner_id: uuid.UUID | None = None) -> Pro
         registration_type=RegistrationType.NEW,
         country="Nigeria",
     )
-    attach_owner(product, owner_id)
+    attach_owner(product, owner)
     project = Project(name="AMPICLOX new registration", region=Region.NAFDAC, product=product)
     # P17: the scoping questions this filing answers. A conventional generic
     # claims none of them -- no prior marketing authorization, no CEP or

@@ -20,7 +20,7 @@ router = APIRouter(prefix="/products", tags=["products"])
 async def _get_product_or_404(product_id: uuid.UUID, user: User, db: AsyncSession) -> Product:
     stmt = (
         select(Product)
-        .where(Product.id == product_id, Product.owner_id == user.id)
+        .where(Product.id == product_id, Product.organization_id == user.organization_id)
         .options(*PRODUCT_CHILD_OPTIONS)
     )
     product = await db.scalar(stmt)
@@ -35,9 +35,12 @@ async def create_product(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Product:
-    # owner_id is never taken from the payload -- ProductCreate has no such
-    # field, so there is nothing for a client to spoof here.
-    product = Product(**payload.model_dump(), owner_id=user.id)
+    # Neither owner_id nor organization_id is taken from the payload --
+    # ProductCreate has no such field, so there is nothing for a client to
+    # spoof here. Both come from the token's user.
+    product = Product(
+        **payload.model_dump(), owner_id=user.id, organization_id=user.organization_id
+    )
     db.add(product)
     await db.commit()
     return await _get_product_or_404(product.id, user, db)
@@ -47,7 +50,11 @@ async def create_product(
 async def list_products(
     db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
 ) -> list[Product]:
-    stmt = select(Product).where(Product.owner_id == user.id).options(*PRODUCT_CHILD_OPTIONS)
+    stmt = (
+        select(Product)
+        .where(Product.organization_id == user.organization_id)
+        .options(*PRODUCT_CHILD_OPTIONS)
+    )
     return list((await db.scalars(stmt)).all())
 
 

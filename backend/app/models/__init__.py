@@ -50,6 +50,7 @@ from app.models.enums import (
     CorrespondenceStatus,
     CorrespondenceType,
 )
+from app.models.organization import Organization
 from app.models.product import Product
 from app.models.manufacturer import Manufacturer
 from app.models.active_ingredient import ActiveIngredient
@@ -126,6 +127,7 @@ __all__ = [
     "CorrespondenceStatus",
     "CorrespondenceType",
     # entities
+    "Organization",
     "Product",
     "Manufacturer",
     "ActiveIngredient",

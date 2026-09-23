@@ -24,7 +24,6 @@ from app.api.deps import get_db
 from app.core.config import get_settings
 from app.main import app
 from app.models import Base, User
-from app.models.enums import UserRole
 
 TEST_EMAIL = "tester@examox.example"
 TEST_PASSWORD = "s3cret-password"
@@ -80,8 +79,10 @@ def storage_is_always_in_memory(monkeypatch):
     storage_module.get_storage_client.cache_clear()
 
 
-ADMIN_EMAIL = "admin@examox.example"
-ADMIN_PASSWORD = "s3cret-admin-password"
+SUPERADMIN_EMAIL = "platform-admin@examox.example"
+SUPERADMIN_PASSWORD = "s3cret-platform-password"
+MEMBER_EMAIL = "colleague@examox.example"
+MEMBER_PASSWORD = "s3cret-colleague-password"
 INTRUDER_EMAIL = "someone-else@examox.example"
 INTRUDER_PASSWORD = "s3cret-intruder-password"
 
@@ -120,15 +121,20 @@ async def auth_client(client):
     """A client with a registered user's bearer token already attached —
     for tests that only care about exercising protected write endpoints.
 
+    Since gap Phase 6a registering creates an organization with this user
+    as its ADMIN, so this client is also the org admin every
+    /admin/users test acts as.
+
     `client.user_id` is stashed here too -- tests that seed a Project
-    directly into the DB (bypassing the API) need it to set
-    Product.owner_id, or the ownership check makes their own seeded data
+    directly into the DB (bypassing the API) load that User and hand it to
+    the seed builder, or the ownership check makes their own seeded data
     invisible to this same client (see app.seed.attach_owner's WHY).
     """
     register = await client.post(
         "/auth/register", json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
     )
     client.user_id = uuid.UUID(register.json()["id"])
+    client.organization_id = uuid.UUID(register.json()["organization"]["id"])
     login = await client.post(
         "/auth/login", data={"username": TEST_EMAIL, "password": TEST_PASSWORD}
     )
@@ -138,28 +144,58 @@ async def auth_client(client):
 
 
 @pytest.fixture
-async def admin_client(client, session_factory):
-    """Like auth_client, but promoted to UserRole.ADMIN directly in the DB
-    before logging in -- there is no API path to admin (see
-    app/api/routers/auth.py's module docstring and scripts/promote_admin.py),
-    so a test needs the same DB-level shortcut that script uses."""
-    register = await client.post(
-        "/auth/register", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
-    )
-    user_id = uuid.UUID(register.json()["id"])
+async def member_client(auth_client):
+    """A COLLEAGUE: a plain USER in auth_client's organization, added the
+    only way an account joins an existing organization -- by its admin,
+    through POST /admin/users (gap Phase 6a). The positive half of
+    organization access: whatever auth_client creates, this client must
+    reach, and tests/test_ownership.py replays every probe as it.
 
-    async with session_factory() as session:
-        user = await session.get(User, user_id)
-        user.role = UserRole.ADMIN
-        await session.commit()
-
-    login = await client.post(
-        "/auth/login", data={"username": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
+    A separate AsyncClient for the reason intruder_client's docstring
+    gives; depending on auth_client keeps the get_db override installed.
+    """
+    added = await auth_client.post(
+        "/admin/users", json={"email": MEMBER_EMAIL, "password": MEMBER_PASSWORD}
     )
-    token = login.json()["access_token"]
-    client.headers["Authorization"] = f"Bearer {token}"
-    client.user_id = user_id
-    return client
+    assert added.status_code == 201, added.text
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        ac.user_id = uuid.UUID(added.json()["id"])
+        login = await ac.post(
+            "/auth/login", data={"username": MEMBER_EMAIL, "password": MEMBER_PASSWORD}
+        )
+        ac.headers["Authorization"] = f"Bearer {login.json()['access_token']}"
+        yield ac
+
+
+@pytest.fixture
+async def superadmin_client(client, session_factory):
+    """A platform super-admin in an organization of THEIR OWN, on a
+    separate client -- so a test can hold it next to auth_client and show
+    the flag buys account administration and nothing else (gap Phase 6a).
+
+    Promoted directly in the DB, the same shortcut scripts/promote_admin.py
+    takes: there is no API path to super-admin. Depends on `client` for
+    the get_db override, as intruder_client does -- without it, whichever
+    fixture pytest happened to build first would decide which database
+    this account was registered in.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        register = await ac.post(
+            "/auth/register",
+            json={"email": SUPERADMIN_EMAIL, "password": SUPERADMIN_PASSWORD},
+        )
+        ac.user_id = uuid.UUID(register.json()["id"])
+        async with session_factory() as session:
+            user = await session.get(User, ac.user_id)
+            user.is_superadmin = True
+            await session.commit()
+        login = await ac.post(
+            "/auth/login", data={"username": SUPERADMIN_EMAIL, "password": SUPERADMIN_PASSWORD}
+        )
+        ac.headers["Authorization"] = f"Bearer {login.json()['access_token']}"
+        yield ac
 
 
 @pytest.fixture

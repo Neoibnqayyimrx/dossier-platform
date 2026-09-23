@@ -13,6 +13,7 @@ export default function RegisterPage() {
   const router = useRouter();
 
   const [email, setEmail] = useState("");
+  const [organizationName, setOrganizationName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +36,11 @@ export default function RegisterPage() {
 
     setBusy(true);
     try {
-      await api.register(email, password);
+      await api.register(
+        email,
+        password,
+        organizationName.trim() || undefined,
+      );
       // Register-then-login rather than sending the user to /login: the
       // backend has no email verification step, so there's no reason to
       // make someone type their password twice in a row.
@@ -69,6 +74,35 @@ export default function RegisterPage() {
               onChange={(e) => setEmail(e.target.value)}
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
             />
+          </div>
+
+          <div>
+            <label
+              htmlFor="organizationName"
+              className="mb-1 block text-sm font-medium"
+            >
+              Organization{" "}
+              <span className="font-normal text-slate-500 dark:text-slate-400">
+                (optional)
+              </span>
+            </label>
+            <input
+              id="organizationName"
+              type="text"
+              maxLength={200}
+              value={organizationName}
+              onChange={(e) => setOrganizationName(e.target.value)}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+            />
+            {/* gap Phase 6a: signing up creates a NEW organization and makes
+                you its admin. Joining one that already exists is that
+                organization admin's decision, on the Users page -- which is
+                why this field never offers a list to pick from. */}
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Your company. You&apos;ll be its first admin and can add
+              colleagues afterwards. To join an organization that already uses
+              the platform, ask its admin to add you.
+            </p>
           </div>
 
           <div>

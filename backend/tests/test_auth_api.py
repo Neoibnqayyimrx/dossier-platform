@@ -67,7 +67,11 @@ async def test_me_returns_the_caller(auth_client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["email"] == TEST_EMAIL
-    assert body["role"] == "user"
+    # gap Phase 6a: registering made this account its new organization's
+    # admin -- and nothing platform-wide.
+    assert body["role"] == "admin"
+    assert body["organization"]["name"] == f"{TEST_EMAIL}'s organization"
+    assert body["is_superadmin"] is False
     assert "hashed_password" not in body
 
 

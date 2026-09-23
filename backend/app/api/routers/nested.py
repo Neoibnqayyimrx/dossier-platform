@@ -4,7 +4,8 @@ product_children.py — one entry per resource.
 Most parents are Product. Several are not: a declaration belongs to one
 project, and a specification belongs to whichever of three things it is a
 specification OF. All of them reach their owner through `owner_via`, which
-names the relationship to walk to the Product that carries owner_id.
+names the relationship to walk to the Product that carries the organization
+(gap Phase 6a; owner_id before it).
 
 P20 made `specification` the first resource mounted THREE TIMES, under
 three different parents, from one model and one pair of schemas. That is

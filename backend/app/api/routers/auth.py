@@ -1,7 +1,12 @@
 """Auth: register + login. No OAuth providers -- just an account that can
-hold a bearer token (AGENTS.md P02: "keep it simple but real"). Every
-account registers as UserRole.USER; there is no self-service path to
-ADMIN (see app.api.routers.admin's module docstring and
+hold a bearer token (AGENTS.md P02: "keep it simple but real").
+
+gap Phase 6a: registering creates a NEW organization, and the account is
+its ADMIN -- someone has to be able to add the colleagues, and on a fresh
+organization there is nobody else. Joining an EXISTING organization is
+never self-service: its admin creates the account (POST /admin/users), so
+nobody can register their way into a company's dossiers. The platform
+super-admin flag is not reachable from here either (see
 scripts/promote_admin.py).
 """
 
@@ -14,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models import User
+from app.models import Organization, User
+from app.models.enums import UserRole
 from app.schemas.user import Token, UserCreate, UserRead
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -26,7 +32,17 @@ async def register(payload: UserCreate, db: AsyncSession = Depends(get_db)) -> U
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
 
-    user = User(email=payload.email, hashed_password=hash_password(payload.password))
+    organization = Organization(
+        # The same default the gap Phase 6a migration gave existing users.
+        name=payload.organization_name
+        or f"{payload.email}'s organization"
+    )
+    user = User(
+        email=payload.email,
+        hashed_password=hash_password(payload.password),
+        role=UserRole.ADMIN,
+        organization=organization,
+    )
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -53,7 +69,8 @@ async def login(
 @router.get("/me", response_model=UserRead)
 async def me(user: User = Depends(get_current_user)) -> User:
     """Who the bearer token belongs to -- the frontend has no other way to
-    know its own role (see app.api.routers.admin's gate). A JWT here
+    know its own role, organization or super-admin flag (see the gates in
+    app.api.deps). A JWT here
     carries only a user id (see create_access_token), never a role claim:
     baking the role into the token would let it go stale the moment an
     admin changed it, since nothing forces the holder to log in again.

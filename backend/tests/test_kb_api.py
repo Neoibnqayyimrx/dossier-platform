@@ -11,7 +11,6 @@ import uuid
 from app.api.deps import get_db
 from app.main import app
 from app.models import User
-from app.models.enums import UserRole
 
 Q1A_EXCERPT = """\
 2.1.7. Storage Conditions
@@ -35,10 +34,15 @@ async def test_ingest_requires_auth(client):
     assert resp.status_code == 401
 
 
-async def test_ingest_is_refused_to_an_ordinary_user(auth_client):
+async def test_ingest_is_refused_to_an_organization_admin(auth_client):
     """403, not 404: unlike someone else's project, there is no reason to
     hide that a shared knowledge base exists from a logged-in user who
-    simply may not write to it (see require_admin)."""
+    simply may not write to it.
+
+    auth_client is its organization's ADMIN (registering makes it one, gap
+    Phase 6a) -- which is exactly why that role can no longer gate a GLOBAL
+    table: anyone can give it to themselves by signing up. Only the
+    super-admin writes here (see require_superadmin)."""
     resp = await auth_client.post(
         "/kb/ingest",
         json={
@@ -52,8 +56,8 @@ async def test_ingest_is_refused_to_an_ordinary_user(auth_client):
     assert resp.status_code == 403
 
 
-async def test_ingest_success(admin_client):
-    resp = await admin_client.post(
+async def test_ingest_success(superadmin_client):
+    resp = await superadmin_client.post(
         "/kb/ingest",
         json={
             "source": "ICH",
@@ -72,8 +76,8 @@ async def test_ingest_success(admin_client):
     assert body["source"] == "ICH"
 
 
-async def test_ingest_rejects_pharmacopoeia_source(admin_client):
-    resp = await admin_client.post(
+async def test_ingest_rejects_pharmacopoeia_source(superadmin_client):
+    resp = await superadmin_client.post(
         "/kb/ingest",
         json={
             "source": "USP",
@@ -105,12 +109,12 @@ async def test_search_round_trip(pg_session_factory):
                 "/auth/register",
                 json={"email": "kb-tester@examox.example", "password": "s3cret-password"},
             )
-            # Ingest is admin-only (see the kb router's docstring), and there
-            # is no API path to admin -- same DB-level promotion the
-            # admin_client fixture and scripts/promote_admin.py use.
+            # Ingest is super-admin-only (see the kb router's docstring), and
+            # there is no API path to it -- same DB-level promotion the
+            # superadmin_client fixture and scripts/promote_admin.py use.
             async with pg_session_factory() as promoting:
                 user = await promoting.get(User, uuid.UUID(register.json()["id"]))
-                user.role = UserRole.ADMIN
+                user.is_superadmin = True
                 await promoting.commit()
 
             login = await ac.post(

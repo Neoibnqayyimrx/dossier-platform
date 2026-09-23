@@ -307,10 +307,18 @@ export const api = {
     return (await response.json()) as AuthToken;
   },
 
-  register(email: string, password: string) {
-    return request<{ id: string; email: string }>("/auth/register", {
+  /** Signing up creates a NEW organization with this account as its admin
+   * (gap Phase 6a). `organizationName` is optional -- the backend falls back
+   * to "<email>'s organization" rather than blocking the sign-up. To JOIN an
+   * existing organization you are added by its admin (see addMember). */
+  register(email: string, password: string, organizationName?: string) {
+    return request<User>("/auth/register", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email,
+        password,
+        ...(organizationName ? { organization_name: organizationName } : {}),
+      }),
     });
   },
 
@@ -322,9 +330,21 @@ export const api = {
   },
 
   // ---- admin-only user management (P14b) ---------------------------------
+  // Scoped to the caller's OWN organization since gap Phase 6a.
 
   listUsers() {
     return request<User[]>("/admin/users");
+  },
+
+  /** Add a colleague to the caller's organization (gap Phase 6a) -- the only
+   * way into an existing one, since registering always creates a new one.
+   * The admin sets a first password and passes it on: no invitation email
+   * exists because the platform sends no email at all. */
+  addMember(payload: { email: string; password: string; role: UserRole }) {
+    return request<User>("/admin/users", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
 
   updateUser(userId: string, payload: { role?: UserRole; is_active?: boolean }) {

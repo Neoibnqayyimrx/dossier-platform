@@ -38,6 +38,7 @@ from app.models import (
     ProductInformation,
     Section,
     StabilityStudyType,
+    User,
 )
 from app.narrative.guardrails import check_patient_register
 import app.validation.rules  # noqa: F401  registers rules
@@ -809,11 +810,12 @@ async def test_reading_product_information_works_when_stability_results_exist(
     """
     # The EXAMOX seed carries four stability studies with 25 results between
     # them -- exactly the shape that triggers the bug, and already built.
-    # owner_id goes in at BUILD time (not attach_owner afterwards) because
-    # the seed otherwise creates its own User and the relationship would
-    # win over a later FK assignment, leaving the product invisible here.
-    project = build_examox(buggy=False, owner_id=auth_client.user_id)
+    # The owner goes in at BUILD time (not attach_owner afterwards) because
+    # the seed otherwise creates its own User and Organization, and the
+    # relationship would win over a later FK assignment, leaving the
+    # product invisible here.
     async with session_factory() as session:
+        project = build_examox(buggy=False, owner=await session.get(User, auth_client.user_id))
         session.add(project)
         await session.commit()
         product_id = project.product_id

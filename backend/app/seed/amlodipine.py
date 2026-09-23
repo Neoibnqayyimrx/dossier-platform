@@ -52,7 +52,8 @@ three sections that a filer would otherwise have to keep in step by hand.
 
 from __future__ import annotations
 
-import uuid
+from typing import TYPE_CHECKING
+
 from datetime import date
 
 from app.models import (
@@ -83,6 +84,9 @@ from app.models import (
     Section,
 )
 from app.seed import attach_owner, same_owner_as
+
+if TYPE_CHECKING:
+    from app.models import User
 from app.seed.bioequivalence import attach_bioequivalence_data
 from app.seed.product_information import DIHYDROPYRIDINE, attach_product_information
 from app.seed.specifications import (
@@ -118,7 +122,7 @@ Batch Size: 100,000 tablets.
 """
 
 
-def build_amlodipine(owner_id: uuid.UUID | None = None) -> Project:
+def build_amlodipine(owner: User | None = None) -> Project:
     """A complete, defect-free NAFDAC filing for amlodipine 5 mg tablets."""
     product = Product(
         brand_name="AMLOVEX",
@@ -134,7 +138,7 @@ def build_amlodipine(owner_id: uuid.UUID | None = None) -> Project:
         pack_size="3 x 10 tablets",
         route_of_administration="Oral",
     )
-    attach_owner(product, owner_id)
+    attach_owner(product, owner)
     project = Project(
         name="AMLOVEX 5 mg — new registration",
         region=Region.NAFDAC,

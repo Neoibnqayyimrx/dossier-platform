@@ -11,12 +11,16 @@ material to catch, plus a corrected variant for a clean pass.
 Idempotent: re-running looks up the "EXAMOX renewal" project by name and
 skips the insert if it already exists, rather than creating a duplicate.
 
-WHY it takes an owner: since P14a every Product belongs to a User, and
-the API only ever shows you your own (see app/models/product.py's WHY).
+WHY it takes an owner: since P14a every Product belongs to someone, and
+the API only ever shows you your own -- since gap Phase 6a, your
+ORGANIZATION's (see app/models/organization.py). The demo lands in the
+named account's organization, visible to every member of it.
+
 Seeding without an owner still "works" -- app.seed.attach_owner invents a
-placeholder account for the model tests that have no real user -- but the
-result is a demo project nobody can log in and see, which is exactly the
-opposite of what a demo is for. Naming a real account is the point.
+placeholder account and organization for the model tests that have no
+real user -- but the result is a demo project nobody can log in and see,
+which is exactly the opposite of what a demo is for. Naming a real
+account is the point.
 
 Run with the API's dependencies available, e.g.:
     cd backend && DATABASE_URL=... uv run python scripts/seed_demo.py you@example.com
@@ -73,7 +77,7 @@ async def main(email: str | None) -> None:
             print(f"EXAMOX renewal already seeded (project {existing.id}); skipping.")
             return
 
-        project = build_examox(buggy=True, owner_id=owner.id)
+        project = build_examox(buggy=True, owner=owner)
         session.add(project)
         await session.commit()
         await session.refresh(project)

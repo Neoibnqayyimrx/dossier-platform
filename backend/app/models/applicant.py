@@ -18,6 +18,12 @@ piece of master data a user creates directly -- it is reached through
 the way certificates and declarations do. Leaving it unowned would make it
 a shared, editable, global table: the same mistake /kb/ingest made.
 
+gap Phase 6a: that second root is now the ORGANIZATION's too
+(organization_id below). `owner_id` stays as who created the row -- which
+matters more here than elsewhere, since the applicant is the legal entity
+the whole filing is made in the name of, and it outlives whoever typed it
+in. See docs/decisions/0004-organization-tenancy.md.
+
 WHY nullable on Project rather than NOT NULL: a project can exist before
 its applicant details are captured (matches shelf_life_months, certificates,
 etc. -- "the row can be incomplete" is a P06 completeness concern, R14,
@@ -35,6 +41,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 if TYPE_CHECKING:
+    from app.models.organization import Organization
     from app.models.project import Project
     from app.models.user import User
 
@@ -42,8 +49,11 @@ if TYPE_CHECKING:
 class Applicant(Base):
     __tablename__ = "applicant"
 
+    # gap Phase 6a: who created it (audit); access is the organization's.
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("user.id"))
     owner: Mapped["User"] = relationship(back_populates="applicants")
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organization.id"))
+    organization: Mapped["Organization"] = relationship(back_populates="applicants")
 
     company_name: Mapped[str] = mapped_column(String(200))
     address: Mapped[str | None] = mapped_column(String(300), nullable=True)

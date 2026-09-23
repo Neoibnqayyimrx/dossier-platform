@@ -122,13 +122,20 @@ async def test_duplicate_sequence_number_is_refused_by_the_database(session_fact
     import pytest
     from sqlalchemy.exc import IntegrityError
 
-    from app.models import Applicant, Product, Project, Sequence, User  # noqa: F401
+    from app.models import Applicant, Organization, Product, Project, Sequence, User  # noqa: F401
 
     async with session_factory() as session:
-        user = User(email="race@example.com", hashed_password="x")
+        user = User(
+            email="race@example.com", hashed_password="x", organization=Organization(name="Org")
+        )
         session.add(user)
         await session.flush()
-        product = Product(brand_name="EXAMOX", generic_name="Amoxicillin", owner_id=user.id)
+        product = Product(
+            brand_name="EXAMOX",
+            generic_name="Amoxicillin",
+            owner_id=user.id,
+            organization_id=user.organization_id,
+        )
         session.add(product)
         await session.flush()
         project = Project(name="EXAMOX", product_id=product.id)
@@ -145,10 +152,17 @@ async def test_duplicate_sequence_number_is_refused_by_the_database(session_fact
     # constraint scopes uniqueness per project, because 0000 is the first
     # transaction of every dossier, not a global id.
     async with session_factory() as session:
-        user = User(email="race2@example.com", hashed_password="x")
+        user = User(
+            email="race2@example.com", hashed_password="x", organization=Organization(name="Org")
+        )
         session.add(user)
         await session.flush()
-        product = Product(brand_name="OTHER", generic_name="Ibuprofen", owner_id=user.id)
+        product = Product(
+            brand_name="OTHER",
+            generic_name="Ibuprofen",
+            owner_id=user.id,
+            organization_id=user.organization_id,
+        )
         session.add(product)
         await session.flush()
         a = Project(name="A", product_id=product.id)

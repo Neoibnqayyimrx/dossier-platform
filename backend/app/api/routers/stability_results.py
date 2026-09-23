@@ -60,8 +60,8 @@ async def _get_study_or_404(study_id: uuid.UUID, user: User, db: AsyncSession) -
     """The study, if this user owns the product it ultimately belongs to.
 
     Two owner paths, because a study is a study of the substance (3.2.S.7)
-    or of the finished product (3.2.P.8). Both end at `Product.owner_id`,
-    the only ownership column in the schema.
+    or of the finished product (3.2.P.8). Both end at the product's
+    organization -- the unit of access since gap Phase 6a.
 
     404, never 403: a study belonging to someone else must look exactly
     like one that does not exist -- the call every other router here makes.
@@ -77,14 +77,16 @@ async def _get_study_or_404(study_id: uuid.UUID, user: User, db: AsyncSession) -
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stability study not found")
 
     if study.product_id is not None:
-        owner_id = await db.scalar(select(Product.owner_id).where(Product.id == study.product_id))
+        organization_id = await db.scalar(
+            select(Product.organization_id).where(Product.id == study.product_id)
+        )
     else:
-        owner_id = await db.scalar(
-            select(Product.owner_id)
+        organization_id = await db.scalar(
+            select(Product.organization_id)
             .join(ActiveIngredient, ActiveIngredient.product_id == Product.id)
             .where(ActiveIngredient.id == study.active_ingredient_id)
         )
-    if owner_id != user.id:
+    if organization_id != user.organization_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stability study not found")
     return study
 

@@ -11,13 +11,15 @@ from __future__ import annotations
 import uuid
 
 from app.core.storage import get_storage_client
+from app.models import User
 from app.seed.examox import build_examox
 from app.templating.registry import SECTIONS
 
 
 async def _seed_project(session_factory, owner_id: uuid.UUID | None = None) -> uuid.UUID:
     async with session_factory() as session:
-        project = build_examox(buggy=False, owner_id=owner_id)
+        owner = await session.get(User, owner_id) if owner_id is not None else None
+        project = build_examox(buggy=False, owner=owner)
         session.add(project)
         await session.commit()
         return project.id

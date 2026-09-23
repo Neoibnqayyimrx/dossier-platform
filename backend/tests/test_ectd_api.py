@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import uuid
 
-from app.models import Region
+from app.models import Region, User
 from app.seed.examox import build_examox
 
 
 async def _seed_eu_project(session_factory, owner_id: uuid.UUID, buggy: bool = False) -> uuid.UUID:
     async with session_factory() as session:
-        project = build_examox(buggy=buggy, owner_id=owner_id)
+        project = build_examox(buggy=buggy, owner=await session.get(User, owner_id))
         project.region = Region.EU
         session.add(project)
         await session.commit()
